@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Hardened Runtime vereist voor notarization -->
+    
+    <!-- Toestaan van unsigned executable memory (nodig voor NIO/Swift NIO) -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    
+    <!-- Toestaan van dyld environment variabelen (optioneel, voor debugging) -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <false/>
+    
+    <!-- Apple Events toestaan voor Premiere Pro communicatie -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+    
+    <!-- Netwerk client toegang (voor HTTP server en update checks) -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    
+    <!-- Netwerk server toegang (voor interne HTTP server) -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+    
+    <!-- Toegang tot gebruiker-geselecteerde bestanden (lezen/schrijven) -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    
+    <!-- Toegang tot Downloads folder -->
+    <key>com.apple.security.files.downloads.read-write</key>
+    <true/>
+    
+    <!-- Toegang tot Application Support voor plugin installatie -->
+    <!-- Let op: Dit is NIET sandboxed, dus deze app kan schrijven naar:
+         ~/Library/Application Support/Adobe/CEP/extensions/ -->
+</dict>
+</plist>
+
+
