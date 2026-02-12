@@ -23,7 +23,7 @@ class UpdateManager: ObservableObject {
     /// URL naar de appcast.xml voor updates
     /// Pas dit aan naar je GitHub repository
     /// Formaat: https://raw.githubusercontent.com/USERNAME/REPO/main/appcast.xml
-    static let appcastURL = "https://raw.githubusercontent.com/bomenzijnchill/dltopremiere-releases/main/appcast.xml"
+    static let appcastURL = "https://raw.githubusercontent.com/bomenzijnchill/FileFlower/main/appcast.xml"
     
     /// Interval voor automatische update checks (in seconden)
     static let automaticCheckInterval: TimeInterval = 24 * 60 * 60 // 24 uur
