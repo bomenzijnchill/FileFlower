@@ -39,6 +39,45 @@ class PremiereRecentProjectsReader {
         return paths
     }
 
+    /// Converteer Spotlight-gevonden paden naar ProjectInfo objecten
+    /// Leidt rootPath af als grandparent van het .prproj bestand (zelfde conventie als handleActiveProjectChange)
+    static func getRecentProjects(limit: Int = 5) -> [ProjectInfo] {
+        let paths = getRecentProjectPaths()
+        let fileManager = FileManager.default
+
+        var projects: [ProjectInfo] = []
+        for path in paths {
+            let url = URL(fileURLWithPath: path)
+
+            // Sla over als bestand niet meer bestaat (verouderde Spotlight index)
+            guard fileManager.fileExists(atPath: path) else { continue }
+
+            let name = url.deletingPathExtension().lastPathComponent
+            // rootPath = grandparent directory (zelfde als handleActiveProjectChange)
+            let rootPath = url.deletingLastPathComponent().deletingLastPathComponent().path
+
+            let lastModified: TimeInterval
+            if let attrs = try? fileManager.attributesOfItem(atPath: path),
+               let modDate = attrs[.modificationDate] as? Date {
+                lastModified = modDate.timeIntervalSince1970
+            } else {
+                lastModified = Date().timeIntervalSince1970
+            }
+
+            let project = ProjectInfo(
+                name: name,
+                rootPath: rootPath,
+                projectPath: path,
+                lastModified: lastModified
+            )
+            projects.append(project)
+        }
+
+        // Sorteer op lastModified aflopend
+        projects.sort { $0.lastModified > $1.lastModified }
+        return Array(projects.prefix(limit))
+    }
+
     /// Check of een pad op een netwerkvolume staat
     static func isNetworkPath(_ path: String) -> Bool {
         return path.hasPrefix("/Volumes/")

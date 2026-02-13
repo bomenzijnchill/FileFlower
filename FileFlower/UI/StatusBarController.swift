@@ -61,4 +61,9 @@ class StatusBarController: NSObject {
     var isShown: Bool {
         return popover.isShown
     }
+
+    /// Zet de popover behavior (bijv. om te voorkomen dat het sluit tijdens NSOpenPanel)
+    func setPopoverBehavior(_ behavior: NSPopover.Behavior) {
+        popover.behavior = behavior
+    }
 }

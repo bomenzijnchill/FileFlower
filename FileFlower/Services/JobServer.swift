@@ -115,13 +115,26 @@ class JobServer {
     }
     
     func getNextJob() -> JobRequest? {
-        guard let (id, job) = pendingJobs.first else {
+        guard let activePath = activeProjectPath, isActiveProjectFresh else {
             return nil
         }
-        pendingJobs.removeValue(forKey: id)
-        print("JobServer: Job opgehaald door CEP plugin - id: \(id)")
-        print("JobServer: Remaining pending jobs: \(pendingJobs.count)")
-        return job
+
+        // Zoek een job die matcht met het actieve project
+        let normalizedActive = normalizePath(activePath)
+        for (id, job) in pendingJobs {
+            if normalizePath(job.projectPath) == normalizedActive {
+                pendingJobs.removeValue(forKey: id)
+                print("JobServer: Job opgehaald door CEP plugin - id: \(id)")
+                print("JobServer: Remaining pending jobs: \(pendingJobs.count)")
+                return job
+            }
+        }
+        return nil
+    }
+
+    /// Normaliseer pad voor vergelijking (verwijder trailing slash, resolv symlinks)
+    private func normalizePath(_ path: String) -> String {
+        return URL(fileURLWithPath: path).standardizedFileURL.path
     }
     
     func completeJob(_ result: JobResult) {

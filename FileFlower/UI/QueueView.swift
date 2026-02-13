@@ -8,6 +8,7 @@ struct QueueView: View {
     @State private var selectedItems: Set<UUID> = []
     @State private var clearTimer: Timer?
     @State private var pendingConflictItem: DownloadItem?
+    @State private var rootCheckApprovedItems: Set<UUID> = []
     
     init(selectedItemForPicker: Binding<DownloadItem?>, isShowingClearConfirmation: Binding<Bool> = .constant(false)) {
         self._selectedItemForPicker = selectedItemForPicker
@@ -391,6 +392,16 @@ struct QueueView: View {
             }
         }
         
+        // Check of project niet in geconfigureerde roots staat — toon waarschuwing
+        if !rootCheckApprovedItems.contains(processedItem.id),
+           let targetProject = processedItem.targetProject,
+           !appState.isProjectInConfiguredRoots(targetProject) {
+            await MainActor.run {
+                showUnknownRootDialog(for: processedItem)
+            }
+            return
+        }
+
         // Check for conflicts
         if let targetPath = processedItem.targetPath,
            FileManager.default.fileExists(atPath: targetPath) {
@@ -400,7 +411,7 @@ struct QueueView: View {
             }
             return
         }
-        
+
         // Process item
         await MainActor.run {
             if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
@@ -408,14 +419,14 @@ struct QueueView: View {
                 appState.queuedItems[index].status = .processing
             }
         }
-        
+
         do {
             try await FileProcessor.shared.process(processedItem)
-            
+
             await MainActor.run {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .completed
-                    
+
                     // Haal Premiere naar voren als dit is ingeschakeld
                     if appState.config.bringPremiereToFront {
                         PremiereChecker.shared.bringPremiereToFront()
@@ -426,6 +437,46 @@ struct QueueView: View {
             await MainActor.run {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .failed
+                }
+            }
+        }
+    }
+
+    private func showUnknownRootDialog(for item: DownloadItem) {
+        guard let targetProject = item.targetProject else { return }
+        let windowController = UnknownRootDialogWindowController(project: targetProject) { [self] resolution in
+            Task {
+                await handleUnknownRootResolution(item: item, resolution: resolution)
+            }
+        }
+        windowController.show()
+    }
+
+    private func handleUnknownRootResolution(
+        item: DownloadItem,
+        resolution: UnknownRootDialog.UnknownRootResolution
+    ) async {
+        switch resolution {
+        case .proceedAndAddRoot(let rootPath):
+            await MainActor.run {
+                if !appState.config.projectRoots.contains(rootPath) {
+                    appState.config.projectRoots.append(rootPath)
+                    appState.saveConfig()
+                }
+                rootCheckApprovedItems.insert(item.id)
+            }
+            await processSingleItem(item)
+
+        case .proceedWithout:
+            await MainActor.run {
+                rootCheckApprovedItems.insert(item.id)
+            }
+            await processSingleItem(item)
+
+        case .cancel:
+            await MainActor.run {
+                if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
+                    appState.queuedItems[index].status = .skipped
                 }
             }
         }

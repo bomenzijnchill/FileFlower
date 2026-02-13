@@ -113,6 +113,8 @@ class AppState: ObservableObject {
     private let modelManager = ModelManager.shared
     private var activeProjectCancellable: AnyCancellable?
     private var daemonHealthCheckTimer: Timer?
+    private var cachedSpotlightProjects: [ProjectInfo]?
+    private var spotlightProjectsCacheTime: Date?
     
     private init() {
         loadConfig()
@@ -183,6 +185,9 @@ class AppState: ObservableObject {
             }
         }
 
+        // Invalideer Spotlight cache zodat preferredProject verse data gebruikt
+        cachedSpotlightProjects = nil
+
         // Controleer of dit project al in recentProjects zit
         if let existingIndex = recentProjects.firstIndex(where: { $0.projectPath == path }) {
             // Verplaats naar het begin van de lijst (hoogste prioriteit)
@@ -205,18 +210,42 @@ class AppState: ObservableObject {
         }
     }
     
-    /// Geeft het beste project terug: actief project indien beschikbaar, anders het eerste recente project
+    /// Geeft het beste project terug: 1) actief CEP project, 2) eerste recente project, 3) Spotlight fallback
     var preferredProject: ProjectInfo? {
-        // Als er een actief project is dat recent is gerapporteerd, gebruik dat
+        // Prioriteit 1: Actief project via CEP plugin (indien vers)
         if let activeProjectPath = jobServer.activeProjectPath,
            jobServer.isActiveProjectFresh,
            let activeProject = recentProjects.first(where: { $0.projectPath == activeProjectPath }) {
             return activeProject
         }
-        // Anders, geef het eerste recente project terug
-        return recentProjects.first
+        // Prioriteit 2: Eerste recente project (bevat nu ook Spotlight resultaten)
+        if let firstRecent = recentProjects.first {
+            return firstRecent
+        }
+        // Prioriteit 3: Directe Spotlight query (gecached, fallback als refreshRecentProjects nog niet klaar is)
+        return spotlightProjects.first
     }
-    
+
+    /// Spotlight-ontdekte projecten, gecached voor 30 seconden
+    private var spotlightProjects: [ProjectInfo] {
+        if let cached = cachedSpotlightProjects,
+           let cacheTime = spotlightProjectsCacheTime,
+           Date().timeIntervalSince(cacheTime) < 30 {
+            return cached
+        }
+        let projects = PremiereRecentProjectsReader.getRecentProjects(limit: 5)
+        cachedSpotlightProjects = projects
+        spotlightProjectsCacheTime = Date()
+        return projects
+    }
+
+    /// Controleer of een project onder een geconfigureerde project root valt
+    func isProjectInConfiguredRoots(_ project: ProjectInfo) -> Bool {
+        return config.projectRoots.contains { root in
+            project.projectPath.hasPrefix(root)
+        }
+    }
+
     private func syncLaunchAgent() {
         // Synchroniseer LaunchAgent met config
         let shouldBeEnabled = config.startAtLogin
@@ -269,10 +298,30 @@ class AppState: ObservableObject {
     }
     
     func refreshRecentProjects() async {
-        recentProjects = await projectScanner.scanRecentProjects(
+        // Stap 1: Scan geconfigureerde roots (bestaand gedrag)
+        var projects = await projectScanner.scanRecentProjects(
             roots: config.projectRoots,
             filterToLocal: config.filterServerProjectsToLocal
         )
+
+        // Stap 2: Voeg Spotlight-ontdekte projecten toe die nog niet in de lijst staan
+        var spotlightProjects = PremiereRecentProjectsReader.getRecentProjects(limit: 5)
+        if config.filterServerProjectsToLocal {
+            spotlightProjects = spotlightProjects.filter { !PremiereRecentProjectsReader.isNetworkPath($0.projectPath) }
+        }
+        for spotlightProject in spotlightProjects {
+            if !projects.contains(where: { $0.projectPath == spotlightProject.projectPath }) {
+                projects.append(spotlightProject)
+            }
+        }
+
+        // Sorteer op lastModified aflopend na samenvoegen
+        projects.sort { $0.lastModified > $1.lastModified }
+
+        // Invalideer Spotlight cache
+        cachedSpotlightProjects = nil
+
+        recentProjects = Array(projects.prefix(config.recentProjectsCacheSize))
     }
     
     private func handleNewDownload(url: URL, originURL: String?) async {
@@ -346,7 +395,10 @@ class AppState: ObservableObject {
     func saveConfig() {
         let previousMLXEnabled = configManager.load()?.useMLXClassification ?? false
         let previousModelName = configManager.load()?.mlxModelName ?? ""
-        
+
+        // Invalideer Spotlight cache zodat nieuwe roots meegenomen worden
+        cachedSpotlightProjects = nil
+
         configManager.save(config)
         // Update classifier strategy wanneer config verandert
         Classifier.shared.updateStrategy()

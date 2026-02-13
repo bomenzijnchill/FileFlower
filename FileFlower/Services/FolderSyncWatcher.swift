@@ -263,92 +263,37 @@ class FolderSyncWatcher {
         }
     }
     
-    /// Verwerk een batch van bestanden
+    /// Verwerk een batch van bestanden (geen kopiëren — bestanden staan al in de projectmap)
     private func processBatch(files: [URL], sync: FolderSync) async {
-        let fileManager = FileManager.default
-        var batchedFiles: [String: [(sourceURL: URL, targetURL: URL, targetDir: URL, fileHash: String)]] = [:]
+        var batchedFiles: [String: [(sourceURL: URL, fileHash: String)]] = [:]
         var syncedCount = 0
-        
+
+        // Bereken Premiere bin path (één keer, geldt voor hele batch)
+        let premiereBinPath: String = sync.premiereBinRoot.isEmpty ? sync.folderName : sync.premiereBinRoot
+
         for fileURL in files {
-            // Bereken file hash voor duplicate detection
             let fileHash = calculateFileHash(url: fileURL)
-            
-            // Check of bestand al verwerkt is
+
             var alreadyProcessed = false
             accessQueue.sync {
                 alreadyProcessed = processedFiles[sync.id]?.contains(fileHash) ?? false
             }
-            
+
             if alreadyProcessed {
                 continue
             }
-            
-            // Bereken relatief pad vanaf sync folder
-            let syncFolderURL = URL(fileURLWithPath: sync.folderPath)
-            let relativePath = fileURL.path.replacingOccurrences(of: syncFolderURL.path, with: "")
-                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            
-            // Bepaal target path in project
-            guard let projectInfo = findProjectInfo(for: sync.projectPath) else {
-                continue
+
+            accessQueue.async(flags: .barrier) {
+                self.processedFiles[sync.id]?.insert(fileHash)
             }
-            
-            // Bereken target directory
-            let projectRootURL = URL(fileURLWithPath: projectInfo.rootPath)
-            var targetDirURL: URL
-            
-            if sync.premiereBinRoot.isEmpty {
-                targetDirURL = projectRootURL.appendingPathComponent(sync.folderName)
-            } else {
-                targetDirURL = projectRootURL.appendingPathComponent(sync.premiereBinRoot)
+
+            if batchedFiles[premiereBinPath] == nil {
+                batchedFiles[premiereBinPath] = []
             }
-            
-            let relativeDir = URL(fileURLWithPath: relativePath).deletingLastPathComponent().path
-            if !relativeDir.isEmpty && relativeDir != "." {
-                targetDirURL = targetDirURL.appendingPathComponent(relativeDir)
-            }
-            
-            let targetURL = targetDirURL.appendingPathComponent(fileURL.lastPathComponent)
-            
-            // Maak target directory aan en kopieer
-            do {
-                try fileManager.createDirectory(at: targetDirURL, withIntermediateDirectories: true)
-                
-                if !fileManager.fileExists(atPath: targetURL.path) {
-                    try fileManager.copyItem(at: fileURL, to: targetURL)
-                }
-                
-                try? Quarantine.removeQuarantineAttribute(from: targetURL)
-                
-                accessQueue.async(flags: .barrier) {
-                    self.processedFiles[sync.id]?.insert(fileHash)
-                }
-                
-                // Bereken Premiere bin path
-                var premiereBinPath: String
-                if sync.premiereBinRoot.isEmpty {
-                    premiereBinPath = sync.folderName
-                } else {
-                    premiereBinPath = sync.premiereBinRoot
-                }
-                
-                if !relativeDir.isEmpty && relativeDir != "." {
-                    premiereBinPath += "/" + relativeDir
-                }
-                
-                // Groepeer per bin path
-                if batchedFiles[premiereBinPath] == nil {
-                    batchedFiles[premiereBinPath] = []
-                }
-                batchedFiles[premiereBinPath]?.append((sourceURL: fileURL, targetURL: targetURL, targetDir: targetDirURL, fileHash: fileHash))
-                
-                syncedCount += 1
-                
-            } catch {
-                print("FolderSyncWatcher: Fout bij batch verwerking: \(error)")
-            }
+            batchedFiles[premiereBinPath]?.append((sourceURL: fileURL, fileHash: fileHash))
+            syncedCount += 1
         }
-        
+
         // Update config
         await MainActor.run {
             if let index = AppState.shared.config.folderSyncs.firstIndex(where: { $0.id == sync.id }) {
@@ -360,25 +305,23 @@ class FolderSyncWatcher {
                 AppState.shared.config.folderSyncs[index].lastSyncDate = Date()
                 AppState.shared.saveConfig()
             }
-            
+
             onStatusChange?(sync.id, .syncing(progress: 0.5, currentFile: "Importeren \(syncedCount) bestanden..."))
         }
-        
-        // Maak gebatchte jobs
-        for (premiereBinPath, files) in batchedFiles {
-            guard let firstFile = files.first else { continue }
-            
+
+        // Maak gebatchte jobs — gebruik originele bestandspaden
+        for (binPath, files) in batchedFiles {
             let job = JobRequest(
                 projectPath: sync.projectPath,
-                finderTargetDir: firstFile.targetDir.path,
-                premiereBinPath: premiereBinPath,
-                files: files.map { $0.targetURL.path }
+                finderTargetDir: sync.folderPath,
+                premiereBinPath: binPath,
+                files: files.map { $0.sourceURL.path }
             )
-            
+
             JobServer.shared.addJob(job)
-            print("FolderSyncWatcher: Batch job voor '\(premiereBinPath)' met \(files.count) bestanden")
+            print("FolderSyncWatcher: Batch job voor '\(binPath)' met \(files.count) bestanden")
         }
-        
+
         await MainActor.run {
             onStatusChange?(sync.id, .completed(fileCount: syncedCount))
         }
@@ -403,11 +346,11 @@ class FolderSyncWatcher {
         return files
     }
 
-    /// Voer initiële sync uit voor alle bestaande bestanden in de map
+    /// Voer initiële sync uit voor alle bestaande bestanden in de map (geen kopiëren)
     private func performInitialSync(sync: FolderSync) async {
         let folderURL = URL(fileURLWithPath: sync.folderPath)
         let fileManager = FileManager.default
-        
+
         guard let enumerator = fileManager.enumerator(
             at: folderURL,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
@@ -419,279 +362,131 @@ class FolderSyncWatcher {
             }
             return
         }
-        
-        // Verzamel alle bestanden (in synchrone context voor Swift 6 compatibiliteit)
+
         let extensions = allowedExtensions
         let filesToSync: [URL] = collectFiles(from: enumerator, allowedExtensions: extensions)
-        
+
         print("FolderSyncWatcher: Gevonden \(filesToSync.count) bestanden voor initiële sync")
-        
+
         if filesToSync.isEmpty {
             await MainActor.run {
                 onStatusChange?(sync.id, .completed(fileCount: 0))
             }
             return
         }
-        
-        // Batch verwerking: groepeer bestanden per Premiere bin path
-        var batchedFiles: [String: [(sourceURL: URL, targetURL: URL, targetDir: URL, fileHash: String)]] = [:]
+
+        // Premiere bin path (één keer, geldt voor alle bestanden)
+        let premiereBinPath: String = sync.premiereBinRoot.isEmpty ? sync.folderName : sync.premiereBinRoot
+
+        var filePaths: [String] = []
+        var fileHashes: [String] = []
         var syncedCount = 0
-        
+
         for (index, fileURL) in filesToSync.enumerated() {
-            let progress = Double(index + 1) / Double(filesToSync.count) * 0.5 // Eerste 50% voor kopiëren
-            
+            let progress = Double(index + 1) / Double(filesToSync.count) * 0.8
+
             await MainActor.run {
-                onStatusChange?(sync.id, .syncing(progress: progress, currentFile: "Kopiëren: \(fileURL.lastPathComponent)"))
+                onStatusChange?(sync.id, .syncing(progress: progress, currentFile: fileURL.lastPathComponent))
             }
-            
-            // Bereken file hash voor duplicate detection
+
             let fileHash = calculateFileHash(url: fileURL)
-            
-            // Check of bestand al verwerkt is
+
             var alreadyProcessed = false
             accessQueue.sync {
                 alreadyProcessed = processedFiles[sync.id]?.contains(fileHash) ?? false
             }
-            
+
             if alreadyProcessed {
                 print("FolderSyncWatcher: Skip \(fileURL.lastPathComponent) - al gesynchroniseerd")
                 continue
             }
-            
-            // Bereken relatief pad vanaf sync folder
-            let syncFolderURL = URL(fileURLWithPath: sync.folderPath)
-            let relativePath = fileURL.path.replacingOccurrences(of: syncFolderURL.path, with: "")
-                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            
-            // Bepaal target path in project
-            guard let projectInfo = findProjectInfo(for: sync.projectPath) else {
-                print("FolderSyncWatcher: Kon project niet vinden: \(sync.projectPath)")
-                continue
+
+            accessQueue.async(flags: .barrier) {
+                self.processedFiles[sync.id]?.insert(fileHash)
             }
-            
-            // Bereken target directory (spiegel folder structuur)
-            let projectRootURL = URL(fileURLWithPath: projectInfo.rootPath)
-            var targetDirURL: URL
-            
-            if sync.premiereBinRoot.isEmpty {
-                targetDirURL = projectRootURL.appendingPathComponent(sync.folderName)
-            } else {
-                targetDirURL = projectRootURL.appendingPathComponent(sync.premiereBinRoot)
-            }
-            
-            // Voeg relatief pad toe (subfolder structuur)
-            let relativeDir = URL(fileURLWithPath: relativePath).deletingLastPathComponent().path
-            if !relativeDir.isEmpty && relativeDir != "." {
-                targetDirURL = targetDirURL.appendingPathComponent(relativeDir)
-            }
-            
-            let targetURL = targetDirURL.appendingPathComponent(fileURL.lastPathComponent)
-            
-            // Maak target directory aan
-            do {
-                try fileManager.createDirectory(at: targetDirURL, withIntermediateDirectories: true)
-            } catch {
-                print("FolderSyncWatcher: Kon directory niet aanmaken: \(error)")
-                continue
-            }
-            
-            // Kopieer bestand
-            do {
-                if fileManager.fileExists(atPath: targetURL.path) {
-                    print("FolderSyncWatcher: Bestand bestaat al: \(targetURL.lastPathComponent)")
-                } else {
-                    try fileManager.copyItem(at: fileURL, to: targetURL)
-                    print("FolderSyncWatcher: Gekopieerd: \(fileURL.lastPathComponent)")
-                }
-                
-                try? Quarantine.removeQuarantineAttribute(from: targetURL)
-                
-                // Markeer als verwerkt
-                accessQueue.async(flags: .barrier) {
-                    self.processedFiles[sync.id]?.insert(fileHash)
-                }
-                
-                // Bereken Premiere bin path
-                var premiereBinPath: String
-                if sync.premiereBinRoot.isEmpty {
-                    premiereBinPath = sync.folderName
-                } else {
-                    premiereBinPath = sync.premiereBinRoot
-                }
-                
-                if !relativeDir.isEmpty && relativeDir != "." {
-                    premiereBinPath += "/" + relativeDir
-                }
-                
-                // Groepeer per bin path
-                if batchedFiles[premiereBinPath] == nil {
-                    batchedFiles[premiereBinPath] = []
-                }
-                batchedFiles[premiereBinPath]?.append((sourceURL: fileURL, targetURL: targetURL, targetDir: targetDirURL, fileHash: fileHash))
-                
-                syncedCount += 1
-                
-            } catch {
-                print("FolderSyncWatcher: Fout bij kopiëren: \(error)")
-            }
+
+            filePaths.append(fileURL.path)
+            fileHashes.append(fileHash)
+            syncedCount += 1
         }
-        
-        // Update config met alle hashes in één keer
+
+        // Update config met alle hashes
         await MainActor.run {
             if let index = AppState.shared.config.folderSyncs.firstIndex(where: { $0.id == sync.id }) {
-                for (_, files) in batchedFiles {
-                    for file in files {
-                        AppState.shared.config.folderSyncs[index].syncedFileHashes.insert(file.fileHash)
-                    }
+                for hash in fileHashes {
+                    AppState.shared.config.folderSyncs[index].syncedFileHashes.insert(hash)
                 }
                 AppState.shared.config.folderSyncs[index].lastSyncDate = Date()
                 AppState.shared.saveConfig()
             }
         }
-        
-        // Maak gebatchte jobs voor Premiere (één job per bin path)
-        var binIndex = 0
-        let totalBins = batchedFiles.count
-        
-        for (premiereBinPath, files) in batchedFiles {
-            binIndex += 1
-            let progress = 0.5 + (Double(binIndex) / Double(totalBins)) * 0.5 // Tweede 50% voor importeren
-            
+
+        // Maak één job met alle bestanden — gebruik originele paden
+        if !filePaths.isEmpty {
             await MainActor.run {
-                onStatusChange?(sync.id, .syncing(progress: progress, currentFile: "Importeren naar \(premiereBinPath) (\(files.count) bestanden)"))
+                onStatusChange?(sync.id, .syncing(progress: 0.9, currentFile: "Importeren naar \(premiereBinPath) (\(syncedCount) bestanden)"))
             }
-            
-            guard let firstFile = files.first else { continue }
-            
-            // Maak één job met alle bestanden voor deze bin
+
             let job = JobRequest(
                 projectPath: sync.projectPath,
-                finderTargetDir: firstFile.targetDir.path,
+                finderTargetDir: sync.folderPath,
                 premiereBinPath: premiereBinPath,
-                files: files.map { $0.targetURL.path }
+                files: filePaths
             )
-            
+
             JobServer.shared.addJob(job)
-            print("FolderSyncWatcher: Job aangemaakt voor bin '\(premiereBinPath)' met \(files.count) bestanden")
+            print("FolderSyncWatcher: Job aangemaakt voor bin '\(premiereBinPath)' met \(syncedCount) bestanden")
         }
-        
+
         await MainActor.run {
             onStatusChange?(sync.id, .completed(fileCount: syncedCount))
         }
-        
-        print("FolderSyncWatcher: Initiële sync voltooid - \(syncedCount) bestanden in \(batchedFiles.count) batches")
+
+        print("FolderSyncWatcher: Initiële sync voltooid - \(syncedCount) bestanden")
     }
     
-    /// Verwerk een enkel bestand
+    /// Verwerk een enkel bestand (geen kopiëren — gebruik origineel pad)
     @discardableResult
     private func processFile(url: URL, sync: FolderSync) async -> Bool {
-        // Bereken file hash voor duplicate detection
         let fileHash = calculateFileHash(url: url)
-        
-        // Check of bestand al verwerkt is
+
         var alreadyProcessed = false
         accessQueue.sync {
             alreadyProcessed = processedFiles[sync.id]?.contains(fileHash) ?? false
         }
-        
+
         if alreadyProcessed {
             print("FolderSyncWatcher: Skip \(url.lastPathComponent) - al gesynchroniseerd")
             return false
         }
-        
-        // Bereken relatief pad vanaf sync folder
-        let syncFolderURL = URL(fileURLWithPath: sync.folderPath)
-        let relativePath = url.path.replacingOccurrences(of: syncFolderURL.path, with: "")
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        
-        // Bepaal target path in project
-        guard let projectInfo = findProjectInfo(for: sync.projectPath) else {
-            print("FolderSyncWatcher: Kon project niet vinden: \(sync.projectPath)")
-            return false
+
+        // Markeer als verwerkt
+        accessQueue.async(flags: .barrier) {
+            self.processedFiles[sync.id]?.insert(fileHash)
         }
-        
-        // Bereken target directory (spiegel folder structuur)
-        let projectRootURL = URL(fileURLWithPath: projectInfo.rootPath)
-        var targetDirURL: URL
-        
-        if sync.premiereBinRoot.isEmpty {
-            // Gebruik folder naam als bin root
-            targetDirURL = projectRootURL.appendingPathComponent(sync.folderName)
-        } else {
-            targetDirURL = projectRootURL.appendingPathComponent(sync.premiereBinRoot)
+
+        // Update config met nieuwe hash
+        await MainActor.run {
+            if let index = AppState.shared.config.folderSyncs.firstIndex(where: { $0.id == sync.id }) {
+                AppState.shared.config.folderSyncs[index].syncedFileHashes.insert(fileHash)
+                AppState.shared.config.folderSyncs[index].lastSyncDate = Date()
+                AppState.shared.saveConfig()
+            }
         }
-        
-        // Voeg relatief pad toe (subfolder structuur)
-        let relativeDir = URL(fileURLWithPath: relativePath).deletingLastPathComponent().path
-        if !relativeDir.isEmpty && relativeDir != "." {
-            targetDirURL = targetDirURL.appendingPathComponent(relativeDir)
-        }
-        
-        let targetURL = targetDirURL.appendingPathComponent(url.lastPathComponent)
-        
-        // Maak target directory aan
-        do {
-            try FileManager.default.createDirectory(at: targetDirURL, withIntermediateDirectories: true)
-        } catch {
-            print("FolderSyncWatcher: Kon directory niet aanmaken: \(error)")
-            return false
-        }
-        
-        // Kopieer bestand (niet verplaatsen!)
-        do {
-            // Check of bestand al bestaat
-            if FileManager.default.fileExists(atPath: targetURL.path) {
-                print("FolderSyncWatcher: Bestand bestaat al: \(targetURL.lastPathComponent)")
-            } else {
-                try FileManager.default.copyItem(at: url, to: targetURL)
-                print("FolderSyncWatcher: Gekopieerd: \(url.lastPathComponent) -> \(targetURL.path)")
-            }
-            
-            // Remove quarantine
-            try? Quarantine.removeQuarantineAttribute(from: targetURL)
-            
-            // Markeer als verwerkt
-            accessQueue.async(flags: .barrier) {
-                self.processedFiles[sync.id]?.insert(fileHash)
-            }
-            
-            // Update config met nieuwe hash
-            await MainActor.run {
-                if let index = AppState.shared.config.folderSyncs.firstIndex(where: { $0.id == sync.id }) {
-                    AppState.shared.config.folderSyncs[index].syncedFileHashes.insert(fileHash)
-                    AppState.shared.config.folderSyncs[index].lastSyncDate = Date()
-                    AppState.shared.saveConfig()
-                }
-            }
-            
-            // Bereken Premiere bin path
-            var premiereBinPath: String
-            if sync.premiereBinRoot.isEmpty {
-                premiereBinPath = sync.folderName
-            } else {
-                premiereBinPath = sync.premiereBinRoot
-            }
-            
-            if !relativeDir.isEmpty && relativeDir != "." {
-                premiereBinPath += "/" + relativeDir
-            }
-            
-            // Maak job voor Premiere
-            let job = JobRequest(
-                projectPath: sync.projectPath,
-                finderTargetDir: targetDirURL.path,
-                premiereBinPath: premiereBinPath,
-                files: [targetURL.path]
-            )
-            
-            JobServer.shared.addJob(job)
-            
-            return true
-            
-        } catch {
-            print("FolderSyncWatcher: Fout bij kopiëren: \(error)")
-            return false
-        }
+
+        // Premiere bin path
+        let premiereBinPath: String = sync.premiereBinRoot.isEmpty ? sync.folderName : sync.premiereBinRoot
+
+        // Maak job voor Premiere — gebruik origineel bestandspad
+        let job = JobRequest(
+            projectPath: sync.projectPath,
+            finderTargetDir: sync.folderPath,
+            premiereBinPath: premiereBinPath,
+            files: [url.path]
+        )
+
+        JobServer.shared.addJob(job)
+        return true
     }
     
     /// Bereken een hash van het bestand voor duplicate detection
@@ -711,25 +506,6 @@ class FolderSyncWatcher {
         return hash.compactMap { String(format: "%02x", $0) }.joined()
     }
     
-    /// Vind ProjectInfo voor een project path
-    private func findProjectInfo(for projectPath: String) -> ProjectInfo? {
-        // Zoek in recente projecten
-        if let project = AppState.shared.recentProjects.first(where: { $0.projectPath == projectPath }) {
-            return project
-        }
-        
-        // Maak een nieuwe ProjectInfo aan
-        let projectURL = URL(fileURLWithPath: projectPath)
-        let projectName = projectURL.deletingPathExtension().lastPathComponent
-        let rootPath = projectURL.deletingLastPathComponent().deletingLastPathComponent().path
-        
-        return ProjectInfo(
-            name: projectName,
-            rootPath: rootPath,
-            projectPath: projectPath,
-            lastModified: Date().timeIntervalSince1970
-        )
-    }
 }
 
 /// Helper class om sync info door te geven aan FSEvents callback

@@ -3136,31 +3136,31 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wähle den geöffneten ChromeExtension-Ordner"
+            "value": "Navigiere im Chrome-Dialog zu diesem Ordner und wähle ihn aus"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Select the ChromeExtension folder that opens"
+            "value": "In the Chrome dialog, navigate to and select this folder"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Selecciona la carpeta ChromeExtension que se abre"
+            "value": "En el diálogo de Chrome, navega hasta esta carpeta y selecciónala"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sélectionnez le dossier ChromeExtension qui s'ouvre"
+            "value": "Dans la fenêtre Chrome, naviguez jusqu'à ce dossier et sélectionnez-le"
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Selecteer de ChromeExtension map die zich opent"
+            "value": "Navigeer in het Chrome-venster naar deze map en selecteer hem"
           }
         }
       }
@@ -9574,6 +9574,210 @@
           "stringUnit": {
             "state": "translated",
             "value": "Conexión fallida"
+          }
+        }
+      }
+    },
+    "onboarding.chrome.folder_hint": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This opens the folder in Finder so you can see which folder to select."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit opent de map in Finder zodat je kunt zien welke map je moet selecteren."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dies öffnet den Ordner im Finder, damit du weißt, welchen Ordner du auswählen musst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ceci ouvre le dossier dans le Finder pour vous montrer quel dossier sélectionner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esto abre la carpeta en Finder para que veas cuál carpeta seleccionar."
+          }
+        }
+      }
+    },
+    "unknown_root.title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Project Not in Known Folders"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Project niet in bekende mappen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekt nicht in bekannten Ordnern"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projet absent des dossiers connus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proyecto no en carpetas conocidas"
+          }
+        }
+      }
+    },
+    "unknown_root.message": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This project is not in your configured project folders. Do you want to continue?"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit project staat niet in je geconfigureerde projectmappen. Wil je doorgaan?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Projekt befindet sich nicht in Ihren konfigurierten Projektordnern. Möchten Sie fortfahren?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce projet ne se trouve pas dans vos dossiers de projets configurés. Voulez-vous continuer ?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este proyecto no está en tus carpetas de proyectos configuradas. ¿Deseas continuar?"
+          }
+        }
+      }
+    },
+    "unknown_root.add_root": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add parent folder to known project folders"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voeg bovenliggende map toe aan bekende projectmappen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergeordneten Ordner zu bekannten Projektordnern hinzufügen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter le dossier parent aux dossiers de projets connus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir carpeta principal a carpetas de proyectos conocidas"
+          }
+        }
+      }
+    },
+    "unknown_root.proceed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doorgaan"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortfahren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar"
+          }
+        }
+      }
+    },
+    "unknown_root.window_title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown Project Location"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onbekende projectlocatie"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Projektstandort"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emplacement de projet inconnu"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubicación de proyecto desconocida"
           }
         }
       }

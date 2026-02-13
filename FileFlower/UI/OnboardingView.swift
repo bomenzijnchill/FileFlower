@@ -469,18 +469,25 @@ struct OnboardingView: View {
                             InstructionStep(number: 1, text: String(localized: "onboarding.chrome.step1"))
                             InstructionStep(number: 2, text: String(localized: "onboarding.chrome.step2"))
                             InstructionStep(number: 3, text: String(localized: "onboarding.chrome.step3"))
-                            InstructionStep(number: 4, text: String(localized: "onboarding.chrome.step4"))
 
-                            Button(action: {
-                                SetupManager.shared.openChromeExtensionFolder()
-                            }) {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "folder.fill")
-                                    Text(String(localized: "onboarding.chrome.open_folder"))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Button(action: {
+                                    SetupManager.shared.openChromeExtensionFolder()
+                                }) {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "folder.fill")
+                                        Text(String(localized: "onboarding.chrome.open_folder"))
+                                    }
                                 }
+                                .buttonStyle(.borderedProminent)
+
+                                Text(String(localized: "onboarding.chrome.folder_hint"))
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .padding(.top, 8)
+                            .padding(.leading, 36)
+
+                            InstructionStep(number: 4, text: String(localized: "onboarding.chrome.step4"))
                         }
                         .padding(.top, 12)
                     },

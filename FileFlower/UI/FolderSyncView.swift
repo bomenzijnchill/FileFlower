@@ -786,16 +786,22 @@ struct AddFolderSyncForm: View {
         // Gebruik DispatchQueue om de panel te openen nadat de huidige event loop is afgerond
         // Dit voorkomt problemen met MenuBarExtra
         DispatchQueue.main.async {
+            // Voorkom dat de popover sluit terwijl de folder picker open is
+            StatusBarController.shared.setPopoverBehavior(.applicationDefined)
+
             let panel = NSOpenPanel()
             panel.canChooseFiles = false
             panel.canChooseDirectories = true
             panel.allowsMultipleSelection = false
             panel.message = String(localized: "foldersync.select_folder_panel")
             panel.level = .modalPanel // Zorg dat de panel bovenop komt
-            
+
             if panel.runModal() == .OK, let url = panel.url {
                 self.selectedFolderPath = url.path
             }
+
+            // Herstel normaal popover gedrag
+            StatusBarController.shared.setPopoverBehavior(.transient)
         }
     }
     
