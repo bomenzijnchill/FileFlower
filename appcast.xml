@@ -9,23 +9,25 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
-            <title>Versie 1.6.0</title>
-            <sparkle:version>13</sparkle:version>
-            <sparkle:shortVersionString>1.6.0</sparkle:shortVersionString>
+            <title>Versie 1.7.0</title>
+            <sparkle:version>14</sparkle:version>
+            <sparkle:shortVersionString>1.7.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
             <description><![CDATA[
-                <h2>Finder integratie</h2>
+                <h2>Finder integratie &amp; update fixes</h2>
                 <ul>
                     <li>Nieuw: Finder toolbar knop om mappenstructuur te deployen</li>
                     <li>Nieuw: Rechtermuisklik context menu in Finder</li>
                     <li>Custom FileFlower icoon in Finder toolbar</li>
+                    <li>Fix: Sparkle auto-update signing</li>
                     <li>Diverse verbeteringen en bugfixes</li>
                 </ul>
             ]]></description>
-            <pubDate>Thu, 20 Feb 2026 16:00:00 +0100</pubDate>
+            <pubDate>Thu, 20 Feb 2026 17:00:00 +0100</pubDate>
             <enclosure
-                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v1.6.0/FileFlower.dmg"
-                length="4888194"
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v1.7.0/FileFlower.dmg"
+                sparkle:edSignature="x0SpKq0jrIG6qjWfgCWJIkwAGmJDhGB9wlRJOQV7O5H1kk8Uw+ETYOUyX86wAVeGlYJA8gFggpKQZPSeYCn/Dg=="
+                length="4888197"
                 type="application/octet-stream"
             />
         </item>
