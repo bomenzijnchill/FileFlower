@@ -27,6 +27,7 @@ struct SettingsView: View {
     @State private var analyticsEnabled: Bool = false
     @State private var filterServerProjectsToLocal: Bool = true
     @State private var autoAddActiveProjectRoot: Bool = true
+    @State private var folderStructurePreset: FolderStructurePreset = .standard
     @State private var selectedTab: SettingsTab = .general
     @State private var mlxStatus: MLXStatus = .unknown
     @State private var showLanguageChangeAlert = false
@@ -236,6 +237,11 @@ struct SettingsView: View {
                 autoAddActiveProjectRoot: $autoAddActiveProjectRoot
             )
 
+            FolderStructureSection(
+                folderStructurePreset: $folderStructurePreset,
+                onSave: saveConfig
+            )
+
             // Analytics
             AnalyticsSection(analyticsEnabled: $analyticsEnabled)
         }
@@ -288,6 +294,7 @@ struct SettingsView: View {
             AppUpdateSection()
             PluginUpdateSection()
             SetupSection()
+            FeedbackSection()
         }
     }
     
@@ -345,6 +352,7 @@ struct SettingsView: View {
         analyticsEnabled = appState.config.analyticsEnabled
         filterServerProjectsToLocal = appState.config.filterServerProjectsToLocal
         autoAddActiveProjectRoot = appState.config.autoAddActiveProjectRoot
+        folderStructurePreset = appState.config.folderStructurePreset
     }
     
     private func setupMLXIfNeeded() async {
@@ -437,6 +445,7 @@ struct SettingsView: View {
         appState.config.analyticsEnabled = analyticsEnabled
         appState.config.filterServerProjectsToLocal = filterServerProjectsToLocal
         appState.config.autoAddActiveProjectRoot = autoAddActiveProjectRoot
+        appState.config.folderStructurePreset = folderStructurePreset
 
         appState.saveConfig()
     }
@@ -606,6 +615,231 @@ struct SfxSubfoldersSection: View {
 }
 
 // MARK: - Analytics Section
+
+// MARK: - Folder Structure Section
+
+struct FolderStructureSection: View {
+    @StateObject private var appState = AppState.shared
+    @Binding var folderStructurePreset: FolderStructurePreset
+    let onSave: () -> Void
+
+    @State private var templateFolderPath: String = ""
+    @State private var scannedFolderTree: FolderNode?
+    @State private var isScanningTemplate = false
+    @State private var isAnalyzingTemplate = false
+    @State private var templateMapping: FolderTypeMapping?
+    @State private var templateError: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "settings.folder_structure"))
+                .font(.system(size: 13, weight: .semibold))
+
+            // Preset picker
+            Picker(String(localized: "settings.folder_preset"), selection: $folderStructurePreset) {
+                ForEach(FolderStructurePreset.allCases, id: \.self) { preset in
+                    Text(String(localized: preset.displayKey)).tag(preset)
+                }
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: folderStructurePreset) { _, _ in onSave() }
+
+            // Custom template management
+            if folderStructurePreset == .custom {
+                if let template = appState.config.customFolderTemplate {
+                    existingTemplateView(template)
+                } else {
+                    noTemplateView
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
+    }
+
+    private func existingTemplateView(_ template: CustomFolderTemplate) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Image(systemName: "folder.fill")
+                    .foregroundColor(.accentColor)
+                Text(URL(fileURLWithPath: template.sourcePath).lastPathComponent)
+                    .font(.system(size: 12, weight: .medium))
+                Spacer()
+                Button(String(localized: "settings.template.change")) {
+                    selectTemplateFolder()
+                }
+                .controlSize(.small)
+            }
+
+            if let desc = template.mapping.description {
+                Text(desc)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .italic()
+            }
+
+            if let date = template.mapping.analyzedAt {
+                Text("\(String(localized: "settings.template.analyzed_at")) \(date.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            // Mapping overzicht
+            VStack(alignment: .leading, spacing: 2) {
+                settingsMappingRow("Music", path: template.mapping.musicPath)
+                settingsMappingRow("SFX", path: template.mapping.sfxPath)
+                settingsMappingRow("Voice Over", path: template.mapping.voPath)
+                settingsMappingRow("Graphics", path: template.mapping.graphicsPath)
+                settingsMappingRow("Motion Graphics", path: template.mapping.motionGraphicsPath)
+                settingsMappingRow("Stock Footage", path: template.mapping.stockFootagePath)
+            }
+            .padding(6)
+            .background(Color(NSColor.textBackgroundColor))
+            .cornerRadius(4)
+
+            Button(String(localized: "settings.template.reanalyze")) {
+                reanalyzeTemplate(template)
+            }
+            .controlSize(.small)
+            .disabled(isAnalyzingTemplate)
+
+            if isAnalyzingTemplate {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(String(localized: "onboarding.template.analyzing"))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if let error = templateError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundColor(.orange)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private var noTemplateView: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(String(localized: "settings.template.none"))
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+
+            Button(String(localized: "onboarding.template.select_folder")) {
+                selectTemplateFolder()
+            }
+            .controlSize(.small)
+
+            if isScanningTemplate || isAnalyzingTemplate {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(String(localized: isScanningTemplate
+                                ? "onboarding.template.scanning"
+                                : "onboarding.template.analyzing"))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if let error = templateError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundColor(.orange)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private func settingsMappingRow(_ label: String, path: String?) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .frame(width: 90, alignment: .leading)
+            Image(systemName: "arrow.right")
+                .font(.system(size: 8))
+                .foregroundColor(.secondary)
+            Text(path ?? "-")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundColor(path != nil ? .primary : .secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    private func selectTemplateFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = String(localized: "onboarding.template.panel_message")
+
+        if panel.runModal() == .OK, let url = panel.url {
+            templateFolderPath = url.path
+            templateError = nil
+            isScanningTemplate = true
+
+            Task {
+                let tree = FolderTemplateService.shared.scanFolderTree(at: url)
+                await MainActor.run {
+                    scannedFolderTree = tree
+                    isScanningTemplate = false
+                    isAnalyzingTemplate = true
+                }
+
+                do {
+                    let mapping = try await FolderTemplateService.shared.analyzeStructure(
+                        tree: tree,
+                        deviceId: appState.config.anonymousId
+                    )
+                    await MainActor.run {
+                        appState.config.customFolderTemplate = CustomFolderTemplate(
+                            sourcePath: templateFolderPath,
+                            folderTree: tree,
+                            mapping: mapping,
+                            createdAt: Date(),
+                            lastUpdatedAt: Date()
+                        )
+                        appState.saveConfig()
+                        isAnalyzingTemplate = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        templateError = error.localizedDescription
+                        isAnalyzingTemplate = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func reanalyzeTemplate(_ template: CustomFolderTemplate) {
+        templateError = nil
+        isAnalyzingTemplate = true
+
+        Task {
+            do {
+                let mapping = try await FolderTemplateService.shared.analyzeStructure(
+                    tree: template.folderTree,
+                    deviceId: appState.config.anonymousId
+                )
+                await MainActor.run {
+                    appState.config.customFolderTemplate?.mapping = mapping
+                    appState.config.customFolderTemplate?.lastUpdatedAt = Date()
+                    appState.saveConfig()
+                    isAnalyzingTemplate = false
+                }
+            } catch {
+                await MainActor.run {
+                    templateError = error.localizedDescription
+                    isAnalyzingTemplate = false
+                }
+            }
+        }
+    }
+}
 
 struct AnalyticsSection: View {
     @Binding var analyticsEnabled: Bool
@@ -1229,63 +1463,30 @@ struct ProjectBehaviorSection: View {
 
 struct AppUpdateSection: View {
     @StateObject private var updateManager = UpdateManager.shared
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(String(localized: "settings.app_updates"))
                     .font(.system(size: 13, weight: .semibold))
-                
+
                 Spacer()
-                
-                Text("v\(updateManager.currentVersion)")
+
+                Text("v\(updateManager.currentVersion) (\(updateManager.buildNumber))")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
-            
+
             HStack(spacing: 12) {
-                if updateManager.isCheckingForUpdates {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(String(localized: "settings.checking"))
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                } else if updateManager.updateAvailable, let latest = updateManager.latestVersion {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(.orange)
-                    Text(String(localized: "settings.new_version \(latest)"))
-                        .font(.system(size: 11))
-                        .foregroundColor(.orange)
-                } else if updateManager.lastUpdateCheck != nil {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                    Text(String(localized: "settings.up_to_date"))
-                        .font(.system(size: 11))
-                        .foregroundColor(.green)
-                }
-                
                 Spacer()
-                
+
                 Button(String(localized: "settings.check_updates")) {
                     updateManager.checkForUpdates()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(updateManager.isCheckingForUpdates)
             }
-            
-            if let error = updateManager.updateError {
-                Text(error)
-                    .font(.system(size: 10))
-                    .foregroundColor(.red)
-            }
-            
-            if let lastCheck = updateManager.lastUpdateCheck {
-                Text(String(localized: "settings.last_check \(lastCheck.formatted(date: .abbreviated, time: .shortened))"))
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
-            
+
             Toggle(String(localized: "settings.auto_check_updates"), isOn: Binding(
                 get: { updateManager.automaticUpdatesEnabled },
                 set: { updateManager.automaticUpdatesEnabled = $0 }
@@ -1489,6 +1690,220 @@ struct SetupSection: View {
             }
         } message: {
             Text(String(localized: "settings.reset_setup_message"))
+        }
+    }
+}
+
+// MARK: - Feedback Section
+
+private enum FeedbackType {
+    case featureRequest
+    case bugReport
+}
+
+private struct FeedbackSection: View {
+    @State private var showFeatureRequestForm = false
+    @State private var showBugReportForm = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "settings.feedback"))
+                .font(.system(size: 13, weight: .semibold))
+
+            Text(String(localized: "settings.feedback.description"))
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+
+            if showFeatureRequestForm {
+                InlineFeedbackFormView(
+                    feedbackType: .featureRequest,
+                    onClose: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showFeatureRequestForm = false
+                        }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            } else if showBugReportForm {
+                InlineFeedbackFormView(
+                    feedbackType: .bugReport,
+                    onClose: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showBugReportForm = false
+                        }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            } else {
+                HStack(spacing: 12) {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showFeatureRequestForm = true
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "lightbulb.fill")
+                                .font(.system(size: 12))
+                            Text(String(localized: "settings.feedback.feature_request"))
+                                .font(.system(size: 12))
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showBugReportForm = true
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "ladybug.fill")
+                                .font(.system(size: 12))
+                            Text(String(localized: "settings.feedback.report_bug"))
+                                .font(.system(size: 12))
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                    Spacer()
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
+        .cornerRadius(6)
+    }
+}
+
+private struct InlineFeedbackFormView: View {
+    let feedbackType: FeedbackType
+    let onClose: () -> Void
+
+    @State private var name: String = ""
+    @State private var email: String = ""
+    @State private var message: String = ""
+    @State private var mailOpened = false
+
+    private var title: String {
+        feedbackType == .featureRequest
+            ? String(localized: "settings.feedback.feature_request_title")
+            : String(localized: "settings.feedback.bug_report_title")
+    }
+
+    private var accentColor: Color {
+        feedbackType == .featureRequest ? .brandSandyClay : .brandBurntPeach
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // Header met close button
+            HStack {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "common.close"))
+            }
+
+            if mailOpened {
+                // Succes state
+                VStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor(.green)
+                    Text(String(localized: "settings.feedback.success"))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.green)
+                    Text(String(localized: "settings.feedback.success_description"))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.vertical, 8)
+            } else {
+                // Formulier velden
+                VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(String(localized: "settings.feedback.name"))
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        TextField(String(localized: "settings.feedback.name_placeholder"), text: $name)
+                            .textFieldStyle(.roundedBorder)
+                            .controlSize(.small)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(String(localized: "settings.feedback.email"))
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        TextField(String(localized: "settings.feedback.email_placeholder"), text: $email)
+                            .textFieldStyle(.roundedBorder)
+                            .controlSize(.small)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(String(localized: "settings.feedback.message"))
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        TextEditor(text: $message)
+                            .font(.system(size: 12))
+                            .frame(minHeight: 80, maxHeight: 120)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 5)
+                                    .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
+                            )
+                    }
+                }
+
+                // Verstuur button
+                HStack {
+                    Spacer()
+                    Button(action: sendFeedback) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "paperplane.fill")
+                            Text(String(localized: "settings.feedback.send"))
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(name.isEmpty || email.isEmpty || message.isEmpty)
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(NSColor.controlBackgroundColor))
+                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(accentColor.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    private func sendFeedback() {
+        let subject = feedbackType == .featureRequest
+            ? "Feature Request - FileFlower"
+            : "Bug Report - FileFlower"
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
+        let body = "Name: \(name)\nEmail: \(email)\n\n\(message)\n\n---\nApp Version: \(appVersion)\nmacOS: \(osVersion)"
+
+        let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+
+        if let url = URL(string: "mailto:info@fileflower.com?subject=\(encodedSubject)&body=\(encodedBody)") {
+            NSWorkspace.shared.open(url)
+            withAnimation(.easeInOut(duration: 0.2)) {
+                mailOpened = true
+            }
         }
     }
 }

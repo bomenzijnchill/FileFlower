@@ -97,9 +97,8 @@ class FileProcessor {
             print("FileProcessor: Using mapped bin path: \(mapping)")
         } else {
             // Default: create bin path from folder structure relative to project main folder
-            // Find the project main folder (where 03_Muziek, 04_SFX etc. are located)
             let projectMainFolder = findProjectMainFolder(from: targetDir, projectPath: project.projectPath)
-            
+
             // Bepaal relative path; voorkom lege string als targetDir gelijk is aan projectMainFolder
             let relativePath: String
             if targetDir.path == projectMainFolder.path {
@@ -111,8 +110,24 @@ class FileProcessor {
                 }
                 relativePath = path
             }
-            
-            let components = relativePath.split(separator: "/").filter { !$0.isEmpty }
+
+            var components = relativePath.split(separator: "/").filter { !$0.isEmpty }.map { String($0) }
+
+            // Smart matching: check of er al een bestaande Finder-map is die beter matcht
+            if !components.isEmpty {
+                if let matchedFolder = BinMatcher.shared.findMatchingFolder(
+                    for: item.predictedType,
+                    in: projectMainFolder
+                ) {
+                    let normalizedFirst = BinMatcher.shared.normalizeName(components[0])
+                    let normalizedMatch = BinMatcher.shared.normalizeName(matchedFolder)
+                    if normalizedFirst != normalizedMatch {
+                        print("FileProcessor: Smart match - '\(components[0])' → '\(matchedFolder)' voor type \(item.predictedType.rawValue)")
+                        components[0] = matchedFolder
+                    }
+                }
+            }
+
             premiereBinPath = components.isEmpty ? targetDir.lastPathComponent : components.joined(separator: "/")
             print("FileProcessor: Project main folder: \(projectMainFolder.path)")
             print("FileProcessor: Target dir: \(targetDir.path)")
@@ -128,7 +143,8 @@ class FileProcessor {
             projectPath: project.projectPath,
             finderTargetDir: targetDir.path,
             premiereBinPath: premiereBinPath,
-            files: filesToImport
+            files: filesToImport,
+            assetType: item.predictedType.rawValue
         )
         
         JobServer.shared.addJob(job)

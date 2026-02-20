@@ -7,14 +7,20 @@ struct JobRequest: Codable {
     let premiereBinPath: String
     let files: [String]
     let createdAt: TimeInterval
-    
+    let syncId: UUID?
+    let pendingHashes: [String]
+    let assetType: String?
+
     init(
         id: UUID = UUID(),
         projectPath: String,
         finderTargetDir: String,
         premiereBinPath: String,
         files: [String],
-        createdAt: TimeInterval = Date().timeIntervalSince1970
+        createdAt: TimeInterval = Date().timeIntervalSince1970,
+        syncId: UUID? = nil,
+        pendingHashes: [String] = [],
+        assetType: String? = nil
     ) {
         self.id = id
         self.projectPath = projectPath
@@ -22,6 +28,9 @@ struct JobRequest: Codable {
         self.premiereBinPath = premiereBinPath
         self.files = files
         self.createdAt = createdAt
+        self.syncId = syncId
+        self.pendingHashes = pendingHashes
+        self.assetType = assetType
     }
 }
 
@@ -31,5 +40,6 @@ struct JobResult: Codable {
     let importedFiles: [String]
     let failedFiles: [String]
     let error: String?
+    let alreadyImported: [String]?
 }
 

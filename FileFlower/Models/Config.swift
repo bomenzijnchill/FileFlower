@@ -33,7 +33,15 @@ struct Config: Codable {
     var useClaudeClassification: Bool        // Of Claude API classificatie ingeschakeld is
     var userWorkflowType: WorkflowType     // Type werk dat de gebruiker doet
     var folderStructurePreset: FolderStructurePreset  // Voorkeursindeling van mappen
-    
+    var customFolderTemplate: CustomFolderTemplate?   // Template mappenstructuur voor .custom preset
+    var cloudStorageWebsites: [String]              // Cloud storage websites (Dropbox, Google Drive)
+    var loadFolderPresets: [LoadFolderPreset]        // Veelgebruikte mappen voor snelle import
+
+    static let defaultCloudStorageWebsites = [
+        "drive.google.com", "googleusercontent.com",
+        "dropbox.com", "dl.dropboxusercontent.com"
+    ]
+
     static let defaultStockWebsites = [
         "artlist.io", "artgrid.io", "motionarray.com", "elements.envato.com",
         "epidemicsound.com", "soundstripe.com", "storyblocks.com", "adobe.com/stock",
@@ -89,9 +97,12 @@ struct Config: Codable {
         savesFilesNextToProject: true,
         useClaudeClassification: false,
         userWorkflowType: .videoEditor,
-        folderStructurePreset: .standard
+        folderStructurePreset: .standard,
+        customFolderTemplate: nil,
+        cloudStorageWebsites: defaultCloudStorageWebsites,
+        loadFolderPresets: []
     )
-    
+
     // Default init
     init(
         projectRoots: [String],
@@ -125,7 +136,10 @@ struct Config: Codable {
         savesFilesNextToProject: Bool = true,
         useClaudeClassification: Bool = false,
         userWorkflowType: WorkflowType = .videoEditor,
-        folderStructurePreset: FolderStructurePreset = .standard
+        folderStructurePreset: FolderStructurePreset = .standard,
+        customFolderTemplate: CustomFolderTemplate? = nil,
+        cloudStorageWebsites: [String] = defaultCloudStorageWebsites,
+        loadFolderPresets: [LoadFolderPreset] = []
     ) {
         self.projectRoots = projectRoots
         self.musicClassification = musicClassification
@@ -159,8 +173,11 @@ struct Config: Codable {
         self.useClaudeClassification = useClaudeClassification
         self.userWorkflowType = userWorkflowType
         self.folderStructurePreset = folderStructurePreset
+        self.customFolderTemplate = customFolderTemplate
+        self.cloudStorageWebsites = cloudStorageWebsites
+        self.loadFolderPresets = loadFolderPresets
     }
-    
+
     // Custom decoder voor migratie van oude configs
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -205,6 +222,9 @@ struct Config: Codable {
         useClaudeClassification = try container.decodeIfPresent(Bool.self, forKey: .useClaudeClassification) ?? false
         userWorkflowType = try container.decodeIfPresent(WorkflowType.self, forKey: .userWorkflowType) ?? .videoEditor
         folderStructurePreset = try container.decodeIfPresent(FolderStructurePreset.self, forKey: .folderStructurePreset) ?? .standard
+        customFolderTemplate = try container.decodeIfPresent(CustomFolderTemplate.self, forKey: .customFolderTemplate)
+        cloudStorageWebsites = try container.decodeIfPresent([String].self, forKey: .cloudStorageWebsites) ?? Config.defaultCloudStorageWebsites
+        loadFolderPresets = try container.decodeIfPresent([LoadFolderPreset].self, forKey: .loadFolderPresets) ?? []
     }
     
     // Custom encoder
@@ -242,6 +262,9 @@ struct Config: Codable {
         try container.encode(useClaudeClassification, forKey: .useClaudeClassification)
         try container.encode(userWorkflowType, forKey: .userWorkflowType)
         try container.encode(folderStructurePreset, forKey: .folderStructurePreset)
+        try container.encodeIfPresent(customFolderTemplate, forKey: .customFolderTemplate)
+        try container.encode(cloudStorageWebsites, forKey: .cloudStorageWebsites)
+        try container.encode(loadFolderPresets, forKey: .loadFolderPresets)
     }
     
     enum CodingKeys: String, CodingKey {
@@ -277,6 +300,9 @@ struct Config: Codable {
         case useClaudeClassification
         case userWorkflowType
         case folderStructurePreset
+        case customFolderTemplate
+        case cloudStorageWebsites
+        case loadFolderPresets
     }
     
     // Helper om alleen custom toegevoegde websites te krijgen (exclusief standaard)
@@ -318,27 +344,8 @@ enum WorkflowType: String, Codable, CaseIterable {
     }
 }
 
-enum FolderStructurePreset: String, Codable, CaseIterable {
-    case standard = "standard"
-    case flat = "flat"
-    case custom = "custom"
-
-    var displayKey: String.LocalizationValue {
-        switch self {
-        case .standard: return "workflow.folder.standard"
-        case .flat: return "workflow.folder.flat"
-        case .custom: return "workflow.folder.custom"
-        }
-    }
-
-    var descriptionKey: String.LocalizationValue {
-        switch self {
-        case .standard: return "workflow.folder.standard.desc"
-        case .flat: return "workflow.folder.flat.desc"
-        case .custom: return "workflow.folder.custom.desc"
-        }
-    }
-}
+// FolderStructurePreset, FolderNode, FolderTypeMapping, CustomFolderTemplate
+// zijn verplaatst naar Shared/SharedConfig.swift (gedeeld met Finder Sync Extension)
 
 struct ProjectMapping: Codable {
     var finderToPremiere: [String: String]

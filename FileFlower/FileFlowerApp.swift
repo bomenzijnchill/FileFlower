@@ -118,6 +118,7 @@ class AppState: ObservableObject {
     
     private init() {
         loadConfig()
+        migrateHashesIfNeeded()
         // Stel de taal in via UserDefaults zodat String(localized:) de juiste bundle locale gebruikt
         UserDefaults.standard.set([config.appLanguage], forKey: "AppleLanguages")
         UserDefaults.standard.synchronize()
@@ -126,6 +127,7 @@ class AppState: ObservableObject {
         syncLaunchAgent()
         setupActiveProjectListener()
         setupFolderSyncWatcher()
+        setupDeployTemplateListener()
         
         // Laad custom downloads folder NA init is voltooid
         // Dit moet na alle andere initialisatie gebeuren
@@ -140,6 +142,9 @@ class AppState: ObservableObject {
             }
         }
         
+        // Dagelijkse cleanup van verwerkingsgeschiedenis bij launch
+        ProcessingHistoryManager.shared.cleanupOldRecords()
+
         // Setup app termination handler
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification,
@@ -147,6 +152,8 @@ class AppState: ObservableObject {
             queue: .main
         ) { _ in
             MainActor.assumeIsolated {
+                // Clear afgeronde items bij afsluiten
+                self.clearFinishedItems()
                 self.stopMLXDaemon()
                 // Eindig analytics sessie bij afsluiten
                 AnalyticsService.shared.endSession()
@@ -154,6 +161,36 @@ class AppState: ObservableObject {
         }
     }
     
+    /// Luister naar deploy template verzoeken van de Finder Sync Extension
+    private func setupDeployTemplateListener() {
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.fileflower.deployTemplate"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self,
+                  let targetPath = notification.object as? String else {
+                print("AppState: Deploy notification ontvangen maar geen pad")
+                return
+            }
+
+            print("AppState: Deploy template verzoek ontvangen voor: \(targetPath)")
+
+            let targetURL = URL(fileURLWithPath: targetPath)
+            let deployConfig = DeployConfig(
+                folderStructurePreset: self.config.folderStructurePreset,
+                customFolderTemplate: self.config.customFolderTemplate
+            )
+
+            do {
+                let count = try TemplateDeployer.deploy(to: targetURL, config: deployConfig)
+                print("AppState: \(count) mappen aangemaakt in \(targetPath)")
+            } catch {
+                print("AppState: Deploy error: \(error.localizedDescription)")
+            }
+        }
+    }
+
     /// Luister naar wijzigingen in het actieve project vanuit de CEP plugin
     private func setupActiveProjectListener() {
         activeProjectCancellable = jobServer.$activeProjectPath
@@ -282,6 +319,30 @@ class AppState: ObservableObject {
         if let loaded = configManager.load() {
             config = loaded
         }
+        // Sync deploy config naar shared container voor Finder Sync Extension
+        syncDeployConfigToSharedContainer()
+    }
+
+    /// Eenmalige migratie: wis oude syncedFileHashes die onbetrouwbaar zijn
+    /// (van vóór de fix waarbij hashes pas na succesvolle Premiere import worden opgeslagen)
+    private func migrateHashesIfNeeded() {
+        let migrationKey = "didMigrateFolderSyncHashes_v2"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        var didChange = false
+        for index in config.folderSyncs.indices {
+            if !config.folderSyncs[index].syncedFileHashes.isEmpty {
+                config.folderSyncs[index].syncedFileHashes.removeAll()
+                didChange = true
+            }
+        }
+
+        if didChange {
+            configManager.save(config)
+            print("AppState: Migratie - oude syncedFileHashes gewist voor alle folder syncs")
+        }
+
+        UserDefaults.standard.set(true, forKey: migrationKey)
     }
 
     private func setupWatchers() {
@@ -290,6 +351,7 @@ class AppState: ObservableObject {
                 await self?.handleNewDownload(url: url, originURL: originURL)
             }
         }
+        downloadsWatcher.setupCloudZipMergerCallback()
         downloadsWatcher.start()
         
         Task {
@@ -301,6 +363,7 @@ class AppState: ObservableObject {
         // Stap 1: Scan geconfigureerde roots (bestaand gedrag)
         var projects = await projectScanner.scanRecentProjects(
             roots: config.projectRoots,
+            limit: config.recentProjectsCacheSize,
             filterToLocal: config.filterServerProjectsToLocal
         )
 
@@ -313,6 +376,28 @@ class AppState: ObservableObject {
             if !projects.contains(where: { $0.projectPath == spotlightProject.projectPath }) {
                 projects.append(spotlightProject)
             }
+        }
+
+        // Stap 3: Zorg dat het actieve CEP project altijd in de lijst zit
+        if let activeProjectPath = jobServer.activeProjectPath,
+           !projects.contains(where: { $0.projectPath == activeProjectPath }) {
+            let url = URL(fileURLWithPath: activeProjectPath)
+            let name = url.deletingPathExtension().lastPathComponent
+            let rootPath = url.deletingLastPathComponent().deletingLastPathComponent().path
+            let lastModified: TimeInterval
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: activeProjectPath),
+               let modDate = attrs[.modificationDate] as? Date {
+                lastModified = modDate.timeIntervalSince1970
+            } else {
+                lastModified = Date().timeIntervalSince1970
+            }
+            let activeProject = ProjectInfo(
+                name: name,
+                rootPath: rootPath,
+                projectPath: activeProjectPath,
+                lastModified: lastModified
+            )
+            projects.insert(activeProject, at: 0)
         }
 
         // Sorteer op lastModified aflopend na samenvoegen
@@ -328,13 +413,28 @@ class AppState: ObservableObject {
         // Haal file size op (werkt ook voor mappen)
         let fileManager = FileManager.default
         let size: Int64 = fileManager.fileSize(at: url) ?? 0
-        
+
+        // Detecteer of dit een cloud storage download is
+        let isCloud = isCloudStorageDownload(originURL: originURL)
+
+        // Detecteer of dit een map is (bijv. uitgepakte ZIP) en enumerate child files
+        var isDir: ObjCBool = false
+        let isFolder = fileManager.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
+        var childFiles: [String]? = nil
+        if isFolder {
+            if let contents = try? fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                childFiles = contents.map { $0.lastPathComponent }.sorted()
+            }
+        }
+
         // Maak eerst een item met "classifying" status zodat de UI direct kan openen
         let tempItem = DownloadItem(
             path: url.path,
             size: size,
             predictedType: .unknown,
-            status: .classifying
+            status: .classifying,
+            isCloudDownload: isCloud,
+            childFiles: childFiles
         )
         
         await MainActor.run {
@@ -360,6 +460,9 @@ class AppState: ObservableObject {
             await MainActor.run {
                 // Update het item in de queue
                 if let index = self.queuedItems.firstIndex(where: { $0.id == tempItem.id }) {
+                    // Bij cloud downloads met onbekend type: vraag gebruiker om map te kiezen
+                    let needsManual = isCloud && classifiedItem.predictedType == .unknown
+
                     // Maak een nieuw item met dezelfde ID maar met de geclassificeerde data
                     let updatedItem = DownloadItem(
                         id: tempItem.id, // Behoud dezelfde ID
@@ -376,7 +479,9 @@ class AppState: ObservableObject {
                         targetPath: classifiedItem.targetPath,
                         predictedGenre: classifiedItem.predictedGenre,
                         predictedMood: classifiedItem.predictedMood,
-                        predictedSfxCategory: classifiedItem.predictedSfxCategory
+                        predictedSfxCategory: classifiedItem.predictedSfxCategory,
+                        isCloudDownload: isCloud,
+                        needsManualClassification: needsManual
                     )
                     self.queuedItems[index] = updatedItem
                 }
@@ -384,12 +489,22 @@ class AppState: ObservableObject {
         }
     }
     
+    private func isCloudStorageDownload(originURL: String?) -> Bool {
+        guard let origin = originURL?.lowercased() else { return false }
+        return config.cloudStorageWebsites.contains { origin.contains($0.lowercased()) }
+    }
+
     func clearCompletedItems() {
         queuedItems.removeAll { $0.status == .completed }
     }
-    
+
     func clearAllItems() {
         queuedItems.removeAll()
+    }
+
+    /// Verwijder afgeronde en overgeslagen items uit de queue
+    func clearFinishedItems() {
+        queuedItems.removeAll { $0.status == .completed || $0.status == .skipped }
     }
     
     func saveConfig() {
@@ -402,7 +517,10 @@ class AppState: ObservableObject {
         configManager.save(config)
         // Update classifier strategy wanneer config verandert
         Classifier.shared.updateStrategy()
-        
+
+        // Sync deploy config naar shared container voor Finder Sync Extension
+        syncDeployConfigToSharedContainer()
+
         // Daemon management bij config wijzigingen
         if config.useMLXClassification != previousMLXEnabled {
             if config.useMLXClassification {
@@ -418,6 +536,16 @@ class AppState: ObservableObject {
         }
     }
     
+    /// Sync de actieve folder preset en template naar de App Group shared container,
+    /// zodat de Finder Sync Extension hier bij kan.
+    private func syncDeployConfigToSharedContainer() {
+        let deployConfig = DeployConfig(
+            folderStructurePreset: config.folderStructurePreset,
+            customFolderTemplate: config.customFolderTemplate
+        )
+        SharedConfigReader.saveDeployConfig(deployConfig)
+    }
+
     func togglePause() {
         isPaused.toggle()
         if isPaused {
@@ -527,13 +655,17 @@ class AppState: ObservableObject {
         }
     }
     
-    /// Start alle geconfigureerde folder syncs
+    /// Start alle geconfigureerde folder syncs (skip syncs die al actief zijn)
     private func startAllFolderSyncs() {
+        var startedCount = 0
         for sync in config.folderSyncs where sync.isEnabled {
-            folderSyncWatcher.startWatching(sync: sync)
+            if !folderSyncWatcher.isWatching(syncId: sync.id) {
+                folderSyncWatcher.startWatching(sync: sync)
+                startedCount += 1
+            }
             folderSyncStatuses[sync.id] = .idle
         }
-        print("AppState: \(config.folderSyncs.filter { $0.isEnabled }.count) folder syncs gestart")
+        print("AppState: \(startedCount) folder syncs gestart (van \(config.folderSyncs.filter { $0.isEnabled }.count) enabled)")
     }
     
     /// Voeg een nieuwe folder sync toe
@@ -600,10 +732,89 @@ class AppState: ObservableObject {
     /// Forceer een volledige sync voor een map
     func forceFolderSync(syncId: UUID) {
         guard let sync = config.folderSyncs.first(where: { $0.id == syncId }) else { return }
-        
+
         Task {
             await folderSyncWatcher.forceFullSync(sync: sync)
         }
+    }
+
+    // MARK: - LoadFolder Preset Methods
+
+    /// Voeg een nieuwe LoadFolder preset toe
+    func addLoadFolderPreset(folderPath: String, displayName: String, premiereBinPath: String? = nil) {
+        let preset = LoadFolderPreset(
+            folderPath: folderPath,
+            displayName: displayName,
+            premiereBinPath: premiereBinPath
+        )
+        config.loadFolderPresets.append(preset)
+        saveConfig()
+        print("AppState: LoadFolder preset toegevoegd: \(displayName)")
+    }
+
+    /// Verwijder een LoadFolder preset
+    func removeLoadFolderPreset(presetId: UUID) {
+        config.loadFolderPresets.removeAll { $0.id == presetId }
+        saveConfig()
+        print("AppState: LoadFolder preset verwijderd: \(presetId)")
+    }
+
+    /// Update een LoadFolder preset
+    func updateLoadFolderPreset(presetId: UUID, displayName: String, premiereBinPath: String? = nil) {
+        guard let index = config.loadFolderPresets.firstIndex(where: { $0.id == presetId }) else { return }
+        config.loadFolderPresets[index].displayName = displayName
+        config.loadFolderPresets[index].premiereBinPath = premiereBinPath
+        saveConfig()
+        print("AppState: LoadFolder preset bijgewerkt: \(displayName)")
+    }
+
+    /// Laad een map in het actieve Premiere project
+    func loadFolderIntoProject(preset: LoadFolderPreset) async {
+        guard preset.folderExists else {
+            print("AppState: LoadFolder map bestaat niet: \(preset.folderPath)")
+            return
+        }
+
+        guard let project = preferredProject else {
+            print("AppState: Geen actief project beschikbaar voor LoadFolder")
+            return
+        }
+
+        let folderURL = URL(fileURLWithPath: preset.folderPath)
+        let fileManager = FileManager.default
+
+        // Enumerate alle bestanden in de map (recursief)
+        guard let enumerator = fileManager.enumerator(
+            at: folderURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            print("AppState: Kon map niet enumereren: \(preset.folderPath)")
+            return
+        }
+
+        let files = enumerator.allObjects.compactMap { $0 as? URL }.filter { url in
+            var isFile: ObjCBool = false
+            return fileManager.fileExists(atPath: url.path, isDirectory: &isFile) && !isFile.boolValue
+        }
+
+        guard !files.isEmpty else {
+            print("AppState: LoadFolder map is leeg: \(preset.folderPath)")
+            return
+        }
+
+        // Bepaal het bin pad
+        let binPath = preset.premiereBinPath ?? preset.folderName
+
+        let job = JobRequest(
+            projectPath: project.projectPath,
+            finderTargetDir: preset.folderPath,
+            premiereBinPath: binPath,
+            files: files.map { $0.path }
+        )
+
+        JobServer.shared.addJob(job)
+        print("AppState: LoadFolder job aangemaakt - \(files.count) bestanden naar bin '\(binPath)'")
     }
 }
 

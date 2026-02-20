@@ -9,6 +9,7 @@ struct QueueView: View {
     @State private var clearTimer: Timer?
     @State private var pendingConflictItem: DownloadItem?
     @State private var rootCheckApprovedItems: Set<UUID> = []
+    @State private var showHistory = false
     
     init(selectedItemForPicker: Binding<DownloadItem?>, isShowingClearConfirmation: Binding<Bool> = .constant(false)) {
         self._selectedItemForPicker = selectedItemForPicker
@@ -60,11 +61,26 @@ struct QueueView: View {
                     .help(String(localized: "queue.process_selected"))
                     
                     Spacer()
-                    
+
                     Text("\(appState.queuedItems.count) items")
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
-                    
+
+                    Button(action: { showHistory = true }) {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help(String(localized: "history.show"))
+                    .popover(isPresented: $showHistory) {
+                        HistoryView(
+                            records: ProcessingHistoryManager.shared.todayRecords(),
+                            onDismiss: { showHistory = false }
+                        )
+                        .frame(width: 400, height: 350)
+                    }
+
                     Button(action: {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             handleDeleteAction()
@@ -270,6 +286,7 @@ struct QueueView: View {
             await MainActor.run {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .skipped
+                    ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
                 }
             }
             pendingConflictItem = nil
@@ -308,11 +325,12 @@ struct QueueView: View {
         
         do {
             try await FileProcessor.shared.process(processedItem)
-            
+
             await MainActor.run {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .completed
-                    
+                    ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
+
                     // Haal Premiere naar voren als dit is ingeschakeld
                     if appState.config.bringPremiereToFront {
                         PremiereChecker.shared.bringPremiereToFront()
@@ -323,11 +341,12 @@ struct QueueView: View {
             await MainActor.run {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .failed
+                    ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
                 }
             }
         }
     }
-    
+
     private func processSingleItem(_ item: DownloadItem) async {
         // Resolve target path if not set
         var processedItem = item
@@ -426,6 +445,7 @@ struct QueueView: View {
             await MainActor.run {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .completed
+                    ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
 
                     // Haal Premiere naar voren als dit is ingeschakeld
                     if appState.config.bringPremiereToFront {
@@ -437,6 +457,7 @@ struct QueueView: View {
             await MainActor.run {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .failed
+                    ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
                 }
             }
         }
@@ -477,6 +498,7 @@ struct QueueView: View {
             await MainActor.run {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .skipped
+                    ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
                 }
             }
         }
@@ -493,7 +515,8 @@ struct QueueItemRow: View {
     
     @ObservedObject private var appState = AppState.shared
     @State private var isHovered = false
-    
+    @State private var selectedManualFolder: String?
+
     // Veelgebruikte SFX categorieën (gebaseerd op Epidemic Sound)
     private let sfxCategories = [
         // Impacts & Hits
@@ -525,11 +548,11 @@ struct QueueItemRow: View {
             
             // File icon with loading indicator
             ZStack {
-                Image(systemName: iconForType(item.predictedType))
+                Image(systemName: item.isFolder ? "folder.fill" : iconForType(item.predictedType))
                     .font(.system(size: 20))
                     .foregroundColor(.accentColor.opacity(0.7))
                     .frame(width: 32)
-                
+
                 // Loading indicator voor classifying status
                 if item.status == .classifying {
                     ProgressView()
@@ -537,13 +560,25 @@ struct QueueItemRow: View {
                         .frame(width: 32, height: 32)
                 }
             }
-            
+
             // Content
             VStack(alignment: .leading, spacing: 6) {
-                Text(URL(fileURLWithPath: item.path).lastPathComponent)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
-                    .foregroundColor(.primary)
+                HStack(spacing: 6) {
+                    Text(URL(fileURLWithPath: item.path).lastPathComponent)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                        .foregroundColor(.primary)
+
+                    if let childFiles = item.childFiles, !childFiles.isEmpty {
+                        Text(String(localized: "queue.file_count \(childFiles.count)"))
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                }
                 
                 HStack(spacing: 8) {
                     // Type dropdown
@@ -658,10 +693,26 @@ struct QueueItemRow: View {
                 }
                 
                 StatusBadge(status: item.status)
+
+                // Manuele classificatie prompt voor cloud downloads met onbekend type
+                if item.needsManualClassification {
+                    ManualFolderPicker(
+                        folders: getProjectSubfolders(),
+                        selectedFolder: $selectedManualFolder,
+                        onConfirm: { folder in
+                            handleManualFolderSelection(itemId: item.id, folder: folder)
+                        },
+                        onSkip: {
+                            if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
+                                appState.queuedItems[index].status = .skipped
+                            }
+                        }
+                    )
+                }
             }
-            
+
             Spacer()
-            
+
             // Action buttons
             HStack(spacing: 6) {
                 // Open in Finder button
@@ -714,6 +765,46 @@ struct QueueItemRow: View {
         }
     }
     
+    private func getProjectSubfolders() -> [String] {
+        guard let project = item.targetProject else { return [] }
+        let projectPathURL = URL(fileURLWithPath: project.projectPath)
+        let projectRoot = projectPathURL.deletingLastPathComponent()
+
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: projectRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return contents
+            .filter { url in
+                var isDir: ObjCBool = false
+                return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
+            }
+            .map { $0.lastPathComponent }
+            .sorted()
+    }
+
+    private func handleManualFolderSelection(itemId: UUID, folder: String) {
+        guard let index = appState.queuedItems.firstIndex(where: { $0.id == itemId }) else { return }
+        var updated = appState.queuedItems[index]
+        updated.targetSubfolder = folder
+        updated.needsManualClassification = false
+
+        // Recalculate target path met de geselecteerde submap
+        if let project = updated.targetProject {
+            let projectPathURL = URL(fileURLWithPath: project.projectPath)
+            let projectRoot = projectPathURL.deletingLastPathComponent()
+            let targetFolder = projectRoot.appendingPathComponent(folder)
+            let filename = URL(fileURLWithPath: updated.path).lastPathComponent
+            updated.targetPath = targetFolder.appendingPathComponent(filename).path
+        }
+
+        appState.queuedItems[index] = updated
+    }
+
     private func iconForType(_ type: AssetType) -> String {
         switch type {
         case .music: return "music.note"
@@ -820,5 +911,78 @@ struct ClearQueueConfirmation: View {
         )
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+/// Inline folder picker voor cloud downloads die niet automatisch geclassificeerd konden worden
+struct ManualFolderPicker: View {
+    let folders: [String]
+    @Binding var selectedFolder: String?
+    let onConfirm: (String) -> Void
+    let onSkip: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "questionmark.circle.fill")
+                    .foregroundColor(.orange)
+                    .font(.system(size: 14))
+
+                Text(String(localized: "classification.manual_needed"))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.primary)
+            }
+
+            if folders.isEmpty {
+                Text(String(localized: "classification.no_folders"))
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(folders, id: \.self) { folder in
+                            Button(action: {
+                                selectedFolder = folder
+                            }) {
+                                Text(folder)
+                                    .font(.system(size: 10))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(selectedFolder == folder ? Color.accentColor : Color.secondary.opacity(0.15))
+                                    .foregroundColor(selectedFolder == folder ? .white : .primary)
+                                    .cornerRadius(4)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button(String(localized: "classification.skip")) {
+                    onSkip()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+
+                Spacer()
+
+                Button(String(localized: "classification.confirm")) {
+                    if let folder = selectedFolder {
+                        onConfirm(folder)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.mini)
+                .disabled(selectedFolder == nil)
+            }
+        }
+        .padding(8)
+        .background(Color.orange.opacity(0.08))
+        .cornerRadius(6)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(Color.orange.opacity(0.25), lineWidth: 1)
+        )
     }
 }

@@ -18,6 +18,15 @@ struct DownloadItem: Identifiable, Codable {
     var predictedMood: String?
     var predictedSfxCategory: String?  // SFX categorie (bijv. "Swooshes", "Impacts", etc.)
     var originalPrediction: AssetType?  // Systeem's originele classificatie vóór user correctie
+    var isCloudDownload: Bool            // Of het bestand van cloud storage komt (Dropbox, Google Drive)
+    var needsManualClassification: Bool  // Of de gebruiker handmatig een map moet kiezen
+    var childFiles: [String]?            // Bestanden binnen een map-item (uit ZIP extractie)
+
+    /// Of dit item een map is (bijv. uitgepakte ZIP)
+    var isFolder: Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+    }
 
     init(
         id: UUID = UUID(),
@@ -36,7 +45,10 @@ struct DownloadItem: Identifiable, Codable {
         predictedGenre: String? = nil,
         predictedMood: String? = nil,
         predictedSfxCategory: String? = nil,
-        originalPrediction: AssetType? = nil
+        originalPrediction: AssetType? = nil,
+        isCloudDownload: Bool = false,
+        needsManualClassification: Bool = false,
+        childFiles: [String]? = nil
     ) {
         self.id = id
         self.path = path
@@ -55,6 +67,9 @@ struct DownloadItem: Identifiable, Codable {
         self.predictedMood = predictedMood
         self.predictedSfxCategory = predictedSfxCategory
         self.originalPrediction = originalPrediction
+        self.isCloudDownload = isCloudDownload
+        self.needsManualClassification = needsManualClassification
+        self.childFiles = childFiles
     }
 }
 

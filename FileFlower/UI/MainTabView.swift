@@ -11,11 +11,13 @@ struct MainTabView: View {
     enum Tab: String, CaseIterable {
         case downloadSync = "DownloadSync"
         case folderSync = "FolderSync"
-        
+        case loadFolder = "LoadFolder"
+
         var icon: String {
             switch self {
             case .downloadSync: return "arrow.down.circle"
             case .folderSync: return "folder.badge.gearshape"
+            case .loadFolder: return "folder.badge.plus"
             }
         }
     }
@@ -55,6 +57,8 @@ struct MainTabView: View {
                     )
                 case .folderSync:
                     FolderSyncView(isShowingForm: $isShowingFolderSyncForm)
+                case .loadFolder:
+                    LoadFolderView()
                 }
             }
             .transition(.opacity)
@@ -67,6 +71,8 @@ struct MainTabView: View {
             return appState.queuedItems.count
         case .folderSync:
             return appState.config.folderSyncs.filter { $0.isEnabled }.count
+        case .loadFolder:
+            return appState.config.loadFolderPresets.count
         }
     }
 }
@@ -146,12 +152,14 @@ struct DownloadSyncContent: View {
 
 /// Empty state view voor DownloadSync
 struct EmptyDownloadSyncView: View {
+    @State private var showHistory = false
+
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "tray")
                 .font(.system(size: 40))
                 .foregroundColor(.secondary.opacity(0.5))
-            
+
             Text(String(localized: "queue.no_downloads"))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.secondary)
@@ -160,6 +168,23 @@ struct EmptyDownloadSyncView: View {
                 .font(.system(size: 11))
                 .foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center)
+
+            let todayCount = ProcessingHistoryManager.shared.todayRecords().count
+            if todayCount > 0 {
+                Button(action: { showHistory = true }) {
+                    Label(String(localized: "history.show_today \(todayCount)"), systemImage: "clock.arrow.circlepath")
+                        .font(.system(size: 11))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .popover(isPresented: $showHistory) {
+                    HistoryView(
+                        records: ProcessingHistoryManager.shared.todayRecords(),
+                        onDismiss: { showHistory = false }
+                    )
+                    .frame(width: 400, height: 350)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

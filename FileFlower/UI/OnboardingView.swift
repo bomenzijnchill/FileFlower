@@ -27,6 +27,14 @@ struct OnboardingView: View {
     @State private var selectedWorkflowType: WorkflowType = .videoEditor
     @State private var selectedFolderStructure: FolderStructurePreset = .standard
 
+    // Custom folder template state
+    @State private var templateFolderPath: String = ""
+    @State private var scannedFolderTree: FolderNode?
+    @State private var isScanningTemplate = false
+    @State private var isAnalyzingTemplate = false
+    @State private var templateMapping: FolderTypeMapping?
+    @State private var templateError: String?
+
     let onComplete: () -> Void
 
     enum OnboardingStep: Int, CaseIterable {
@@ -690,9 +698,240 @@ struct OnboardingView: View {
                         }
                         .buttonStyle(.plain)
                     }
+
+                    // Uitklapbare custom template sectie
+                    if selectedFolderStructure == .custom {
+                        customFolderTemplateSection
+                    }
                 }
             }
             .frame(maxWidth: 400)
+        }
+    }
+
+    // MARK: - Custom Folder Template
+
+    private var customFolderTemplateSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Map selectie knop
+            HStack {
+                Image(systemName: "folder.badge.plus")
+                    .foregroundColor(.secondary)
+                Text(templateFolderPath.isEmpty
+                     ? String(localized: "onboarding.template.no_folder")
+                     : URL(fileURLWithPath: templateFolderPath).lastPathComponent)
+                    .font(.system(size: 12))
+                    .foregroundColor(templateFolderPath.isEmpty ? .secondary : .primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button(String(localized: "onboarding.template.select_folder")) {
+                    selectTemplateFolder()
+                }
+                .controlSize(.small)
+            }
+            .padding(10)
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(6)
+
+            // Scanning indicator
+            if isScanningTemplate {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(localized: "onboarding.template.scanning"))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 4)
+            }
+
+            // Boom preview
+            if let tree = scannedFolderTree, !isScanningTemplate {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(String(localized: "onboarding.template.preview_title"))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 1) {
+                            let flatItems = flattenTree(tree)
+                            ForEach(Array(flatItems.enumerated()), id: \.offset) { _, item in
+                                folderTreeRow(item.node, depth: item.depth)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 150)
+                    .padding(8)
+                    .background(Color(NSColor.textBackgroundColor))
+                    .cornerRadius(4)
+                }
+            }
+
+            // AI analyse indicator
+            if isAnalyzingTemplate {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(localized: "onboarding.template.analyzing"))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 4)
+            }
+
+            // Mapping resultaat
+            if let mapping = templateMapping, !isAnalyzingTemplate {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(String(localized: "onboarding.template.mapping_title"))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        mappingRow("Music", path: mapping.musicPath)
+                        mappingRow("SFX", path: mapping.sfxPath)
+                        mappingRow("Voice Over", path: mapping.voPath)
+                        mappingRow("Graphics", path: mapping.graphicsPath)
+                        mappingRow("Motion Graphics", path: mapping.motionGraphicsPath)
+                        mappingRow("Stock Footage", path: mapping.stockFootagePath)
+                    }
+                    .padding(8)
+                    .background(Color(NSColor.textBackgroundColor))
+                    .cornerRadius(4)
+
+                    if let desc = mapping.description {
+                        Text(desc)
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                            .italic()
+                    }
+                }
+            }
+
+            // Error
+            if let error = templateError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.system(size: 12))
+                    Text(error)
+                        .font(.system(size: 12))
+                        .foregroundColor(.orange)
+                }
+                .padding(.horizontal, 4)
+
+                Button(String(localized: "onboarding.template.retry")) {
+                    retryTemplateAnalysis()
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(.top, 4)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    /// Flatten de boom naar een lijst van (node, depth) tuples voor niet-recursieve rendering
+    private func flattenTree(_ node: FolderNode, depth: Int = 0) -> [(node: FolderNode, depth: Int)] {
+        var result = [(node: node, depth: depth)]
+        for child in node.children {
+            result += flattenTree(child, depth: depth + 1)
+        }
+        return result
+    }
+
+    private func folderTreeRow(_ node: FolderNode, depth: Int) -> some View {
+        HStack(spacing: 4) {
+            Text(String(repeating: "  ", count: depth))
+                .font(.system(size: 11, design: .monospaced))
+            Image(systemName: depth == 0 ? "folder.fill" : "folder")
+                .foregroundColor(depth == 0 ? .accentColor : .secondary)
+                .font(.system(size: 10))
+            Text(node.name)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(depth == 0 ? .primary : .secondary)
+        }
+    }
+
+    private func mappingRow(_ label: String, path: String?) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 100, alignment: .leading)
+            Image(systemName: "arrow.right")
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
+            Text(path ?? String(localized: "onboarding.template.not_detected"))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(path != nil ? .primary : .secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    private func selectTemplateFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = String(localized: "onboarding.template.panel_message")
+
+        if panel.runModal() == .OK, let url = panel.url {
+            templateFolderPath = url.path
+            templateError = nil
+            templateMapping = nil
+            isScanningTemplate = true
+
+            Task {
+                // Stap 1: Scan
+                let tree = FolderTemplateService.shared.scanFolderTree(at: url)
+                await MainActor.run {
+                    scannedFolderTree = tree
+                    isScanningTemplate = false
+                    isAnalyzingTemplate = true
+                }
+
+                // Stap 2: AI Analyse
+                do {
+                    let mapping = try await FolderTemplateService.shared.analyzeStructure(
+                        tree: tree,
+                        deviceId: appState.config.anonymousId
+                    )
+                    await MainActor.run {
+                        templateMapping = mapping
+                        isAnalyzingTemplate = false
+                    }
+                } catch {
+                    await MainActor.run {
+                        templateError = error.localizedDescription
+                        isAnalyzingTemplate = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func retryTemplateAnalysis() {
+        guard let tree = scannedFolderTree else { return }
+        templateError = nil
+        isAnalyzingTemplate = true
+
+        Task {
+            do {
+                let mapping = try await FolderTemplateService.shared.analyzeStructure(
+                    tree: tree,
+                    deviceId: appState.config.anonymousId
+                )
+                await MainActor.run {
+                    templateMapping = mapping
+                    isAnalyzingTemplate = false
+                }
+            } catch {
+                await MainActor.run {
+                    templateError = error.localizedDescription
+                    isAnalyzingTemplate = false
+                }
+            }
         }
     }
 
@@ -941,6 +1180,19 @@ struct OnboardingView: View {
             appState.config.savesFilesNextToProject = savesFilesNextToProject
             appState.config.userWorkflowType = selectedWorkflowType
             appState.config.folderStructurePreset = selectedFolderStructure
+
+            // Sla custom folder template op als .custom geselecteerd en analyse voltooid
+            if selectedFolderStructure == .custom,
+               let tree = scannedFolderTree,
+               let mapping = templateMapping {
+                appState.config.customFolderTemplate = CustomFolderTemplate(
+                    sourcePath: templateFolderPath,
+                    folderTree: tree,
+                    mapping: mapping,
+                    createdAt: Date(),
+                    lastUpdatedAt: Date()
+                )
+            }
             appState.saveConfig()
 
         case .autoStart:

@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 /// Beheert het menubar icoon en de popover die verschijnt bij klik of nieuwe downloads
-class StatusBarController: NSObject {
+class StatusBarController: NSObject, NSPopoverDelegate {
     static let shared = StatusBarController()
 
     private var statusItem: NSStatusItem
@@ -18,6 +18,7 @@ class StatusBarController: NSObject {
         popover.contentSize = NSSize(width: 520, height: 500)
         popover.behavior = .transient // Sluit automatisch bij klik erbuiten
         popover.animates = true
+        popover.delegate = self
 
         let hostingController = NSHostingController(rootView: MenuBarView())
         popover.contentViewController = hostingController
@@ -33,6 +34,15 @@ class StatusBarController: NSObject {
             }
             button.action = #selector(togglePopover(_:))
             button.target = self
+        }
+    }
+
+    // MARK: - NSPopoverDelegate
+
+    func popoverDidClose(_ notification: Notification) {
+        // Clear afgeronde items uit de queue wanneer de popover sluit
+        DispatchQueue.main.async {
+            AppState.shared.clearFinishedItems()
         }
     }
 

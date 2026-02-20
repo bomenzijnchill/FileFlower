@@ -10,16 +10,80 @@
 		5B13695E2EC67D6D001CF7C9 /* NIO in Frameworks */ = {isa = PBXBuildFile; productRef = 5B13695D2EC67D6D001CF7C9 /* NIO */; };
 		5B1369602EC67D6D001CF7C9 /* NIOHTTP1 in Frameworks */ = {isa = PBXBuildFile; productRef = 5B13695F2EC67D6D001CF7C9 /* NIOHTTP1 */; };
 		5B7047DF2EFEABF000BD3D60 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5B7047DE2EFEABF000BD3D60 /* Sparkle */; };
+		5BB38DB22F476B040030A79F /* FileFlowerFinderSync.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5BB38DAB2F476B040030A79F /* FileFlowerFinderSync.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5BB38DB02F476B040030A79F /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5B13690C2EC67B6F001CF7C9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5BB38DAA2F476B040030A79F;
+			remoteInfo = FileFlowerFinderSync;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5BB38DB32F476B040030A79F /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				5BB38DB22F476B040030A79F /* FileFlowerFinderSync.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		5B1369142EC67B6F001CF7C9 /* FileFlower.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FileFlower.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5BB38DAB2F476B040030A79F /* FileFlowerFinderSync.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FileFlowerFinderSync.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		5BB38DB62F476B040030A79F /* Exceptions for "FileFlowerFinderSync" folder in "FileFlowerFinderSync" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 5BB38DAA2F476B040030A79F /* FileFlowerFinderSync */;
+		};
+		5BB38DBA2F476D280030A79F /* Exceptions for "FileFlower" folder in "FileFlowerFinderSync" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Shared/SharedConfig.swift,
+				Shared/SharedConfigReader.swift,
+				Shared/TemplateDeployer.swift,
+			);
+			target = 5BB38DAA2F476B040030A79F /* FileFlowerFinderSync */;
+		};
+		5BB38DBD2F485ED10030A79F /* Exceptions for "FileFlower" folder in "FileFlower" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 5B1369132EC67B6F001CF7C9 /* FileFlower */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		5B1369162EC67B6F001CF7C9 /* FileFlower */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				5BB38DBD2F485ED10030A79F /* Exceptions for "FileFlower" folder in "FileFlower" target */,
+				5BB38DBA2F476D280030A79F /* Exceptions for "FileFlower" folder in "FileFlowerFinderSync" target */,
+			);
 			path = FileFlower;
+			sourceTree = "<group>";
+		};
+		5BB38DAC2F476B040030A79F /* FileFlowerFinderSync */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				5BB38DB62F476B040030A79F /* Exceptions for "FileFlowerFinderSync" folder in "FileFlowerFinderSync" target */,
+			);
+			path = FileFlowerFinderSync;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -35,6 +99,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5BB38DA82F476B040030A79F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -42,6 +113,7 @@
 			isa = PBXGroup;
 			children = (
 				5B1369162EC67B6F001CF7C9 /* FileFlower */,
+				5BB38DAC2F476B040030A79F /* FileFlowerFinderSync */,
 				5B1369152EC67B6F001CF7C9 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -50,6 +122,7 @@
 			isa = PBXGroup;
 			children = (
 				5B1369142EC67B6F001CF7C9 /* FileFlower.app */,
+				5BB38DAB2F476B040030A79F /* FileFlowerFinderSync.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -65,10 +138,12 @@
 				5B1369112EC67B6F001CF7C9 /* Frameworks */,
 				5B1369122EC67B6F001CF7C9 /* Resources */,
 				FF0000012EC67B71001CF7C9 /* Bundle Plugins */,
+				5BB38DB32F476B040030A79F /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				5BB38DB12F476B040030A79F /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				5B1369162EC67B6F001CF7C9 /* FileFlower */,
@@ -83,6 +158,28 @@
 			productReference = 5B1369142EC67B6F001CF7C9 /* FileFlower.app */;
 			productType = "com.apple.product-type.application";
 		};
+		5BB38DAA2F476B040030A79F /* FileFlowerFinderSync */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5BB38DB72F476B040030A79F /* Build configuration list for PBXNativeTarget "FileFlowerFinderSync" */;
+			buildPhases = (
+				5BB38DA72F476B040030A79F /* Sources */,
+				5BB38DA82F476B040030A79F /* Frameworks */,
+				5BB38DA92F476B040030A79F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5BB38DAC2F476B040030A79F /* FileFlowerFinderSync */,
+			);
+			name = FileFlowerFinderSync;
+			packageProductDependencies = (
+			);
+			productName = FileFlowerFinderSync;
+			productReference = 5BB38DAB2F476B040030A79F /* FileFlowerFinderSync.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -90,11 +187,14 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2610;
-				LastUpgradeCheck = 2610;
+				LastSwiftUpdateCheck = 2620;
+				LastUpgradeCheck = 2620;
 				TargetAttributes = {
 					5B1369132EC67B6F001CF7C9 = {
 						CreatedOnToolsVersion = 26.1;
+					};
+					5BB38DAA2F476B040030A79F = {
+						CreatedOnToolsVersion = 26.2;
 					};
 				};
 			};
@@ -117,12 +217,20 @@
 			projectRoot = "";
 			targets = (
 				5B1369132EC67B6F001CF7C9 /* FileFlower */,
+				5BB38DAA2F476B040030A79F /* FileFlowerFinderSync */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		5B1369122EC67B6F001CF7C9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5BB38DA92F476B040030A79F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -164,7 +272,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5BB38DA72F476B040030A79F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5BB38DB12F476B040030A79F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5BB38DAA2F476B040030A79F /* FileFlowerFinderSync */;
+			targetProxy = 5BB38DB02F476B040030A79F /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		5B13691D2EC67B71001CF7C9 /* Debug */ = {
@@ -201,6 +324,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = JWD857B8TF;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -226,6 +350,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -265,6 +390,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = JWD857B8TF;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -283,6 +409,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -292,25 +419,32 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				AUTOMATION_APPLE_EVENTS = YES;
 				CODE_SIGN_ENTITLEMENTS = FileFlower/FileFlower.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 12;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = JWD857B8TF;
 				ENABLE_APP_SANDBOX = NO;
+				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FileFlower/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.fileflower.app;
 				PRODUCT_NAME = FileFlower;
 				REGISTER_APP_GROUPS = YES;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -325,28 +459,103 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				AUTOMATION_APPLE_EVENTS = YES;
 				CODE_SIGN_ENTITLEMENTS = FileFlower/FileFlower.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 12;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = JWD857B8TF;
 				ENABLE_APP_SANDBOX = NO;
+				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FileFlower/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.2;
+				MARKETING_VERSION = 1.5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.fileflower.app;
 				PRODUCT_NAME = FileFlower;
 				REGISTER_APP_GROUPS = YES;
+				RUNTIME_EXCEPTION_ALLOW_UNSIGNED_EXECUTABLE_MEMORY = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		5BB38DB42F476B040030A79F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = JWD857B8TF;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FileFlowerFinderSync/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = FileFlowerFinderSync;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fileflower.app.FileFlowerFinderSync;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		5BB38DB52F476B040030A79F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = JWD857B8TF;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FileFlowerFinderSync/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = FileFlowerFinderSync;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.fileflower.app.FileFlowerFinderSync;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -370,6 +579,15 @@
 			buildConfigurations = (
 				5B1369202EC67B71001CF7C9 /* Debug */,
 				5B1369212EC67B71001CF7C9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5BB38DB72F476B040030A79F /* Build configuration list for PBXNativeTarget "FileFlowerFinderSync" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5BB38DB42F476B040030A79F /* Debug */,
+				5BB38DB52F476B040030A79F /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -780,8 +780,11 @@ struct AddFolderSyncForm: View {
             .padding(.vertical, 10)
             .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
         }
+        .task {
+            await appState.refreshRecentProjects()
+        }
     }
-    
+
     private func selectFolder() {
         // Gebruik DispatchQueue om de panel te openen nadat de huidige event loop is afgerond
         // Dit voorkomt problemen met MenuBarExtra

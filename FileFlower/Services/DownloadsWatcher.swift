@@ -535,28 +535,52 @@ class DownloadsWatcher {
                 }
                 return
             }
-            
-            print("DownloadsWatcher: File is stable: \(url.lastPathComponent)")
-            
-            // Double-check if file/folder is still not known (might have been marked as known during stability check)
-            var shouldSkip = false
-            self.accessQueue.sync {
-                if self.knownFiles.contains(url.path) {
-                    shouldSkip = true
-                }
-            }
-            
-            if shouldSkip {
-                print("DownloadsWatcher: Skipping \(url.lastPathComponent) - marked as known during stability check")
-                self.accessQueue.async(flags: .barrier) {
-                    self.processingFiles.remove(url.path)
+
+            // Extra stability check voor ZIP bestanden - ZIPs worden soms in blokken geschreven
+            let isZip = url.pathExtension.lowercased() == "zip"
+            if isZip {
+                print("DownloadsWatcher: ZIP detected, extra stability check: \(url.lastPathComponent)")
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3.0) {
+                    guard FileManager.default.fileExists(atPath: url.path) else { return }
+                    guard let finalAttrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                          let finalSize = finalAttrs[.size] as? Int64 else { return }
+
+                    if finalSize != newSize {
+                        print("DownloadsWatcher: ZIP still downloading after extra check: \(url.lastPathComponent)")
+                        self.verifyAndProcessFile(url: url)
+                        return
+                    }
+
+                    print("DownloadsWatcher: ZIP is stable after extra check: \(url.lastPathComponent)")
+                    self.continueAfterStabilityCheck(url: url)
                 }
                 return
             }
-            
-            // Check quarantine attribute asynchronously
-            self.checkQuarantineAndProcess(url: url)
+
+            print("DownloadsWatcher: File is stable: \(url.lastPathComponent)")
+            self.continueAfterStabilityCheck(url: url)
         }
+    }
+
+    private func continueAfterStabilityCheck(url: URL) {
+        // Double-check if file/folder is still not known (might have been marked as known during stability check)
+        var shouldSkip = false
+        self.accessQueue.sync {
+            if self.knownFiles.contains(url.path) {
+                shouldSkip = true
+            }
+        }
+
+        if shouldSkip {
+            print("DownloadsWatcher: Skipping \(url.lastPathComponent) - marked as known during stability check")
+            self.accessQueue.async(flags: .barrier) {
+                self.processingFiles.remove(url.path)
+            }
+            return
+        }
+
+        // Check quarantine attribute asynchronously
+        self.checkQuarantineAndProcess(url: url)
     }
     
     private func checkQuarantineAndProcess(url: URL) {
@@ -727,12 +751,12 @@ class DownloadsWatcher {
             return true
         }
         
-        // Check if origin URL matches stock websites
+        // Check if origin URL matches stock or cloud storage websites
         guard let origin = originURL?.lowercased() else {
             print("DownloadsWatcher: No origin URL found - skipping")
             return false
         }
-        
+
         // Check blacklist first
         for blacklisted in config.blacklistedWebsites {
             if origin.contains(blacklisted.lowercased()) {
@@ -740,7 +764,15 @@ class DownloadsWatcher {
                 return false
             }
         }
-        
+
+        // Check cloud storage websites (Dropbox, Google Drive)
+        for cloudSite in config.cloudStorageWebsites {
+            if origin.contains(cloudSite.lowercased()) {
+                print("DownloadsWatcher: Origin URL matches cloud storage: \(cloudSite)")
+                return true
+            }
+        }
+
         // Check if origin matches any stock website (standaard + custom)
         let allStockWebsites = config.stockWebsites
         for stockSite in allStockWebsites {
@@ -763,6 +795,12 @@ class DownloadsWatcher {
     
     private func extractZipAndProcess(url: URL, originURL: String?) {
         print("DownloadsWatcher: Extracting ZIP file: \(url.lastPathComponent)")
+
+        // Check of dit een Google Drive multi-part ZIP is
+        if CloudZipMerger.shared.isGoogleDriveMultiPart(url) {
+            handleGoogleDriveMultiPartZip(url: url, originURL: originURL)
+            return
+        }
         
         // Get the folder name BEFORE extraction so we can mark it as known
         let downloadsDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
@@ -799,45 +837,18 @@ class DownloadsWatcher {
                 
                 print("DownloadsWatcher: Marked all \(extractedFiles.count) extracted files as known")
                 
-                if isMusicZip {
-                    // For music ZIPs, treat the entire folder as one item
-                    print("DownloadsWatcher: Music ZIP detected - treating folder as single item: \(extractFolder.lastPathComponent)")
-                    
+                // Behandel ALLE ZIPs als map-item: de extracted folder wordt als 1 item verwerkt
+                // Dit behoudt de mapstructuur (bijv. Epidemic Sound stems blijven bij elkaar)
+                if extractedFiles.isEmpty {
+                    print("DownloadsWatcher: ZIP contains no files - skipping")
+                } else {
+                    let typeLabel = isMusicZip ? "Music" : "Non-music"
+                    print("DownloadsWatcher: \(typeLabel) ZIP detected - treating folder as single item: \(extractFolder.lastPathComponent) (\(extractedFiles.count) files)")
+
                     // Process the folder as a single item (use same origin URL as ZIP)
                     DispatchQueue.main.async {
-                        print("DownloadsWatcher: Calling callback for music folder: \(extractFolder.lastPathComponent)")
                         if let callback = self.onNewFile {
                             callback(extractFolder, originURL)
-                        }
-                    }
-                } else {
-                    // For non-music ZIPs, process each extracted file individually
-                    // But filter out files with unsupported extensions
-                    let supportedFiles = extractedFiles.filter { fileURL in
-                        let ext = fileURL.pathExtension.lowercased()
-                        if ext.isEmpty {
-                            return false
-                        }
-                        if self.allowedExtensions.contains(ext) {
-                            return true
-                        } else {
-                            print("DownloadsWatcher: Skipping extracted file \(fileURL.lastPathComponent) - file type '\(ext)' not supported")
-                            return false
-                        }
-                    }
-                    
-                    if supportedFiles.isEmpty {
-                        print("DownloadsWatcher: Non-music ZIP contains no supported files - skipping")
-                    } else {
-                        print("DownloadsWatcher: Non-music ZIP - processing \(supportedFiles.count) supported files (skipped \(extractedFiles.count - supportedFiles.count) unsupported)")
-                        
-                        // Process each supported extracted file (use same origin URL as ZIP)
-                        for extractedFile in supportedFiles {
-                            DispatchQueue.main.async {
-                                if let callback = self.onNewFile {
-                                    callback(extractedFile, originURL)
-                                }
-                            }
                         }
                     }
                 }
@@ -883,6 +894,75 @@ class DownloadsWatcher {
         return isExtracting
     }
     
+    // MARK: - Google Drive Multi-Part ZIP Handling
+
+    private func handleGoogleDriveMultiPartZip(url: URL, originURL: String?) {
+        print("DownloadsWatcher: Google Drive multi-part ZIP gedetecteerd: \(url.lastPathComponent)")
+
+        // Markeer als known om re-detectie te voorkomen
+        accessQueue.sync(flags: .barrier) {
+            self.processingFiles.insert(url.path)
+            self.knownFiles.insert(url.path)
+        }
+
+        let status = CloudZipMerger.shared.addPart(url, originURL: originURL)
+
+        switch status {
+        case .allPartsReceived(let baseName):
+            mergeAndProcessGoogleDriveGroup(baseName: baseName, originURL: originURL)
+        case .waitingForMore(_, let received, let expected):
+            print("DownloadsWatcher: Wachten op meer delen (\(received)/\(expected))")
+        }
+    }
+
+    func setupCloudZipMergerCallback() {
+        CloudZipMerger.shared.onGroupReady = { [weak self] baseName, originURL in
+            self?.mergeAndProcessGoogleDriveGroup(baseName: baseName, originURL: originURL)
+        }
+    }
+
+    private func mergeAndProcessGoogleDriveGroup(baseName: String, originURL: String?) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let mergedFiles = try CloudZipMerger.shared.mergeGroup(baseName: baseName)
+
+                // Markeer alle merged bestanden als known
+                self.accessQueue.sync(flags: .barrier) {
+                    for fileURL in mergedFiles {
+                        self.knownFiles.insert(fileURL.path)
+                    }
+                }
+
+                // Stuur elk ondersteund bestand naar de callback voor classificatie
+                let supportedFiles = mergedFiles.filter { fileURL in
+                    let ext = fileURL.pathExtension.lowercased()
+                    if ext.isEmpty { return false }
+                    if self.allowedExtensions.contains(ext) {
+                        return true
+                    } else {
+                        print("DownloadsWatcher: Skip merged bestand \(fileURL.lastPathComponent) — type '\(ext)' niet ondersteund")
+                        return false
+                    }
+                }
+
+                if supportedFiles.isEmpty {
+                    print("DownloadsWatcher: Google Drive merge bevat geen ondersteunde bestanden")
+                } else {
+                    print("DownloadsWatcher: Google Drive merge — \(supportedFiles.count) ondersteunde bestanden verwerken")
+                    for fileURL in supportedFiles {
+                        DispatchQueue.main.async {
+                            if let callback = self.onNewFile {
+                                callback(fileURL, originURL)
+                            }
+                        }
+                    }
+                }
+            } catch {
+                print("DownloadsWatcher: Google Drive merge mislukt: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func processFile(url: URL, originURL: String?) {
         // Thread-safe: Mark file as known and remove from processing
         self.accessQueue.async(flags: .barrier) {

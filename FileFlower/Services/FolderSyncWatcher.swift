@@ -45,21 +45,29 @@ class FolderSyncWatcher {
     
     // MARK: - Public Methods
     
+    /// Check of een sync actief gemonitord wordt
+    func isWatching(syncId: UUID) -> Bool {
+        return streams[syncId] != nil
+    }
+
     /// Start monitoring voor een folder sync
     func startWatching(sync: FolderSync) {
         guard sync.isEnabled else {
             print("FolderSyncWatcher: Sync \(sync.id) is uitgeschakeld, niet starten")
             return
         }
-        
+
         // Stop bestaande stream als die er is
         stopWatching(syncId: sync.id)
-        
+
         print("FolderSyncWatcher: Start monitoring voor map: \(sync.folderPath)")
-        
-        // Initialiseer processed files set met bestaande hashes
+
+        // Initialiseer processed files set met bestaande hashes — NIET overschrijven als er al
+        // in-flight hashes zijn (voorkomt dubbele syncs bij race condition)
         accessQueue.async(flags: .barrier) {
-            self.processedFiles[sync.id] = sync.syncedFileHashes
+            if self.processedFiles[sync.id] == nil {
+                self.processedFiles[sync.id] = sync.syncedFileHashes
+            }
         }
         
         // Start FSEvents stream
@@ -265,7 +273,7 @@ class FolderSyncWatcher {
     
     /// Verwerk een batch van bestanden (geen kopiëren — bestanden staan al in de projectmap)
     private func processBatch(files: [URL], sync: FolderSync) async {
-        var batchedFiles: [String: [(sourceURL: URL, fileHash: String)]] = [:]
+        var batchedFiles: [(sourceURL: URL, fileHash: String)] = []
         var syncedCount = 0
 
         // Bereken Premiere bin path (één keer, geldt voor hele batch)
@@ -283,44 +291,33 @@ class FolderSyncWatcher {
                 continue
             }
 
+            // Markeer als in-flight zodat duplicaten binnen dezelfde sessie worden overgeslagen
             accessQueue.async(flags: .barrier) {
                 self.processedFiles[sync.id]?.insert(fileHash)
             }
 
-            if batchedFiles[premiereBinPath] == nil {
-                batchedFiles[premiereBinPath] = []
-            }
-            batchedFiles[premiereBinPath]?.append((sourceURL: fileURL, fileHash: fileHash))
+            batchedFiles.append((sourceURL: fileURL, fileHash: fileHash))
             syncedCount += 1
         }
 
-        // Update config
-        await MainActor.run {
-            if let index = AppState.shared.config.folderSyncs.firstIndex(where: { $0.id == sync.id }) {
-                for (_, files) in batchedFiles {
-                    for file in files {
-                        AppState.shared.config.folderSyncs[index].syncedFileHashes.insert(file.fileHash)
-                    }
-                }
-                AppState.shared.config.folderSyncs[index].lastSyncDate = Date()
-                AppState.shared.saveConfig()
-            }
+        guard !batchedFiles.isEmpty else { return }
 
+        await MainActor.run {
             onStatusChange?(sync.id, .syncing(progress: 0.5, currentFile: "Importeren \(syncedCount) bestanden..."))
         }
 
-        // Maak gebatchte jobs — gebruik originele bestandspaden
-        for (binPath, files) in batchedFiles {
-            let job = JobRequest(
-                projectPath: sync.projectPath,
-                finderTargetDir: sync.folderPath,
-                premiereBinPath: binPath,
-                files: files.map { $0.sourceURL.path }
-            )
+        // Maak job met pendingHashes — hashes worden pas opgeslagen na succesvolle import
+        let job = JobRequest(
+            projectPath: sync.projectPath,
+            finderTargetDir: sync.folderPath,
+            premiereBinPath: premiereBinPath,
+            files: batchedFiles.map { $0.sourceURL.path },
+            syncId: sync.id,
+            pendingHashes: batchedFiles.map { $0.fileHash }
+        )
 
-            JobServer.shared.addJob(job)
-            print("FolderSyncWatcher: Batch job voor '\(binPath)' met \(files.count) bestanden")
-        }
+        JobServer.shared.addJob(job)
+        print("FolderSyncWatcher: Batch job voor '\(premiereBinPath)' met \(batchedFiles.count) bestanden")
 
         await MainActor.run {
             onStatusChange?(sync.id, .completed(fileCount: syncedCount))
@@ -401,6 +398,7 @@ class FolderSyncWatcher {
                 continue
             }
 
+            // Markeer als in-flight
             accessQueue.async(flags: .barrier) {
                 self.processedFiles[sync.id]?.insert(fileHash)
             }
@@ -410,18 +408,7 @@ class FolderSyncWatcher {
             syncedCount += 1
         }
 
-        // Update config met alle hashes
-        await MainActor.run {
-            if let index = AppState.shared.config.folderSyncs.firstIndex(where: { $0.id == sync.id }) {
-                for hash in fileHashes {
-                    AppState.shared.config.folderSyncs[index].syncedFileHashes.insert(hash)
-                }
-                AppState.shared.config.folderSyncs[index].lastSyncDate = Date()
-                AppState.shared.saveConfig()
-            }
-        }
-
-        // Maak één job met alle bestanden — gebruik originele paden
+        // Maak één job met alle bestanden en pendingHashes
         if !filePaths.isEmpty {
             await MainActor.run {
                 onStatusChange?(sync.id, .syncing(progress: 0.9, currentFile: "Importeren naar \(premiereBinPath) (\(syncedCount) bestanden)"))
@@ -431,7 +418,9 @@ class FolderSyncWatcher {
                 projectPath: sync.projectPath,
                 finderTargetDir: sync.folderPath,
                 premiereBinPath: premiereBinPath,
-                files: filePaths
+                files: filePaths,
+                syncId: sync.id,
+                pendingHashes: fileHashes
             )
 
             JobServer.shared.addJob(job)
@@ -460,29 +449,22 @@ class FolderSyncWatcher {
             return false
         }
 
-        // Markeer als verwerkt
+        // Markeer als in-flight
         accessQueue.async(flags: .barrier) {
             self.processedFiles[sync.id]?.insert(fileHash)
-        }
-
-        // Update config met nieuwe hash
-        await MainActor.run {
-            if let index = AppState.shared.config.folderSyncs.firstIndex(where: { $0.id == sync.id }) {
-                AppState.shared.config.folderSyncs[index].syncedFileHashes.insert(fileHash)
-                AppState.shared.config.folderSyncs[index].lastSyncDate = Date()
-                AppState.shared.saveConfig()
-            }
         }
 
         // Premiere bin path
         let premiereBinPath: String = sync.premiereBinRoot.isEmpty ? sync.folderName : sync.premiereBinRoot
 
-        // Maak job voor Premiere — gebruik origineel bestandspad
+        // Maak job voor Premiere met pendingHashes
         let job = JobRequest(
             projectPath: sync.projectPath,
             finderTargetDir: sync.folderPath,
             premiereBinPath: premiereBinPath,
-            files: [url.path]
+            files: [url.path],
+            syncId: sync.id,
+            pendingHashes: [fileHash]
         )
 
         JobServer.shared.addJob(job)

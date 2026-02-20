@@ -29,6 +29,32 @@ class PathResolver {
         musicMode: MusicMode,
         source: DetectedSource? = nil
     ) throws -> TargetFolder {
+        let config = AppState.shared.config
+
+        // Custom template pad: gebruik AI-gegenereerde mapping
+        if config.folderStructurePreset == .custom,
+           let template = config.customFolderTemplate {
+            return try resolveTargetWithCustomTemplate(
+                project: project,
+                assetType: assetType,
+                subfolder: subfolder,
+                musicMode: musicMode,
+                source: source,
+                template: template
+            )
+        }
+
+        // Flat preset: alles direct in project root
+        if config.folderStructurePreset == .flat {
+            let projectPathURL = URL(fileURLWithPath: project.projectPath)
+            let projectRoot = findProjectMainFolder(
+                prprojPath: projectPathURL,
+                configuredRootPath: project.rootPath
+            )
+            return TargetFolder(url: projectRoot, relativePath: projectRoot.path)
+        }
+
+        // Standard preset: bestaande logica
         // Find the project's main folder (where the .prproj file is located)
         // This is the folder that contains the project structure (03_Muziek, 04_SFX, etc.)
         let projectPathURL = URL(fileURLWithPath: project.projectPath)
@@ -133,6 +159,90 @@ class PathResolver {
         return TargetFolder(url: targetFolder, relativePath: targetFolder.path)
     }
     
+    // MARK: - Custom Template Routing
+
+    /// Resolve target folder op basis van de custom folder template mapping
+    private func resolveTargetWithCustomTemplate(
+        project: ProjectInfo,
+        assetType: AssetType,
+        subfolder: String?,
+        musicMode: MusicMode,
+        source: DetectedSource?,
+        template: CustomFolderTemplate
+    ) throws -> TargetFolder {
+        let projectPathURL = URL(fileURLWithPath: project.projectPath)
+        let projectRoot = findProjectMainFolder(
+            prprojPath: projectPathURL,
+            configuredRootPath: project.rootPath
+        )
+
+        print("PathResolver: Custom template routing vanuit: \(projectRoot.path)")
+
+        let mapping = template.mapping
+
+        // Zoek het pad voor dit asset type uit de AI mapping
+        let relativePath: String?
+        switch assetType {
+        case .music:
+            relativePath = mapping.musicPath
+        case .sfx:
+            relativePath = mapping.sfxPath
+        case .vo:
+            relativePath = mapping.voPath
+        case .graphic:
+            relativePath = mapping.graphicsPath
+        case .motionGraphic:
+            relativePath = mapping.motionGraphicsPath
+        case .stockFootage:
+            relativePath = mapping.stockFootagePath
+        case .unknown:
+            throw PathResolverError.unknownAssetType
+        }
+
+        guard let path = relativePath, !path.isEmpty else {
+            // Fallback naar standaard routing als mapping ontbreekt
+            print("PathResolver: Geen custom mapping voor \(assetType), fallback naar standaard")
+            // Gebruik de bestaande languageMapping als fallback
+            let fallbackNames: [String]
+            switch assetType {
+            case .music: fallbackNames = languageMapping["Music"] ?? ["Music"]
+            case .sfx: fallbackNames = languageMapping["SFX"] ?? ["SFX"]
+            case .vo: fallbackNames = languageMapping["VO"] ?? ["VO"]
+            case .graphic: fallbackNames = languageMapping["Graphics"] ?? ["Graphics"]
+            case .motionGraphic: fallbackNames = languageMapping["MotionGraphics"] ?? ["MotionGraphics"]
+            case .stockFootage: fallbackNames = ["StockFootage"]
+            case .unknown: throw PathResolverError.unknownAssetType
+            }
+            let targetFolder = try findOrCreateFolder(in: projectRoot, names: fallbackNames)
+            return TargetFolder(url: targetFolder, relativePath: targetFolder.path)
+        }
+
+        // Bouw target folder op basis van het relatieve pad uit de mapping
+        var targetFolder = projectRoot
+        for component in path.split(separator: "/") {
+            targetFolder = try findOrCreateFolder(in: targetFolder, names: [String(component)])
+        }
+
+        // Subfolder handling (mood/genre voor music, categorie voor SFX)
+        if let subfolder = subfolder, !subfolder.isEmpty {
+            switch assetType {
+            case .music:
+                let modeFolder = musicMode == .mood ? "Mood" : "Genre"
+                let modeFolderURL = try findOrCreateFolder(in: targetFolder, names: [modeFolder])
+                targetFolder = try findOrCreateFolder(in: modeFolderURL, names: [subfolder])
+            case .sfx:
+                targetFolder = try findOrCreateFolder(in: targetFolder, names: [subfolder])
+            default:
+                break
+            }
+        }
+
+        print("PathResolver: Custom template resolved -> \(targetFolder.path)")
+        return TargetFolder(url: targetFolder, relativePath: targetFolder.path)
+    }
+
+    // MARK: - Folder Helpers
+
     private func findOrCreateFolder(in parent: URL, names: [String]) throws -> URL {
         let fileManager = FileManager.default
         

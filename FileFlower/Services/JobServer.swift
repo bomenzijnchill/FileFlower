@@ -10,6 +10,7 @@ class JobServer {
     private var channel: Channel?
     private var pendingJobs: [UUID: JobRequest] = [:]
     private var completedJobs: [UUID: JobResult] = [:]
+    private var sentJobs: [UUID: JobRequest] = [:] // Jobs die naar de plugin zijn gestuurd (voor hash tracking)
     private var isRunning = false
     private let serverQueue = DispatchQueue(label: "com.fileflower.jobserver", qos: .userInitiated)
     
@@ -17,22 +18,41 @@ class JobServer {
     
     // Actief project vanuit Premiere Pro (gerapporteerd door CEP plugin)
     @Published private(set) var activeProjectPath: String?
-    private var lastActiveProjectUpdate: Date?
-    
+
+    // Thread-safe kopie voor gebruik vanuit NIO event loop (getNextJob)
+    private var lockedActiveProjectPath: String?
+    private var lockedLastActiveProjectUpdate: Date?
+    private let activeProjectLock = NSLock()
+
     private init() {}
-    
+
     /// Update het actieve project pad (aangeroepen vanuit HTTP handler)
     func updateActiveProject(path: String?) {
+        // Thread-safe update voor NIO event loop
+        activeProjectLock.lock()
+        lockedActiveProjectPath = path
+        lockedLastActiveProjectUpdate = Date()
+        activeProjectLock.unlock()
+
+        // Publiceer naar main thread voor @Published (SwiftUI observers)
         DispatchQueue.main.async {
             self.activeProjectPath = path
-            self.lastActiveProjectUpdate = Date()
         }
     }
-    
-    /// Check of het actieve project nog vers is (binnen 10 seconden)
+
+    /// Check of het actieve project nog vers is (binnen 10 seconden) — thread-safe
     var isActiveProjectFresh: Bool {
-        guard let lastUpdate = lastActiveProjectUpdate else { return false }
+        activeProjectLock.lock()
+        defer { activeProjectLock.unlock() }
+        guard let lastUpdate = lockedLastActiveProjectUpdate else { return false }
         return Date().timeIntervalSince(lastUpdate) < 10
+    }
+
+    /// Thread-safe lezing van actief project path
+    private var threadSafeActiveProjectPath: String? {
+        activeProjectLock.lock()
+        defer { activeProjectLock.unlock() }
+        return lockedActiveProjectPath
     }
     
     var isServerRunning: Bool {
@@ -115,7 +135,16 @@ class JobServer {
     }
     
     func getNextJob() -> JobRequest? {
-        guard let activePath = activeProjectPath, isActiveProjectFresh else {
+        guard let activePath = threadSafeActiveProjectPath else {
+            if !pendingJobs.isEmpty {
+                print("JobServer: getNextJob - geen actief project gerapporteerd, \(pendingJobs.count) jobs wachten")
+            }
+            return nil
+        }
+        guard isActiveProjectFresh else {
+            if !pendingJobs.isEmpty {
+                print("JobServer: getNextJob - actief project niet vers (>10s), \(pendingJobs.count) jobs wachten")
+            }
             return nil
         }
 
@@ -124,6 +153,8 @@ class JobServer {
         for (id, job) in pendingJobs {
             if normalizePath(job.projectPath) == normalizedActive {
                 pendingJobs.removeValue(forKey: id)
+                // Bewaar job zodat we pendingHashes kunnen opslaan bij completion
+                sentJobs[id] = job
                 print("JobServer: Job opgehaald door CEP plugin - id: \(id)")
                 print("JobServer: Remaining pending jobs: \(pendingJobs.count)")
                 return job
@@ -139,6 +170,54 @@ class JobServer {
     
     func completeJob(_ result: JobResult) {
         completedJobs[result.jobId] = result
+
+        // Haal de originele job op voor syncId en pendingHashes
+        guard let originalJob = sentJobs.removeValue(forKey: result.jobId),
+              let syncId = originalJob.syncId,
+              !originalJob.pendingHashes.isEmpty else {
+            return
+        }
+
+        // Bouw een mapping van filePath -> hash
+        var pathToHash: [String: String] = [:]
+        for (index, filePath) in originalJob.files.enumerated() {
+            if index < originalJob.pendingHashes.count {
+                pathToHash[filePath] = originalJob.pendingHashes[index]
+            }
+        }
+
+        // Verzamel hashes voor bestanden die succesvol geïmporteerd zijn OF al in Premiere stonden
+        var hashesToStore: Set<String> = []
+        for filePath in result.importedFiles {
+            if let hash = pathToHash[filePath] {
+                hashesToStore.insert(hash)
+            }
+        }
+        if let alreadyImported = result.alreadyImported {
+            for filePath in alreadyImported {
+                if let hash = pathToHash[filePath] {
+                    hashesToStore.insert(hash)
+                }
+            }
+        }
+
+        if !hashesToStore.isEmpty {
+            print("JobServer: Opslaan van \(hashesToStore.count) hashes voor sync \(syncId)")
+            DispatchQueue.main.async {
+                if let index = AppState.shared.config.folderSyncs.firstIndex(where: { $0.id == syncId }) {
+                    for hash in hashesToStore {
+                        AppState.shared.config.folderSyncs[index].syncedFileHashes.insert(hash)
+                    }
+                    AppState.shared.config.folderSyncs[index].lastSyncDate = Date()
+                    AppState.shared.saveConfig()
+                }
+            }
+        }
+
+        // Log gefaalde bestanden
+        if !result.failedFiles.isEmpty {
+            print("JobServer: \(result.failedFiles.count) bestanden gefaald, hashes NIET opgeslagen")
+        }
     }
 }
 
@@ -405,6 +484,74 @@ private class HTTPHandler: ChannelInboundHandler {
                 body: okBody
             )
             
+        // ============================================================================
+        // DEPLOY TEMPLATE - Finder Sync Extension stuurt deploy verzoek
+        // ============================================================================
+        case (.POST, "/deploy-template"):
+            if let body = body, body.readableBytes > 0 {
+                var mutableBody = body
+                if let bytes = mutableBody.readBytes(length: body.readableBytes) {
+                    let data = Data(bytes)
+
+                    do {
+                        if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let targetPath = json["targetPath"] as? String {
+                            let targetURL = URL(fileURLWithPath: targetPath)
+
+                            print("JobServer: Deploy template request voor: \(targetPath)")
+
+                            // Lees config direct uit AppState (main app is niet gesandboxed)
+                            let config = DeployConfig(
+                                folderStructurePreset: AppState.shared.config.folderStructurePreset,
+                                customFolderTemplate: AppState.shared.config.customFolderTemplate
+                            )
+
+                            let count = try TemplateDeployer.deploy(to: targetURL, config: config)
+
+                            print("JobServer: \(count) mappen aangemaakt in \(targetPath)")
+
+                            var okBody = context.channel.allocator.buffer(capacity: 100)
+                            okBody.writeString("{\"status\":\"ok\",\"created\":\(count)}")
+                            response = (
+                                head: HTTPResponseHead(version: .http1_1, status: .ok),
+                                body: okBody
+                            )
+                        } else {
+                            var errorBody = context.channel.allocator.buffer(capacity: 100)
+                            errorBody.writeString("{\"status\":\"error\",\"message\":\"Missing targetPath\"}")
+                            response = (
+                                head: HTTPResponseHead(version: .http1_1, status: .badRequest),
+                                body: errorBody
+                            )
+                        }
+                    } catch {
+                        print("JobServer: Deploy error: \(error.localizedDescription)")
+                        let escapedError = error.localizedDescription
+                            .replacingOccurrences(of: "\"", with: "\\\"")
+                        var errorBody = context.channel.allocator.buffer(capacity: 200)
+                        errorBody.writeString("{\"status\":\"error\",\"message\":\"\(escapedError)\"}")
+                        response = (
+                            head: HTTPResponseHead(version: .http1_1, status: .internalServerError),
+                            body: errorBody
+                        )
+                    }
+                } else {
+                    var errorBody = context.channel.allocator.buffer(capacity: 50)
+                    errorBody.writeString("{\"status\":\"error\",\"message\":\"Empty body\"}")
+                    response = (
+                        head: HTTPResponseHead(version: .http1_1, status: .badRequest),
+                        body: errorBody
+                    )
+                }
+            } else {
+                var errorBody = context.channel.allocator.buffer(capacity: 50)
+                errorBody.writeString("{\"status\":\"error\",\"message\":\"No body\"}")
+                response = (
+                    head: HTTPResponseHead(version: .http1_1, status: .badRequest),
+                    body: errorBody
+                )
+            }
+
         default:
             var notFoundBody = context.channel.allocator.buffer(capacity: 30)
             notFoundBody.writeString("{\"error\":\"not found\"}")
