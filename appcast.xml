@@ -9,6 +9,30 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 1.8.0</title>
+            <sparkle:version>15</sparkle:version>
+            <sparkle:shortVersionString>1.8.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>Finder extensie onboarding &amp; fixes</h2>
+                <ul>
+                    <li>Nieuw: Onboarding stap voor Finder extensie activatie</li>
+                    <li>Nieuw: Automatische extensie registratie via pluginkit bij app-start</li>
+                    <li>Nieuw: Live status check of Finder extensie actief is</li>
+                    <li>Nieuw: Knop om Systeeminstellingen direct te openen</li>
+                    <li>Fix: Finder extensie was niet zichtbaar op nieuwe installaties</li>
+                </ul>
+            ]]></description>
+            <pubDate>Mon, 24 Feb 2026 12:00:00 +0100</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v1.8.0/FileFlower.dmg"
+                sparkle:edSignature="vipq2X1fvlpSK25WJ/f6dZHea1myQdf8jZaYQsL3o414l+VUcATpxldIV3Zm/8KuhWXR4yR0XEITbTwTK+n3Aw=="
+                length="4898461"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 1.7.0</title>
             <sparkle:version>14</sparkle:version>
             <sparkle:shortVersionString>1.7.0</sparkle:shortVersionString>
