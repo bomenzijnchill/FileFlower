@@ -8,6 +8,7 @@ class SetupManager {
     // MARK: - Constants
     
     private let hasCompletedOnboardingKey = "hasCompletedOnboarding"
+    private let lastOnboardingVersionKey = "lastOnboardingVersion"
     private let installedPremierePluginVersionKey = "installedPremierePluginVersion"
     private let installedChromeExtensionVersionKey = "installedChromeExtensionVersion"
     
@@ -37,10 +38,20 @@ class SetupManager {
         set { UserDefaults.standard.set(newValue, forKey: hasCompletedOnboardingKey) }
     }
     
-    /// Markeer onboarding als voltooid
+    /// Markeer onboarding als voltooid en sla de huidige versie op
     func completeOnboarding() {
         hasCompletedOnboarding = true
-        print("SetupManager: Onboarding voltooid")
+        let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        UserDefaults.standard.set(currentVersion, forKey: lastOnboardingVersionKey)
+        print("SetupManager: Onboarding voltooid voor versie \(currentVersion)")
+    }
+
+    /// Check of de onboarding opnieuw getoond moet worden na een app update
+    var shouldShowOnboardingForUpdate: Bool {
+        guard hasCompletedOnboarding else { return false }
+        let lastVersion = UserDefaults.standard.string(forKey: lastOnboardingVersionKey) ?? "0"
+        let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        return lastVersion != currentVersion
     }
     
     /// Reset onboarding status (voor testing)
@@ -261,7 +272,25 @@ class SetupManager {
     private let finderExtensionBundleID = "com.fileflower.app.FileFlowerFinderSync"
 
     /// Registreer de FinderSync extensie bij macOS via pluginkit
+    /// Stap 1: Voeg de appex expliciet toe aan de pluginkit database
+    /// Stap 2: Activeer de extensie
     func registerFinderExtension() {
+        // Stap 1: Registreer de appex expliciet bij pluginkit
+        if let appexPath = Bundle.main.builtInPlugInsURL?
+            .appendingPathComponent("FileFlowerFinderSync.appex").path {
+            let addProcess = Process()
+            addProcess.executableURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
+            addProcess.arguments = ["-a", appexPath]
+            do {
+                try addProcess.run()
+                addProcess.waitUntilExit()
+                print("SetupManager: FinderSync appex geregistreerd via pluginkit -a (status \(addProcess.terminationStatus))")
+            } catch {
+                print("SetupManager: Fout bij pluginkit -a: \(error)")
+            }
+        }
+
+        // Stap 2: Activeer de extensie
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
         process.arguments = ["-e", "use", "-i", finderExtensionBundleID]
@@ -270,20 +299,20 @@ class SetupManager {
             try process.run()
             process.waitUntilExit()
             if process.terminationStatus == 0 {
-                print("SetupManager: FinderSync extensie geregistreerd via pluginkit")
+                print("SetupManager: FinderSync extensie geactiveerd via pluginkit -e use")
             } else {
-                print("SetupManager: pluginkit registratie mislukt (status \(process.terminationStatus))")
+                print("SetupManager: pluginkit -e use mislukt (status \(process.terminationStatus))")
             }
         } catch {
-            print("SetupManager: Fout bij registreren FinderSync extensie: \(error)")
+            print("SetupManager: Fout bij activeren FinderSync extensie: \(error)")
         }
     }
 
-    /// Check of de FinderSync extensie actief is
+    /// Check of de FinderSync extensie actief is via pluginkit
     func isFinderExtensionEnabled() -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
-        process.arguments = ["-m", "-i", finderExtensionBundleID]
+        process.arguments = ["-m", "-p", "com.apple.FinderSync"]
 
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -293,8 +322,11 @@ class SetupManager {
             process.waitUntilExit()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             let output = String(data: data, encoding: .utf8) ?? ""
-            // pluginkit -m geeft output als de extensie gevonden en actief is
-            let enabled = !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            // Zoek naar onze bundle ID met een "+" (enabled) status
+            let lines = output.components(separatedBy: "\n")
+            let enabled = lines.contains { line in
+                line.contains(finderExtensionBundleID) && line.contains("+")
+            }
             print("SetupManager: FinderSync extensie enabled: \(enabled)")
             return enabled
         } catch {
@@ -303,10 +335,10 @@ class SetupManager {
         }
     }
 
-    /// Open Systeeminstellingen op de extensies pagina
+    /// Open Systeeminstellingen op de Login Items & Extensions pagina
+    /// Op macOS 13+ verschijnen FinderSync extensies onder General > Login Items & Extensions
     func openFinderExtensionSettings() {
-        // macOS 13+ (Ventura): nieuwe Systeeminstellingen URL
-        if let url = URL(string: "x-apple.systempreferences:com.apple.ExtensionsPreferences") {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
             NSWorkspace.shared.open(url)
         }
     }

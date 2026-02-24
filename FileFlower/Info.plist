@@ -6,5 +6,11 @@
 	<string>https://raw.githubusercontent.com/bomenzijnchill/FileFlower/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>oWWt8NyrmxynJTYN6cxAD9thNfjcix+dIAkrgLmVWn0=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>3600</integer>
 </dict>
 </plist>

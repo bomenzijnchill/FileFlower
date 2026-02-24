@@ -1,102 +1,56 @@
 import Foundation
+import ServiceManagement
 import AppKit
 
 class LaunchAgentManager {
     static let shared = LaunchAgentManager()
-    
-    private let plistFileName = "com.fileflower.plist"
-    private var launchAgentsDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library")
-            .appendingPathComponent("LaunchAgents")
-    }
-
-    private var plistURL: URL {
-        launchAgentsDirectory.appendingPathComponent(plistFileName)
-    }
 
     private init() {
-        cleanupOldLaunchAgent()
+        cleanupOldLaunchAgents()
     }
 
-    /// Verwijder oude DLtoPremiere launch agent als die bestaat
-    private func cleanupOldLaunchAgent() {
-        let oldPlistURL = launchAgentsDirectory.appendingPathComponent("com.dltopremiere.plist")
-        guard FileManager.default.fileExists(atPath: oldPlistURL.path) else { return }
+    /// Verwijder oude handmatige launch agents (DLtoPremiere en FileFlower plist-gebaseerd)
+    private func cleanupOldLaunchAgents() {
+        let launchAgentsDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/LaunchAgents")
 
-        let process = Process()
-        process.launchPath = "/bin/launchctl"
-        process.arguments = ["unload", oldPlistURL.path]
-        try? process.run()
-        process.waitUntilExit()
+        let oldPlists = ["com.dltopremiere.plist", "com.fileflower.plist"]
+        for plistName in oldPlists {
+            let plistURL = launchAgentsDir.appendingPathComponent(plistName)
+            guard FileManager.default.fileExists(atPath: plistURL.path) else { continue }
 
-        try? FileManager.default.removeItem(at: oldPlistURL)
-        print("LaunchAgentManager: Oude DLtoPremiere launch agent opgeruimd")
-    }
-    
-    func isStartAtLoginEnabled() -> Bool {
-        return FileManager.default.fileExists(atPath: plistURL.path)
-    }
-    
-    func enableStartAtLogin() throws {
-        // Zorg dat LaunchAgents directory bestaat
-        if !FileManager.default.fileExists(atPath: launchAgentsDirectory.path) {
-            try FileManager.default.createDirectory(
-                at: launchAgentsDirectory,
-                withIntermediateDirectories: true
-            )
-        }
-        
-        // Haal app bundle path op
-        guard let appBundlePath = Bundle.main.bundlePath as String? else {
-            throw LaunchAgentError.cannotGetBundlePath
-        }
-        
-        // Maak plist dictionary
-        let plistDict: [String: Any] = [
-            "Label": "com.fileflower",
-            "ProgramArguments": [appBundlePath],
-            "RunAtLoad": true,
-            "KeepAlive": false
-        ]
-        
-        // Schrijf plist naar disk
-        let plistData = try PropertyListSerialization.data(
-            fromPropertyList: plistDict,
-            format: .xml,
-            options: 0
-        )
-        
-        try plistData.write(to: plistURL)
-        
-        // Laad de LaunchAgent
-        let process = Process()
-        process.launchPath = "/bin/launchctl"
-        process.arguments = ["load", plistURL.path]
-        try process.run()
-        process.waitUntilExit()
-    }
-    
-    func disableStartAtLogin() throws {
-        // Unload de LaunchAgent als deze bestaat
-        if FileManager.default.fileExists(atPath: plistURL.path) {
+            // Unload eerst
             let process = Process()
             process.launchPath = "/bin/launchctl"
             process.arguments = ["unload", plistURL.path]
-            try process.run()
+            try? process.run()
             process.waitUntilExit()
-        }
-        
-        // Verwijder plist bestand
-        if FileManager.default.fileExists(atPath: plistURL.path) {
-            try FileManager.default.removeItem(at: plistURL)
+
+            // Verwijder het plist bestand
+            try? FileManager.default.removeItem(at: plistURL)
+            print("LaunchAgentManager: Oude launch agent opgeruimd: \(plistName)")
         }
     }
-}
 
-enum LaunchAgentError: Error {
-    case cannotGetBundlePath
-    case cannotCreateDirectory
-    case cannotWritePlist
-}
+    /// Check of de app geregistreerd is als login item via SMAppService
+    func isStartAtLoginEnabled() -> Bool {
+        return SMAppService.mainApp.status == .enabled
+    }
 
+    /// Registreer de app als login item via SMAppService
+    /// De app verschijnt automatisch in Systeeminstellingen > Algemeen > Inlogonderdelen
+    func enableStartAtLogin() throws {
+        // Unregister eerst als al enabled (voorkomt stale state)
+        if SMAppService.mainApp.status == .enabled {
+            try? SMAppService.mainApp.unregister()
+        }
+        try SMAppService.mainApp.register()
+        print("LaunchAgentManager: Start bij login ingeschakeld via SMAppService")
+    }
+
+    /// Verwijder de app als login item
+    func disableStartAtLogin() throws {
+        try SMAppService.mainApp.unregister()
+        print("LaunchAgentManager: Start bij login uitgeschakeld via SMAppService")
+    }
+}

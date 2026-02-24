@@ -22,7 +22,7 @@ struct OnboardingView: View {
     @State private var musicClassifyEnabled: Bool = true
     @State private var musicMode: MusicMode = .mood
     @State private var sfxSubfoldersEnabled: Bool = true
-    @State private var autoStartEnabled: Bool = false
+    @State private var autoStartEnabled: Bool = true
     @State private var termsAccepted: Bool = false
     @State private var analyticsOptIn: Bool = false
     @State private var savesFilesNextToProject: Bool = true

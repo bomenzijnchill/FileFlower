@@ -29,8 +29,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start analytics sessie
         AnalyticsService.shared.startSession()
 
-        // Stap 1: Check of dit de eerste launch is
-        if !SetupManager.shared.hasCompletedOnboarding {
+        // Stap 1: Check of dit de eerste launch is, of een update met nieuwe onboarding stappen
+        if !SetupManager.shared.hasCompletedOnboarding || SetupManager.shared.shouldShowOnboardingForUpdate {
             showOnboarding()
         } else {
             // Stap 2: Check license
@@ -284,24 +284,20 @@ class AppState: ObservableObject {
     }
 
     private func syncLaunchAgent() {
-        // Synchroniseer LaunchAgent met config
+        // Synchroniseer login item status met config
         let shouldBeEnabled = config.startAtLogin
         let isCurrentlyEnabled = LaunchAgentManager.shared.isStartAtLoginEnabled()
-        
+
         if shouldBeEnabled && !isCurrentlyEnabled {
-            // Config zegt enabled maar LaunchAgent is niet actief
             do {
                 try LaunchAgentManager.shared.enableStartAtLogin()
             } catch {
-                print("Fout bij inschakelen LaunchAgent bij opstarten: \(error)")
+                print("Fout bij inschakelen login item bij opstarten: \(error)")
             }
         } else if !shouldBeEnabled && isCurrentlyEnabled {
-            // Config zegt disabled maar LaunchAgent is actief
-            do {
-                try LaunchAgentManager.shared.disableStartAtLogin()
-            } catch {
-                print("Fout bij uitschakelen LaunchAgent bij opstarten: \(error)")
-            }
+            // Gebruiker heeft het via Systeeminstellingen aangezet — sync config
+            config.startAtLogin = true
+            configManager.save(config)
         }
     }
     
