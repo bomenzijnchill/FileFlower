@@ -29,6 +29,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start analytics sessie
         AnalyticsService.shared.startSession()
 
+        // Registreer FinderSync extensie direct bij launch, zodat deze al zichtbaar is
+        // in Systeeminstellingen tijdens de onboarding wizard
+        SetupManager.shared.registerFinderExtension()
+
         // Stap 1: Check of dit de eerste launch is, of een update met nieuwe onboarding stappen
         if !SetupManager.shared.hasCompletedOnboarding || SetupManager.shared.shouldShowOnboardingForUpdate {
             showOnboarding()

@@ -347,8 +347,7 @@ class SetupManager {
 
     /// Voer alle benodigde startup checks uit
     func performStartupChecks() {
-        // Registreer FinderSync extensie bij macOS
-        registerFinderExtension()
+        // FinderSync extensie wordt al geregistreerd in applicationDidFinishLaunching
 
         // Check en update Premiere plugin indien nodig
         if isPremierePluginInstalled {
