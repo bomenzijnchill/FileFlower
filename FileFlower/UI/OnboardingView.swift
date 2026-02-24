@@ -13,6 +13,8 @@ struct OnboardingView: View {
     @State private var isValidatingExtension = false
     @State private var extensionMarkedInstalled = false
     @State private var extensionServerRunning = false
+    @State private var finderExtensionEnabled = false
+    @State private var isCheckingFinderExtension = false
 
     // Nieuwe wizard state
     @State private var selectedLanguage: String = "en"
@@ -44,11 +46,12 @@ struct OnboardingView: View {
         case sfxSubfolders = 3
         case premierePlugin = 4
         case chromeExtension = 5
-        case projectSetup = 6
-        case workflow = 7
-        case autoStart = 8
-        case terms = 9
-        case complete = 10
+        case finderExtension = 6
+        case projectSetup = 7
+        case workflow = 8
+        case autoStart = 9
+        case terms = 10
+        case complete = 11
 
         var titleKey: String.LocalizationValue {
             switch self {
@@ -58,6 +61,7 @@ struct OnboardingView: View {
             case .sfxSubfolders: return "onboarding.sfx.title"
             case .premierePlugin: return "onboarding.premiere.title"
             case .chromeExtension: return "onboarding.chrome.title"
+            case .finderExtension: return "onboarding.finder.title"
             case .projectSetup: return "onboarding.project.title"
             case .workflow: return "onboarding.workflow.title"
             case .autoStart: return "onboarding.autostart.title"
@@ -78,6 +82,7 @@ struct OnboardingView: View {
             case .sfxSubfolders: return "speaker.wave.3.fill"
             case .premierePlugin: return "film.fill"
             case .chromeExtension: return "globe"
+            case .finderExtension: return "folder.badge.plus"
             case .projectSetup: return "folder.fill"
             case .workflow: return "hammer.fill"
             case .autoStart: return "power"
@@ -174,6 +179,8 @@ struct OnboardingView: View {
             premierePluginContent
         case .chromeExtension:
             chromeExtensionContent
+        case .finderExtension:
+            finderExtensionContent
         case .projectSetup:
             projectSetupContent
         case .workflow:
@@ -545,6 +552,93 @@ struct OnboardingView: View {
                     }
                     .buttonStyle(.bordered)
                     .padding(.top, 8)
+                }
+            }
+        }
+    }
+
+    // MARK: - Finder Extension Step
+
+    private var finderExtensionContent: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "folder.badge.plus")
+                .font(.system(size: 60))
+                .foregroundColor(.brandSandyClay)
+
+            Text(String(localized: "onboarding.finder.title"))
+                .font(.system(size: 24, weight: .bold))
+
+            Text(String(localized: "onboarding.finder.subtitle"))
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 400)
+
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 16) {
+                    InstructionStep(number: 1, text: String(localized: "onboarding.finder.step1"))
+                    InstructionStep(number: 2, text: String(localized: "onboarding.finder.step2"))
+                    InstructionStep(number: 3, text: String(localized: "onboarding.finder.step3"))
+                }
+                .padding()
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(8)
+            }
+            .frame(maxWidth: 450)
+
+            Button(action: {
+                SetupManager.shared.openFinderExtensionSettings()
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "gear")
+                    Text(String(localized: "onboarding.finder.open_settings"))
+                }
+            }
+            .buttonStyle(.borderedProminent)
+
+            // Status indicator
+            Group {
+                if isCheckingFinderExtension {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(String(localized: "onboarding.finder.checking"))
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                    }
+                } else if finderExtensionEnabled {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text(String(localized: "onboarding.finder.enabled"))
+                            .font(.system(size: 13))
+                            .foregroundColor(.green)
+                    }
+                } else {
+                    Button(action: checkFinderExtensionStatus) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.clockwise")
+                            Text(String(localized: "onboarding.finder.check_status"))
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .onAppear {
+            checkFinderExtensionStatus()
+        }
+    }
+
+    private func checkFinderExtensionStatus() {
+        isCheckingFinderExtension = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let enabled = SetupManager.shared.isFinderExtensionEnabled()
+            DispatchQueue.main.async {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    finderExtensionEnabled = enabled
+                    isCheckingFinderExtension = false
                 }
             }
         }
@@ -1043,6 +1137,10 @@ struct OnboardingView: View {
                     text: String(localized: "onboarding.complete.chrome_check")
                 )
                 CompletionCheckItem(
+                    isCompleted: finderExtensionEnabled,
+                    text: String(localized: "onboarding.complete.finder_check")
+                )
+                CompletionCheckItem(
                     isCompleted: !appState.config.projectRoots.isEmpty,
                     text: String(localized: "onboarding.complete.project_check")
                 )
@@ -1130,6 +1228,8 @@ struct OnboardingView: View {
                 ? String(localized: "common.next")
                 : String(localized: "common.skip")
         case .chromeExtension:
+            return String(localized: "common.next")
+        case .finderExtension:
             return String(localized: "common.next")
         case .projectSetup:
             return projectRoot.isEmpty

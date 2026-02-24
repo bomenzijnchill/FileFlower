@@ -256,10 +256,68 @@ class SetupManager {
         }
     }
     
+    // MARK: - Finder Extension
+
+    private let finderExtensionBundleID = "com.fileflower.app.FileFlowerFinderSync"
+
+    /// Registreer de FinderSync extensie bij macOS via pluginkit
+    func registerFinderExtension() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
+        process.arguments = ["-e", "use", "-i", finderExtensionBundleID]
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            if process.terminationStatus == 0 {
+                print("SetupManager: FinderSync extensie geregistreerd via pluginkit")
+            } else {
+                print("SetupManager: pluginkit registratie mislukt (status \(process.terminationStatus))")
+            }
+        } catch {
+            print("SetupManager: Fout bij registreren FinderSync extensie: \(error)")
+        }
+    }
+
+    /// Check of de FinderSync extensie actief is
+    func isFinderExtensionEnabled() -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
+        process.arguments = ["-m", "-i", finderExtensionBundleID]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            // pluginkit -m geeft output als de extensie gevonden en actief is
+            let enabled = !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            print("SetupManager: FinderSync extensie enabled: \(enabled)")
+            return enabled
+        } catch {
+            print("SetupManager: Fout bij checken FinderSync extensie status: \(error)")
+            return false
+        }
+    }
+
+    /// Open Systeeminstellingen op de extensies pagina
+    func openFinderExtensionSettings() {
+        // macOS 13+ (Ventura): nieuwe Systeeminstellingen URL
+        if let url = URL(string: "x-apple.systempreferences:com.apple.ExtensionsPreferences") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     // MARK: - Startup Checks
-    
+
     /// Voer alle benodigde startup checks uit
     func performStartupChecks() {
+        // Registreer FinderSync extensie bij macOS
+        registerFinderExtension()
+
         // Check en update Premiere plugin indien nodig
         if isPremierePluginInstalled {
             let result = updatePremierePluginIfNeeded()
