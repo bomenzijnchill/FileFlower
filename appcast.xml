@@ -9,6 +9,30 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 1.9.0</title>
+            <sparkle:version>16</sparkle:version>
+            <sparkle:shortVersionString>1.9.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>Finder extensie fix, auto-start &amp; auto-updates</h2>
+                <ul>
+                    <li>Fix: Finder extensie registreert zich correct bij macOS</li>
+                    <li>Fix: Systeeminstellingen knop opent de juiste pagina</li>
+                    <li>Nieuw: Start bij login via macOS Inlogonderdelen (SMAppService)</li>
+                    <li>Nieuw: Automatische updates standaard ingeschakeld</li>
+                    <li>Onboarding wizard toont opnieuw na app updates</li>
+                </ul>
+            ]]></description>
+            <pubDate>Mon, 24 Feb 2026 13:00:00 +0100</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v1.9.0/FileFlower.dmg"
+                sparkle:edSignature="ChyjrHcoKB2OAYtu9MqC0OrSXXrNZ2/PmmvVRNRGIajaCkaI/6BQxjZzQOyEotR/s16KnxIlvqLFr2dGriU3DQ=="
+                length="4898899"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 1.8.0</title>
             <sparkle:version>15</sparkle:version>
             <sparkle:shortVersionString>1.8.0</sparkle:shortVersionString>
