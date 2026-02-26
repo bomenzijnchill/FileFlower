@@ -9,6 +9,27 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 1.9.2</title>
+            <sparkle:version>18</sparkle:version>
+            <sparkle:shortVersionString>1.9.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>Bugfixes</h2>
+                <ul>
+                    <li>Fix: Premiere Pro 2026 wordt nu herkend (toekomstbestendige bundle ID check)</li>
+                    <li>Fix: Downloads via Arc browser en andere Chromium-browsers werken nu ook zonder quarantine origin URL</li>
+                </ul>
+            ]]></description>
+            <pubDate>Wed, 26 Feb 2026 11:00:00 +0100</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v1.9.2/FileFlower.dmg"
+                sparkle:edSignature="RCom4tUySiI9I3VofYGbQIixPuq7sXX03FdyKBpqEjjHzDToQyClCv6v00z+++wLQGgIRCugNU4gdnaSgS4QDw=="
+                length="4919790"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 1.9.1</title>
             <sparkle:version>17</sparkle:version>
             <sparkle:shortVersionString>1.9.1</sparkle:shortVersionString>
