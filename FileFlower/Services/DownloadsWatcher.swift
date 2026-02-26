@@ -751,6 +751,12 @@ class DownloadsWatcher {
             return true
         }
         
+        // Check of er metadata beschikbaar is via de browser extensie
+        if StockMetadataCache.shared.findForFile(url: url) != nil {
+            print("DownloadsWatcher: Stock metadata gevonden in cache - processing")
+            return true
+        }
+
         // Check if origin URL matches stock or cloud storage websites
         guard let origin = originURL?.lowercased() else {
             print("DownloadsWatcher: No origin URL found - skipping")
