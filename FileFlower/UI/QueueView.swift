@@ -248,6 +248,16 @@ struct QueueView: View {
             for item in items {
                 await processSingleItem(item)
             }
+
+            // Speel bloemblaadjes-animatie als minstens één item succesvol is
+            await MainActor.run {
+                let anyCompleted = items.contains { item in
+                    appState.queuedItems.first(where: { $0.id == item.id })?.status == .completed
+                }
+                if anyCompleted && appState.config.showPetalAnimation {
+                    PetalAnimationWindow.play()
+                }
+            }
         }
     }
     
@@ -336,6 +346,10 @@ struct QueueView: View {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .completed
                     ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
+
+                    if appState.config.showPetalAnimation {
+                        PetalAnimationWindow.play()
+                    }
 
                     // Haal de actieve NLE naar voren als dit is ingeschakeld
                     if appState.config.bringPremiereToFront {
@@ -511,12 +525,24 @@ struct QueueView: View {
                 rootCheckApprovedItems.insert(item.id)
             }
             await processSingleItem(item)
+            await MainActor.run {
+                if appState.queuedItems.first(where: { $0.id == item.id })?.status == .completed,
+                   appState.config.showPetalAnimation {
+                    PetalAnimationWindow.play()
+                }
+            }
 
         case .proceedWithout:
             await MainActor.run {
                 rootCheckApprovedItems.insert(item.id)
             }
             await processSingleItem(item)
+            await MainActor.run {
+                if appState.queuedItems.first(where: { $0.id == item.id })?.status == .completed,
+                   appState.config.showPetalAnimation {
+                    PetalAnimationWindow.play()
+                }
+            }
 
         case .cancel:
             await MainActor.run {

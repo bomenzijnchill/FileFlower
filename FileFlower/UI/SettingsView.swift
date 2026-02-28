@@ -15,13 +15,12 @@ struct SettingsView: View {
     @State private var bringPremiereToFront: Bool = true
     @State private var bringResolveToFront: Bool = true
     @State private var resolveAutoImport: Bool = true
+    @State private var showPetalAnimation: Bool = true
     @State private var autoOpenBridgePanel: Bool = true
     @State private var startAtLogin: Bool = false
     @State private var useClaudeClassification: Bool = false
     @State private var claudeAPIKey: String = ""
     @State private var claudeConnectionStatus: ClaudeConnectionStatus = .unknown
-    @State private var useMLXClassification: Bool = false
-    @State private var mlxModelName: String = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     @State private var useWebScraping: Bool = true
     @State private var useGenreMoodDetection: Bool = true
     @State private var useSfxSubfolders: Bool = true
@@ -31,7 +30,6 @@ struct SettingsView: View {
     @State private var autoAddActiveProjectRoot: Bool = true
     @State private var folderStructurePreset: FolderStructurePreset = .standard
     @State private var selectedTab: SettingsTab = .general
-    @State private var mlxStatus: MLXStatus = .unknown
     @State private var showLanguageChangeAlert = false
     @State private var pendingLanguage: String? = nil
     
@@ -42,6 +40,7 @@ struct SettingsView: View {
         case classification = "Classification"
         case websites = "Websites"
         case updates = "Updates"
+        case feedback = "Feedback"
 
         var icon: String {
             switch self {
@@ -49,6 +48,7 @@ struct SettingsView: View {
             case .classification: return "waveform"
             case .websites: return "globe"
             case .updates: return "arrow.triangle.2.circlepath"
+            case .feedback: return "bubble.left.and.text.bubble.right"
             }
         }
 
@@ -58,15 +58,9 @@ struct SettingsView: View {
             case .classification: return String(localized: "settings.tab.classification")
             case .websites: return String(localized: "settings.tab.websites")
             case .updates: return String(localized: "settings.tab.updates")
+            case .feedback: return String(localized: "settings.tab.feedback")
             }
         }
-    }
-    
-    enum MLXStatus {
-        case unknown
-        case checking
-        case installed
-        case notInstalled
     }
     
     var body: some View {
@@ -87,7 +81,6 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             loadSettings()
-            checkMLXStatusAsync()
         }
         .modifier(SettingsChangeHandlersA(
             projectRoots: $projectRoots,
@@ -98,6 +91,7 @@ struct SettingsView: View {
             bringPremiereToFront: $bringPremiereToFront,
             bringResolveToFront: $bringResolveToFront,
             resolveAutoImport: $resolveAutoImport,
+            showPetalAnimation: $showPetalAnimation,
             autoOpenBridgePanel: $autoOpenBridgePanel,
             startAtLogin: $startAtLogin,
             saveConfig: saveConfig,
@@ -105,8 +99,6 @@ struct SettingsView: View {
         ))
         .modifier(SettingsChangeHandlersB(
             useClaudeClassification: $useClaudeClassification,
-            useMLXClassification: $useMLXClassification,
-            mlxModelName: $mlxModelName,
             useWebScraping: $useWebScraping,
             useGenreMoodDetection: $useGenreMoodDetection,
             useSfxSubfolders: $useSfxSubfolders,
@@ -117,7 +109,6 @@ struct SettingsView: View {
             showLanguageChangeAlert: $showLanguageChangeAlert,
             pendingLanguage: $pendingLanguage,
             saveConfig: saveConfig,
-            setupMLXIfNeeded: setupMLXIfNeeded,
             relaunchApp: relaunchApp,
             appState: appState
         ))
@@ -205,6 +196,8 @@ struct SettingsView: View {
                     websitesTabContent
                 case .updates:
                     updatesTabContent
+                case .feedback:
+                    feedbackTabContent
                 }
             }
             .padding(16)
@@ -234,6 +227,7 @@ struct SettingsView: View {
                 bringPremiereToFront: $bringPremiereToFront,
                 bringResolveToFront: $bringResolveToFront,
                 resolveAutoImport: $resolveAutoImport,
+                showPetalAnimation: $showPetalAnimation,
                 autoOpenBridgePanel: $autoOpenBridgePanel,
                 startAtLogin: $startAtLogin
             )
@@ -265,12 +259,6 @@ struct SettingsView: View {
                 connectionStatus: $claudeConnectionStatus
             )
 
-            MLXClassificationSection(
-                useMLXClassification: $useMLXClassification,
-                mlxModelName: $mlxModelName,
-                mlxStatus: mlxStatus
-            )
-
             GenreMoodDetectionSection(
                 useGenreMoodDetection: $useGenreMoodDetection,
                 useWebScraping: $useWebScraping
@@ -300,24 +288,12 @@ struct SettingsView: View {
             AppUpdateSection()
             PluginUpdateSection()
             SetupSection()
-            FeedbackSection()
         }
     }
-    
-    // MARK: - MLX Status Check (Async)
-    
-    private func checkMLXStatusAsync() {
-        // Start met "checking" status, maar NIET blokkeren
-        mlxStatus = .checking
 
-        // Capture reference buiten detached task voor Swift 6 compatibiliteit
-        let modelManager = ModelManager.shared
-        Task.detached(priority: .background) {
-            let pythonPath = modelManager.findPythonWithMLXSync()
-
-            await MainActor.run {
-                mlxStatus = pythonPath != nil ? .installed : .notInstalled
-            }
+    private var feedbackTabContent: some View {
+        VStack(spacing: 12) {
+            FeedbackTabView()
         }
     }
     
@@ -349,12 +325,11 @@ struct SettingsView: View {
         bringPremiereToFront = appState.config.bringPremiereToFront
         bringResolveToFront = appState.config.bringResolveToFront
         resolveAutoImport = appState.config.resolveAutoImport
+        showPetalAnimation = appState.config.showPetalAnimation
         autoOpenBridgePanel = appState.config.autoOpenBridgePanel
         startAtLogin = appState.config.startAtLogin
         useClaudeClassification = appState.config.useClaudeClassification
         claudeAPIKey = ClaudeClassificationStrategy.loadAPIKey() ?? ""
-        useMLXClassification = appState.config.useMLXClassification
-        mlxModelName = appState.config.mlxModelName
         useWebScraping = appState.config.useWebScraping
         useGenreMoodDetection = appState.config.useGenreMoodDetection
         useSfxSubfolders = appState.config.useSfxSubfolders
@@ -363,65 +338,6 @@ struct SettingsView: View {
         filterServerProjectsToLocal = appState.config.filterServerProjectsToLocal
         autoAddActiveProjectRoot = appState.config.autoAddActiveProjectRoot
         folderStructurePreset = appState.config.folderStructurePreset
-    }
-    
-    private func setupMLXIfNeeded() async {
-        // Run op background thread om UI niet te blokkeren
-        #if DEBUG
-        print("SettingsView: Setting up MLX classification...")
-        #endif
-        let modelManager = ModelManager.shared
-        
-        // Haal model naam op main thread
-        let modelName = await MainActor.run {
-            appState.config.mlxModelName
-        }
-        
-        // Installeer MLX als nodig (op background thread)
-        do {
-            let installed = try await modelManager.installMLX()
-            if installed {
-                #if DEBUG
-                print("SettingsView: MLX installed successfully")
-                #endif
-            } else {
-                #if DEBUG
-                print("SettingsView: MLX installation failed")
-                #endif
-                return
-            }
-        } catch {
-            #if DEBUG
-            print("SettingsView: Error installing MLX: \(error)")
-            #endif
-            return
-        }
-        
-        // Download model als nodig (op background thread)
-        if !modelManager.modelExists(modelName: modelName) {
-            #if DEBUG
-            print("SettingsView: Downloading model \(modelName)...")
-            #endif
-            do {
-                try await modelManager.downloadModel(modelName: modelName)
-                #if DEBUG
-                print("SettingsView: Model downloaded successfully")
-                #endif
-            } catch {
-                #if DEBUG
-                print("SettingsView: Error downloading model: \(error)")
-                #endif
-            }
-        } else {
-            #if DEBUG
-            print("SettingsView: Model already exists")
-            #endif
-        }
-        
-        // Update classifier strategy op main thread
-        await MainActor.run {
-            Classifier.shared.updateStrategy()
-        }
     }
     
     private func relaunchApp() {
@@ -460,12 +376,11 @@ struct SettingsView: View {
         appState.config.bringPremiereToFront = bringPremiereToFront
         appState.config.bringResolveToFront = bringResolveToFront
         appState.config.resolveAutoImport = resolveAutoImport
+        appState.config.showPetalAnimation = showPetalAnimation
         appState.config.autoOpenBridgePanel = autoOpenBridgePanel
         appState.config.startAtLogin = startAtLogin
         appState.config.useClaudeClassification = useClaudeClassification
         ClaudeClassificationStrategy.saveAPIKey(claudeAPIKey)
-        appState.config.useMLXClassification = useMLXClassification
-        appState.config.mlxModelName = mlxModelName
         appState.config.useWebScraping = useWebScraping
         appState.config.useGenreMoodDetection = useGenreMoodDetection
         appState.config.useSfxSubfolders = useSfxSubfolders
@@ -490,6 +405,7 @@ private struct SettingsChangeHandlersA: ViewModifier {
     @Binding var bringPremiereToFront: Bool
     @Binding var bringResolveToFront: Bool
     @Binding var resolveAutoImport: Bool
+    @Binding var showPetalAnimation: Bool
     @Binding var autoOpenBridgePanel: Bool
     @Binding var startAtLogin: Bool
     var saveConfig: () -> Void
@@ -505,6 +421,7 @@ private struct SettingsChangeHandlersA: ViewModifier {
             .onChange(of: bringPremiereToFront) { _, _ in saveConfig() }
             .onChange(of: bringResolveToFront) { _, _ in saveConfig() }
             .onChange(of: resolveAutoImport) { _, _ in saveConfig() }
+            .onChange(of: showPetalAnimation) { _, _ in saveConfig() }
             .onChange(of: autoOpenBridgePanel) { _, _ in saveConfig() }
             .onChange(of: startAtLogin) { _, newValue in handleStartAtLoginChange(newValue) }
     }
@@ -512,8 +429,6 @@ private struct SettingsChangeHandlersA: ViewModifier {
 
 private struct SettingsChangeHandlersB: ViewModifier {
     @Binding var useClaudeClassification: Bool
-    @Binding var useMLXClassification: Bool
-    @Binding var mlxModelName: String
     @Binding var useWebScraping: Bool
     @Binding var useGenreMoodDetection: Bool
     @Binding var useSfxSubfolders: Bool
@@ -524,23 +439,12 @@ private struct SettingsChangeHandlersB: ViewModifier {
     @Binding var showLanguageChangeAlert: Bool
     @Binding var pendingLanguage: String?
     var saveConfig: () -> Void
-    var setupMLXIfNeeded: () async -> Void
     var relaunchApp: () -> Void
     var appState: AppState
 
     func body(content: Content) -> some View {
         content
             .onChange(of: useClaudeClassification) { _, _ in saveConfig() }
-            .onChange(of: useMLXClassification) { oldValue, newValue in
-                saveConfig()
-                if newValue && !oldValue {
-                    let setupMLX = setupMLXIfNeeded
-                    Task.detached(priority: .userInitiated) {
-                        await setupMLX()
-                    }
-                }
-            }
-            .onChange(of: mlxModelName) { _, _ in saveConfig() }
             .onChange(of: useWebScraping) { _, _ in saveConfig() }
             .onChange(of: useGenreMoodDetection) { _, _ in saveConfig() }
             .onChange(of: useSfxSubfolders) { _, _ in saveConfig() }
@@ -1092,90 +996,6 @@ struct ClaudeClassificationSection: View {
     }
 }
 
-struct MLXClassificationSection: View {
-    @Binding var useMLXClassification: Bool
-    @Binding var mlxModelName: String
-    let mlxStatus: SettingsView.MLXStatus
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(String(localized: "settings.mlx_classification"))
-                        .font(.system(size: 13, weight: .semibold))
-                    
-                    Spacer()
-                    
-                    // Status indicator
-                    mlxStatusBadge
-                }
-                
-                Text(String(localized: "settings.mlx_description"))
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
-            
-            Toggle(String(localized: "settings.use_mlx"), isOn: $useMLXClassification)
-                .font(.system(size: 11))
-            
-            if useMLXClassification {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(String(localized: "settings.model"))
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-
-                    TextField(String(localized: "settings.model_name"), text: $mlxModelName)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.small)
-                        .disabled(true)
-                    
-                    Text(String(localized: "settings.default_model"))
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.top, 4)
-            }
-        }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
-        .cornerRadius(6)
-    }
-    
-    @ViewBuilder
-    private var mlxStatusBadge: some View {
-        switch mlxStatus {
-        case .unknown:
-            EmptyView()
-        case .checking:
-            HStack(spacing: 4) {
-                ProgressView()
-                    .controlSize(.mini)
-                Text(String(localized: "settings.checking"))
-                    .font(.system(size: 9))
-                    .foregroundColor(.secondary)
-            }
-        case .installed:
-            HStack(spacing: 4) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-                    .font(.system(size: 10))
-                Text(String(localized: "settings.installed"))
-                    .font(.system(size: 9))
-                    .foregroundColor(.green)
-            }
-        case .notInstalled:
-            HStack(spacing: 4) {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .foregroundColor(.orange)
-                    .font(.system(size: 10))
-                Text(String(localized: "settings.not_installed"))
-                    .font(.system(size: 9))
-                    .foregroundColor(.orange)
-            }
-        }
-    }
-}
-
 struct GenreMoodDetectionSection: View {
     @Binding var useGenreMoodDetection: Bool
     @Binding var useWebScraping: Bool
@@ -1436,6 +1256,7 @@ struct WindowBehaviorSection: View {
     @Binding var bringPremiereToFront: Bool
     @Binding var bringResolveToFront: Bool
     @Binding var resolveAutoImport: Bool
+    @Binding var showPetalAnimation: Bool
     @Binding var autoOpenBridgePanel: Bool
     @Binding var startAtLogin: Bool
 
@@ -1445,6 +1266,9 @@ struct WindowBehaviorSection: View {
                 .font(.system(size: 13, weight: .semibold))
 
             Toggle(String(localized: "settings.show_popup"), isOn: $showPopupAfterDownload)
+                .font(.system(size: 11))
+
+            Toggle(String(localized: "settings.petal_animation"), isOn: $showPetalAnimation)
                 .font(.system(size: 11))
 
             Toggle(String(localized: "settings.bring_premiere"), isOn: $bringPremiereToFront)
@@ -1752,215 +1576,262 @@ struct SetupSection: View {
     }
 }
 
-// MARK: - Feedback Section
+// MARK: - Feedback Tab
 
-private enum FeedbackType {
+private enum FeedbackType: String, CaseIterable {
     case featureRequest
     case bugReport
 }
 
-private struct FeedbackSection: View {
-    @State private var showFeatureRequestForm = false
-    @State private var showBugReportForm = false
+private enum FeedbackSendState: Equatable {
+    case idle
+    case sending
+    case success
+    case error(String)
+}
+
+private struct FeedbackTabView: View {
+    @State private var selectedFeedbackType: FeedbackType = .featureRequest
+    @State private var name: String = ""
+    @State private var email: String = ""
+    @State private var message: String = ""
+    @State private var sendState: FeedbackSendState = .idle
+
+    private static let proxyBaseURL = "https://fileflower-proxy.fileflower.workers.dev"
+
+    private var accentColor: Color {
+        selectedFeedbackType == .featureRequest ? .brandSandyClay : .brandBurntPeach
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(String(localized: "settings.feedback"))
                 .font(.system(size: 13, weight: .semibold))
 
             Text(String(localized: "settings.feedback.description"))
-                .font(.system(size: 10))
+                .font(.system(size: 11))
                 .foregroundColor(.secondary)
 
-            if showFeatureRequestForm {
-                InlineFeedbackFormView(
-                    feedbackType: .featureRequest,
-                    onClose: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showFeatureRequestForm = false
-                        }
-                    }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
-            } else if showBugReportForm {
-                InlineFeedbackFormView(
-                    feedbackType: .bugReport,
-                    onClose: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showBugReportForm = false
-                        }
-                    }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
-            } else {
-                HStack(spacing: 12) {
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showFeatureRequestForm = true
-                        }
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "lightbulb.fill")
-                                .font(.system(size: 12))
-                            Text(String(localized: "settings.feedback.feature_request"))
-                                .font(.system(size: 12))
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showBugReportForm = true
-                        }
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "ladybug.fill")
-                                .font(.system(size: 12))
-                            Text(String(localized: "settings.feedback.report_bug"))
-                                .font(.system(size: 12))
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                    Spacer()
+            // Feedback type picker
+            Picker("", selection: $selectedFeedbackType) {
+                HStack(spacing: 4) {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.system(size: 10))
+                    Text(String(localized: "settings.feedback.feature_request"))
                 }
+                .tag(FeedbackType.featureRequest)
+
+                HStack(spacing: 4) {
+                    Image(systemName: "ladybug.fill")
+                        .font(.system(size: 10))
+                    Text(String(localized: "settings.feedback.report_bug"))
+                }
+                .tag(FeedbackType.bugReport)
+            }
+            .pickerStyle(.segmented)
+            .disabled(sendState == .sending)
+
+            switch sendState {
+            case .idle, .error:
+                feedbackForm
+            case .sending:
+                sendingView
+            case .success:
+                successView
             }
         }
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
         .cornerRadius(6)
     }
-}
 
-private struct InlineFeedbackFormView: View {
-    let feedbackType: FeedbackType
-    let onClose: () -> Void
-
-    @State private var name: String = ""
-    @State private var email: String = ""
-    @State private var message: String = ""
-    @State private var mailOpened = false
-
-    private var title: String {
-        feedbackType == .featureRequest
-            ? String(localized: "settings.feedback.feature_request_title")
-            : String(localized: "settings.feedback.bug_report_title")
-    }
-
-    private var accentColor: Color {
-        feedbackType == .featureRequest ? .brandSandyClay : .brandBurntPeach
-    }
-
-    var body: some View {
-        VStack(spacing: 12) {
-            // Header met close button
-            HStack {
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help(String(localized: "common.close"))
+    private var feedbackForm: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(localized: "settings.feedback.name"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                TextField(String(localized: "settings.feedback.name_placeholder"), text: $name)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
             }
 
-            if mailOpened {
-                // Succes state
-                VStack(spacing: 8) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(.green)
-                    Text(String(localized: "settings.feedback.success"))
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.green)
-                    Text(String(localized: "settings.feedback.success_description"))
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.vertical, 8)
-            } else {
-                // Formulier velden
-                VStack(alignment: .leading, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(String(localized: "settings.feedback.name"))
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                        TextField(String(localized: "settings.feedback.name_placeholder"), text: $name)
-                            .textFieldStyle(.roundedBorder)
-                            .controlSize(.small)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(String(localized: "settings.feedback.email"))
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                        TextField(String(localized: "settings.feedback.email_placeholder"), text: $email)
-                            .textFieldStyle(.roundedBorder)
-                            .controlSize(.small)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(String(localized: "settings.feedback.message"))
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                        TextEditor(text: $message)
-                            .font(.system(size: 12))
-                            .frame(minHeight: 80, maxHeight: 120)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 5)
-                                    .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
-                            )
-                    }
-                }
-
-                // Verstuur button
-                HStack {
-                    Spacer()
-                    Button(action: sendFeedback) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "paperplane.fill")
-                            Text(String(localized: "settings.feedback.send"))
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(localized: "settings.feedback.email"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                TextField(String(localized: "settings.feedback.email_placeholder"), text: $email)
+                    .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
-                    .disabled(name.isEmpty || email.isEmpty || message.isEmpty)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(String(localized: "settings.feedback.message"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                TextEditor(text: $message)
+                    .font(.system(size: 12))
+                    .frame(minHeight: 80, maxHeight: 120)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
+                    )
+            }
+
+            // Error banner
+            if case .error(let errorMessage) = sendState {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.brandBurntPeach)
+                    Text(errorMessage)
+                        .font(.system(size: 11))
+                        .foregroundColor(.brandBurntPeach)
                 }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.brandBurntPeach.opacity(0.1))
+                .cornerRadius(6)
+            }
+
+            // Verstuur button
+            HStack {
+                Spacer()
+                Button(action: sendFeedback) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "paperplane.fill")
+                        Text(String(localized: "settings.feedback.send"))
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(name.isEmpty || email.isEmpty || message.isEmpty)
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(NSColor.controlBackgroundColor))
-                .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 2)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(accentColor.opacity(0.3), lineWidth: 1)
-        )
+    }
+
+    private var sendingView: some View {
+        VStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text(String(localized: "settings.feedback.sending"))
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+    }
+
+    private var successView: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 32))
+                .foregroundColor(.green)
+            Text(String(localized: "settings.feedback.success"))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.green)
+            Text(String(localized: "settings.feedback.success_description"))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    sendState = .idle
+                    name = ""
+                    email = ""
+                    message = ""
+                }
+            }) {
+                Text(String(localized: "settings.feedback.send_another"))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
     }
 
     private func sendFeedback() {
-        let subject = feedbackType == .featureRequest
-            ? "Feature Request - FileFlower"
-            : "Bug Report - FileFlower"
-        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
-        let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
-        let body = "Name: \(name)\nEmail: \(email)\n\n\(message)\n\n---\nApp Version: \(appVersion)\nmacOS: \(osVersion)"
+        withAnimation(.easeInOut(duration: 0.2)) {
+            sendState = .sending
+        }
 
-        let encodedSubject = subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        Task {
+            let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+            let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
+            let deviceId = AppState.shared.config.anonymousId
 
-        if let url = URL(string: "mailto:info@fileflower.com?subject=\(encodedSubject)&body=\(encodedBody)") {
-            NSWorkspace.shared.open(url)
-            withAnimation(.easeInOut(duration: 0.2)) {
-                mailOpened = true
+            guard let url = URL(string: "\(Self.proxyBaseURL)/api/feedback") else {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        sendState = .error(String(localized: "settings.feedback.error.send_failed"))
+                    }
+                }
+                return
+            }
+
+            let requestBody: [String: String] = [
+                "type": selectedFeedbackType.rawValue,
+                "name": name,
+                "email": email,
+                "message": message,
+                "appVersion": appVersion,
+                "osVersion": osVersion
+            ]
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(deviceId, forHTTPHeaderField: "X-Device-Id")
+            request.timeoutInterval = 15.0
+
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
+                let (data, response) = try await URLSession.shared.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    await MainActor.run {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            sendState = .error(String(localized: "settings.feedback.error.send_failed"))
+                        }
+                    }
+                    return
+                }
+
+                if httpResponse.statusCode == 200 {
+                    await MainActor.run {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            sendState = .success
+                        }
+                    }
+                } else if httpResponse.statusCode == 429 {
+                    await MainActor.run {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            sendState = .error(String(localized: "settings.feedback.error.rate_limit"))
+                        }
+                    }
+                } else {
+                    #if DEBUG
+                    if let errorBody = String(data: data, encoding: .utf8) {
+                        print("Feedback: HTTP \(httpResponse.statusCode) - \(errorBody.prefix(200))")
+                    }
+                    #endif
+                    await MainActor.run {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            sendState = .error(String(localized: "settings.feedback.error.send_failed"))
+                        }
+                    }
+                }
+            } catch {
+                #if DEBUG
+                print("Feedback: Network error: \(error.localizedDescription)")
+                #endif
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        sendState = .error(String(localized: "settings.feedback.error.network"))
+                    }
+                }
             }
         }
     }

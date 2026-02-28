@@ -72,6 +72,14 @@ class StatusBarController: NSObject, NSPopoverDelegate {
         return popover.isShown
     }
 
+    /// Schermpositie van het status bar icoon (voor positionering van overlays)
+    var statusItemFrame: NSRect? {
+        guard let button = statusItem.button,
+              let window = button.window else { return nil }
+        let buttonFrame = button.convert(button.bounds, to: nil)
+        return window.convertToScreen(buttonFrame)
+    }
+
     /// Zet de popover behavior (bijv. om te voorkomen dat het sluit tijdens NSOpenPanel)
     func setPopoverBehavior(_ behavior: NSPopover.Behavior) {
         popover.behavior = behavior

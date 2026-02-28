@@ -1084,31 +1084,31 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Füge einen Ordner hinzu, um Dateien mit Premiere Pro zu synchronisieren"
+            "value" : "Füge einen Ordner hinzu, um Dateien mit deinem Projekt zu synchronisieren"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add a folder to sync files to Premiere Pro"
+            "value" : "Add a folder to sync files to your project"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Añade una carpeta para sincronizar archivos con Premiere Pro"
+            "value" : "Añade una carpeta para sincronizar archivos con tu proyecto"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajoutez un dossier pour synchroniser les fichiers vers Premiere Pro"
+            "value" : "Ajoutez un dossier pour synchroniser les fichiers vers votre projet"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Voeg een map toe om bestanden te synchroniseren naar Premiere Pro"
+            "value" : "Voeg een map toe om bestanden te synchroniseren naar je project"
           }
         }
       }
@@ -1801,31 +1801,31 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Premiere Bin (optional)"
+            "value" : "Ziel-Bin (optional)"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Premiere Bin (optional)"
+            "value" : "Target Bin (optional)"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bin de Premiere (opcional)"
+            "value" : "Bin de destino (opcional)"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bin Premiere (optionnel)"
+            "value" : "Bin cible (optionnel)"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Premiere Bin (optioneel)"
+            "value" : "Doel Bin (optioneel)"
           }
         }
       }
@@ -1835,31 +1835,31 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Premiere Pro Projekt"
+            "value" : "Projekt"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Premiere Pro Project"
+            "value" : "Project"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Proyecto Premiere Pro"
+            "value" : "Proyecto"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Projet Premiere Pro"
+            "value" : "Projet"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Premiere Pro Project"
+            "value" : "Project"
           }
         }
       }
@@ -2102,6 +2102,40 @@
         }
       }
     },
+    "history.open_in_finder" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Finder anzeigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show in Finder"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar en Finder"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher dans le Finder"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toon in Finder"
+          }
+        }
+      }
+    },
     "history.show" : {
       "localizations" : {
         "de" : {
@@ -2234,40 +2268,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld vandaag"
-          }
-        }
-      }
-    },
-    "history.open_in_finder" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Im Finder anzeigen"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show in Finder"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mostrar en Finder"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Afficher dans le Finder"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Toon in Finder"
           }
         }
       }
@@ -3070,31 +3070,31 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Premiere Bin (optional)"
+            "value" : "Ziel-Bin (optional)"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Premiere bin (optional)"
+            "value" : "Target bin (optional)"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bin de Premiere (opcional)"
+            "value" : "Bin de destino (opcional)"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bin Premiere (optionnel)"
+            "value" : "Bin cible (optionnel)"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Premiere bin (optioneel)"
+            "value" : "Doel bin (optioneel)"
           }
         }
       }
@@ -3308,31 +3308,31 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Füge häufig verwendete Ordner hinzu, um sie schnell in dein Premiere-Projekt zu laden"
+            "value" : "Füge häufig verwendete Ordner hinzu, um sie schnell in dein Projekt zu laden"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add frequently used folders to quickly load them into your Premiere project"
+            "value" : "Add frequently used folders to quickly load them into your project"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Añade carpetas de uso frecuente para cargarlas rápidamente en tu proyecto de Premiere"
+            "value" : "Añade carpetas de uso frecuente para cargarlas rápidamente en tu proyecto"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajoutez des dossiers fréquemment utilisés pour les charger rapidement dans votre projet Premiere"
+            "value" : "Ajoutez des dossiers fréquemment utilisés pour les charger rapidement dans votre projet"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Voeg veelgebruikte mappen toe om ze snel in je Premiere project te laden"
+            "value" : "Voeg veelgebruikte mappen toe om ze snel in je project te laden"
           }
         }
       }
@@ -6512,31 +6512,31 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Premiere-Integration"
+            "value" : "NLE-Integration"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Premiere integration"
+            "value" : "NLE integration"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Integración con Premiere"
+            "value" : "Integración NLE"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Intégration Premiere"
+            "value" : "Intégration NLE"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Premiere integratie"
+            "value" : "NLE integratie"
           }
         }
       }
@@ -6546,31 +6546,31 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "FileFlower hilft dir, heruntergeladene Stock-Medien automatisch zu organisieren und in Adobe Premiere Pro zu importieren."
+            "value" : "FileFlower hilft dir, heruntergeladene Stock-Medien automatisch zu organisieren und in deine Schnittsoftware zu importieren."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "FileFlower helps you automatically organize downloaded stock media and import it into Adobe Premiere Pro."
+            "value" : "FileFlower helps you automatically organize downloaded stock media and import it into your editing software."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "FileFlower te ayuda a organizar automáticamente los medios descargados e importarlos en Adobe Premiere Pro."
+            "value" : "FileFlower te ayuda a organizar automáticamente los medios descargados e importarlos en tu software de edición."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "FileFlower vous aide à organiser automatiquement les médias stock téléchargés et à les importer dans Adobe Premiere Pro."
+            "value" : "FileFlower vous aide à organiser automatiquement les médias stock téléchargés et à les importer dans votre logiciel de montage."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "FileFlower helpt je om gedownloade stock media automatisch te organiseren en te importeren in Adobe Premiere Pro."
+            "value" : "FileFlower helpt je om gedownloade stock media automatisch te organiseren en te importeren in je bewerkingssoftware."
           }
         }
       }
@@ -8478,6 +8478,7 @@
       }
     },
     "settings.checking" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -8750,6 +8751,7 @@
       }
     },
     "settings.default_model" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -9023,6 +9025,7 @@
       }
     },
     "settings.feedback.bug_report_title" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -9158,6 +9161,108 @@
         }
       }
     },
+    "settings.feedback.error.network" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Internetverbindung. Bitte überprüfe deine Verbindung und versuche es erneut."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No internet connection. Please check your connection and try again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sin conexión a internet. Verifica tu conexión e inténtalo de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pas de connexion internet. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geen internetverbinding. Controleer je verbinding en probeer het opnieuw."
+          }
+        }
+      }
+    },
+    "settings.feedback.error.rate_limit" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zu viele Anfragen. Bitte versuche es später erneut."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Too many requests. Please try again later."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demasiadas solicitudes. Inténtalo más tarde."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trop de requêtes. Veuillez réessayer plus tard."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Te veel verzoeken. Probeer het later opnieuw."
+          }
+        }
+      }
+    },
+    "settings.feedback.error.send_failed" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feedback konnte nicht gesendet werden. Bitte versuche es erneut."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Failed to send feedback. Please try again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Error al enviar comentarios. Inténtalo de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Échec de l'envoi. Veuillez réessayer."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feedback versturen mislukt. Probeer het opnieuw."
+          }
+        }
+      }
+    },
     "settings.feedback.feature_request" : {
       "localizations" : {
         "de" : {
@@ -9193,6 +9298,7 @@
       }
     },
     "settings.feedback.feature_request_title" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -9396,8 +9502,41 @@
         }
       }
     },
+    "settings.feedback.send_another" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Weitere senden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Send another"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviar otro"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer un autre"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nog een versturen"
+          }
+        }
+      }
+    },
     "settings.feedback.sending" : {
-      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -9470,31 +9609,31 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine E-Mail-App wurde geöffnet. Bitte sende die E-Mail, um dein Feedback abzuschließen."
+            "value" : "Dein Feedback wurde erfolgreich gesendet. Vielen Dank, dass du uns hilfst FileFlower zu verbessern!"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Your email app has been opened. Please send the email to complete your feedback."
+            "value" : "Your feedback has been sent successfully. Thank you for helping improve FileFlower!"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tu aplicación de correo se ha abierto. Envía el correo para completar tus comentarios."
+            "value" : "Tu feedback se ha enviado correctamente. ¡Gracias por ayudarnos a mejorar FileFlower!"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Votre application e-mail a été ouverte. Veuillez envoyer l'e-mail pour compléter votre retour."
+            "value" : "Votre retour a été envoyé avec succès. Merci de nous aider à améliorer FileFlower !"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Je e-mail app is geopend. Verstuur de e-mail om je feedback te voltooien."
+            "value" : "Je feedback is succesvol verstuurd. Bedankt dat je ons helpt FileFlower te verbeteren!"
           }
         }
       }
@@ -9808,6 +9947,7 @@
       }
     },
     "settings.installed" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -10150,6 +10290,7 @@
       }
     },
     "settings.mlx_classification" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -10184,6 +10325,7 @@
       }
     },
     "settings.mlx_description" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -10252,6 +10394,7 @@
       }
     },
     "settings.model" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -10286,6 +10429,7 @@
       }
     },
     "settings.model_name" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -10521,6 +10665,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Niet geïnstalleerd (handmatige installatie vereist)"
+          }
+        }
+      }
+    },
+    "settings.petal_animation" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blütenblätter-Animation nach Verarbeitung"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Petal animation after processing"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Animación de pétalos después del procesamiento"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Animation de pétales après le traitement"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bloemblaadjes-animatie na verwerking"
           }
         }
       }
@@ -11342,6 +11520,40 @@
         }
       }
     },
+    "settings.tab.feedback" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feedback"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feedback"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comentarios"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retour"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Feedback"
+          }
+        }
+      }
+    },
     "settings.tab.general" : {
       "localizations" : {
         "de" : {
@@ -11753,6 +11965,7 @@
       }
     },
     "settings.use_mlx" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {

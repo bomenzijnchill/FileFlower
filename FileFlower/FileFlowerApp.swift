@@ -20,6 +20,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Hide dock icon - app draait alleen in de menubalk
         NSApplication.shared.setActivationPolicy(.accessory)
 
+        // Track windows zodat de app in het Force Quit menu verschijnt wanneer er een window open is
+        ActivationPolicyManager.shared.setupWindowTracking()
+
         // Locale wordt nu via SwiftUI .environment(\.locale) ingesteld
         // Geen UserDefaults override meer nodig
 
@@ -119,23 +122,19 @@ class AppState: ObservableObject {
     // FolderSync state
     @Published var folderSyncStatuses: [UUID: FolderSyncStatus] = [:]
     
-    // MLX Daemon state
-    @Published var isDaemonRunning = false
-    @Published var isDaemonLoading = false
-    
     private let configManager = ConfigManager.shared
     private let downloadsWatcher = DownloadsWatcher.shared
     private let folderSyncWatcher = FolderSyncWatcher.shared
     private let projectScanner = ProjectScanner.shared
     private let jobServer = JobServer.shared
-    private let modelManager = ModelManager.shared
     private var activeProjectCancellable: AnyCancellable?
-    private var daemonHealthCheckTimer: Timer?
     private var cachedSpotlightProjects: [ProjectInfo]?
     private var spotlightProjectsCacheTime: Date?
     
     private init() {
         loadConfig()
+        // MLX classification is verwijderd - forceer uit voor bestaande configs
+        config.useMLXClassification = false
         migrateHashesIfNeeded()
         // Stel de taal in via UserDefaults zodat String(localized:) de juiste bundle locale gebruikt
         UserDefaults.standard.set([config.appLanguage], forKey: "AppleLanguages")
@@ -157,11 +156,6 @@ class AppState: ObservableObject {
             // Start Resolve bridge monitoring zodat het actieve project beschikbaar is
             // voordat de eerste download binnenkomt (niet gated achter license check)
             ResolveScriptManager.shared.startMonitoring()
-
-            // Start MLX daemon als MLX classificatie is ingeschakeld
-            if self.config.useMLXClassification {
-                self.startMLXDaemon()
-            }
         }
         
         // Dagelijkse cleanup van verwerkingsgeschiedenis bij launch
@@ -176,7 +170,6 @@ class AppState: ObservableObject {
             MainActor.assumeIsolated {
                 // Clear afgeronde items bij afsluiten
                 self.clearFinishedItems()
-                self.stopMLXDaemon()
                 // Eindig analytics sessie bij afsluiten
                 AnalyticsService.shared.endSession()
             }
@@ -737,9 +730,6 @@ class AppState: ObservableObject {
     }
     
     func saveConfig() {
-        let previousMLXEnabled = configManager.load()?.useMLXClassification ?? false
-        let previousModelName = configManager.load()?.mlxModelName ?? ""
-
         // Invalideer Spotlight cache zodat nieuwe roots meegenomen worden
         cachedSpotlightProjects = nil
 
@@ -749,20 +739,6 @@ class AppState: ObservableObject {
 
         // Sync deploy config naar shared container voor Finder Sync Extension
         syncDeployConfigToSharedContainer()
-
-        // Daemon management bij config wijzigingen
-        if config.useMLXClassification != previousMLXEnabled {
-            if config.useMLXClassification {
-                // MLX is nu ingeschakeld - start daemon
-                startMLXDaemon()
-            } else {
-                // MLX is nu uitgeschakeld - stop daemon
-                stopMLXDaemon()
-            }
-        } else if config.useMLXClassification && config.mlxModelName != previousModelName {
-            // Model is gewijzigd - herstart daemon met nieuw model
-            restartMLXDaemon()
-        }
     }
     
     /// Sync de actieve folder preset en template naar de App Group shared container,
@@ -805,105 +781,6 @@ class AppState: ObservableObject {
         #if DEBUG
         print("AppState: Downloads watcher herstart (license geactiveerd)")
         #endif
-    }
-    
-    // MARK: - MLX Daemon Methods
-    
-    /// Start de MLX daemon voor snelle classificatie
-    func startMLXDaemon() {
-        guard config.useMLXClassification else {
-            #if DEBUG
-            print("AppState: MLX classificatie is uitgeschakeld, daemon niet gestart")
-            #endif
-            return
-        }
-        
-        isDaemonLoading = true
-        
-        Task {
-            do {
-                // Check eerst of daemon al draait
-                if await modelManager.isDaemonRunning() {
-                    await MainActor.run {
-                        self.isDaemonRunning = true
-                        self.isDaemonLoading = false
-                        #if DEBUG
-                        print("AppState: MLX daemon draait al")
-                        #endif
-                    }
-                    startDaemonHealthCheck()
-                    return
-                }
-                
-                // Start de daemon
-                try await modelManager.startDaemon(modelName: config.mlxModelName)
-                
-                await MainActor.run {
-                    self.isDaemonRunning = true
-                    self.isDaemonLoading = false
-                    #if DEBUG
-                    print("AppState: MLX daemon gestart")
-                    #endif
-                }
-                
-                startDaemonHealthCheck()
-                
-            } catch {
-                await MainActor.run {
-                    self.isDaemonRunning = false
-                    self.isDaemonLoading = false
-                    #if DEBUG
-                    print("AppState: Kon MLX daemon niet starten: \(error)")
-                    #endif
-                }
-            }
-        }
-    }
-    
-    /// Stop de MLX daemon
-    func stopMLXDaemon() {
-        daemonHealthCheckTimer?.invalidate()
-        daemonHealthCheckTimer = nil
-        
-        modelManager.stopDaemon()
-        isDaemonRunning = false
-        #if DEBUG
-        print("AppState: MLX daemon gestopt")
-        #endif
-    }
-    
-    /// Herstart de MLX daemon
-    func restartMLXDaemon() {
-        stopMLXDaemon()
-        
-        // Wacht even voordat we opnieuw starten
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.startMLXDaemon()
-        }
-    }
-    
-    /// Start periodic health check voor de daemon
-    private func startDaemonHealthCheck() {
-        daemonHealthCheckTimer?.invalidate()
-        
-        daemonHealthCheckTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
-            Task { [weak self] in
-                guard let self = self else { return }
-                
-                let running = await self.modelManager.isDaemonRunning()
-                
-                await MainActor.run {
-                    if self.isDaemonRunning != running {
-                        self.isDaemonRunning = running
-                        if !running {
-                            #if DEBUG
-                            print("AppState: MLX daemon is gestopt (health check)")
-                            #endif
-                        }
-                    }
-                }
-            }
-        }
     }
     
     // MARK: - FolderSync Methods

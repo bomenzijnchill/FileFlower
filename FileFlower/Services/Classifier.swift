@@ -629,7 +629,6 @@ class Classifier {
     
     // Classification strategy - can be swapped for Core ML in the future
     private var classificationStrategy: ClassificationStrategy
-    private var mlxStrategy: MLXClassificationStrategy?
     private var claudeStrategy: ClaudeClassificationStrategy?
     
     // Source detector for fast pre-classification
@@ -647,10 +646,6 @@ class Classifier {
             claudeStrategy = ClaudeClassificationStrategy()
         }
 
-        // Initialize MLX strategy if enabled (secondary/legacy AI)
-        if AppState.shared.config.useMLXClassification {
-            mlxStrategy = MLXClassificationStrategy(modelName: AppState.shared.config.mlxModelName)
-        }
     }
 
     /// Update classification strategy based on config
@@ -666,14 +661,6 @@ class Classifier {
             claudeStrategy = nil
         }
 
-        // MLX (secondary/legacy AI)
-        if config.useMLXClassification {
-            if mlxStrategy == nil {
-                mlxStrategy = MLXClassificationStrategy(modelName: config.mlxModelName)
-            }
-        } else {
-            mlxStrategy = nil
-        }
     }
     
     /// Raad genre en mood op basis van bestandsnaam en bron
@@ -882,17 +869,6 @@ class Classifier {
                         if predictedMood == nil { predictedMood = result.mood }
                         if predictedSfxCategory == nil { predictedSfxCategory = result.sfxCategory }
                     }
-                    // Fallback naar MLX voor genre/mood
-                    else if config.useMLXClassification && config.useGenreMoodDetection,
-                            predictedGenre == nil || predictedMood == nil,
-                            let mlx = mlxStrategy {
-                        #if DEBUG
-                        print("Classifier: MLX voor genre/mood detectie (type al bekend)")
-                        #endif
-                        let result = await mlx.classifyWithDetails(url: url, uti: uti, metadata: metadata, originUrl: originUrl)
-                        if predictedGenre == nil { predictedGenre = result.genre }
-                        if predictedMood == nil { predictedMood = result.mood }
-                    }
                 } else if let claude = claudeStrategy, config.useClaudeClassification {
                     // STAP 3: Claude API classificatie (primaire AI)
                     #if DEBUG
@@ -908,23 +884,6 @@ class Classifier {
                     if assetType == .unknown {
                         #if DEBUG
                         print("Classifier: Claude returned unknown, falling back to heuristic")
-                        #endif
-                        assetType = await classificationStrategy.classify(url: url, uti: uti, metadata: metadata, originUrl: originUrl)
-                    }
-                } else if let mlx = mlxStrategy, config.useMLXClassification {
-                    // STAP 3b: MLX classificatie (secundaire/legacy AI)
-                    #if DEBUG
-                    print("Classifier: Using MLX classification (DirectClassifier had low confidence)")
-                    #endif
-                    let result = await mlx.classifyWithDetails(url: url, uti: uti, metadata: metadata, originUrl: originUrl)
-                    assetType = result.assetType
-                    if predictedGenre == nil { predictedGenre = result.genre }
-                    if predictedMood == nil { predictedMood = result.mood }
-
-                    // Fallback to heuristic if MLX returns unknown
-                    if assetType == .unknown {
-                        #if DEBUG
-                        print("Classifier: MLX returned unknown, falling back to heuristic")
                         #endif
                         assetType = await classificationStrategy.classify(url: url, uti: uti, metadata: metadata, originUrl: originUrl)
                     }

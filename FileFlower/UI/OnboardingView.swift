@@ -1646,9 +1646,6 @@ class OnboardingWindowController: NSObject, NSWindowDelegate {
         // Sluit bestaand window als dat er is
         windowController?.close()
 
-        // Toon dock-icoon zodat de wizard zichtbaar is via cmd+tab
-        NSApplication.shared.setActivationPolicy(.regular)
-
         let delegateInstance = OnboardingWindowController()
         delegateInstance.onCompleteHandler = onComplete
         delegate = delegateInstance
@@ -1657,8 +1654,6 @@ class OnboardingWindowController: NSObject, NSWindowDelegate {
             windowController?.close()
             windowController = nil
             delegate = nil
-            // Verberg dock-icoon weer (terug naar menu bar only)
-            NSApplication.shared.setActivationPolicy(.accessory)
             onComplete()
         })
 
@@ -1684,14 +1679,11 @@ class OnboardingWindowController: NSObject, NSWindowDelegate {
         windowController?.close()
         windowController = nil
         delegate = nil
-        NSApplication.shared.setActivationPolicy(.accessory)
     }
 
     // MARK: - NSWindowDelegate
 
     func windowWillClose(_ notification: Notification) {
-        // Verberg dock-icoon wanneer wizard gesloten wordt via rode X
-        NSApplication.shared.setActivationPolicy(.accessory)
         OnboardingWindowController.windowController = nil
         OnboardingWindowController.delegate = nil
     }

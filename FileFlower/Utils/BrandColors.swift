@@ -10,6 +10,10 @@ extension Color {
     static let brandTeaGreen = Color(hex: "DAEDBD")
     static let brandSkyBlue = Color(hex: "7DBBC3")
 
+    // Petal Animation Colors
+    static let petalLavender = Color(hex: "C8A2C8")
+    static let petalRosePink = Color(hex: "E8A0BF")
+
     // Darker Variants
     static let brandBurntPeachDark = Color(hex: "A44B2F")
     static let brandSandyClayDark = Color(hex: "A67C57")
