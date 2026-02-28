@@ -86,14 +86,18 @@ extension Unzipper {
             process.waitUntilExit()
             
             guard process.terminationStatus == 0 else {
+                #if DEBUG
                 print("Unzipper: zipinfo failed with status \(process.terminationStatus)")
+                #endif
                 // Fallback: check filename for music keywords
                 return checkFilenameForMusic(sourceURL)
             }
             
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             guard let output = String(data: data, encoding: .utf8) else {
+                #if DEBUG
                 print("Unzipper: Could not decode zipinfo output")
+                #endif
                 return checkFilenameForMusic(sourceURL)
             }
             
@@ -132,20 +136,28 @@ extension Unzipper {
                 hasFiles = true
                 fileCount += 1
                 
+                #if DEBUG
                 print("Unzipper: Found file: \(lastComponent) (ext: \(ext))")
+                #endif
                 
                 // Check if it's an audio file
                 if !audioExtensions.contains(ext) {
+                    #if DEBUG
                     print("Unzipper: Non-audio file detected: \(lastComponent)")
+                    #endif
                     allMusic = false
                     break
                 }
             }
             
+            #if DEBUG
             print("Unzipper: ZIP contains \(fileCount) files, all music: \(allMusic)")
+            #endif
             return hasFiles && allMusic
         } catch {
+            #if DEBUG
             print("Unzipper: Error checking ZIP contents: \(error)")
+            #endif
             return checkFilenameForMusic(sourceURL)
         }
     }
@@ -159,7 +171,9 @@ extension Unzipper {
                             "bass", "drums", "instruments", "vocals", "vocal"]
         
         let hasMusic = musicKeywords.contains { filename.contains($0) }
+        #if DEBUG
         print("Unzipper: Fallback check - filename '\(url.lastPathComponent)' contains music keywords: \(hasMusic)")
+        #endif
         return hasMusic
     }
     

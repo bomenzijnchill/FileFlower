@@ -233,6 +233,12 @@ struct QueueView: View {
     }
     
     private func processItems(_ items: [DownloadItem]) {
+        // Blokkeer verwerking als trial verlopen en geen license
+        guard LicenseManager.shared.canUseApp else {
+            LicenseWindowController.show(onActivated: { }, onSkip: nil)
+            return
+        }
+
         // Sluit de popover zodra een verwerk-actie gestart wordt
         DispatchQueue.main.async {
             StatusBarController.shared.hidePopover()
@@ -331,9 +337,15 @@ struct QueueView: View {
                     appState.queuedItems[index].status = .completed
                     ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
 
-                    // Haal Premiere naar voren als dit is ingeschakeld
+                    // Haal de actieve NLE naar voren als dit is ingeschakeld
                     if appState.config.bringPremiereToFront {
-                        PremiereChecker.shared.bringPremiereToFront()
+                        if let nleType = NLEType.from(projectPath: item.targetProject?.projectPath ?? "") {
+                            NLEChecker.shared.bringToFront(nleType)
+                        } else if NLEChecker.shared.isRunning(.premiere) {
+                            NLEChecker.shared.bringToFront(.premiere)
+                        } else if NLEChecker.shared.isRunning(.resolve) {
+                            NLEChecker.shared.bringToFront(.resolve)
+                        }
                     }
                 }
             }
@@ -369,17 +381,23 @@ struct QueueView: View {
                     let musicMode = appState.config.musicClassification
                     if musicMode == .mood, let mood = processedItem.predictedMood {
                         subfolder = mood
+                        #if DEBUG
                         print("QueueView: Automatisch mood submap toegevoegd: \(mood)")
+                        #endif
                     } else if musicMode == .genre, let genre = processedItem.predictedGenre {
                         subfolder = genre
+                        #if DEBUG
                         print("QueueView: Automatisch genre submap toegevoegd: \(genre)")
+                        #endif
                     }
                     
                 case .sfx:
                     // Gebruik scraped SFX categorie als submap (alleen als useSfxSubfolders aan staat)
                     if appState.config.useSfxSubfolders, let sfxCategory = processedItem.predictedSfxCategory {
                         subfolder = sfxCategory
+                        #if DEBUG
                         print("QueueView: Automatisch SFX categorie submap toegevoegd: \(sfxCategory)")
+                        #endif
                     }
                     
                 default:
@@ -447,9 +465,15 @@ struct QueueView: View {
                     appState.queuedItems[index].status = .completed
                     ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
 
-                    // Haal Premiere naar voren als dit is ingeschakeld
+                    // Haal de actieve NLE naar voren als dit is ingeschakeld
                     if appState.config.bringPremiereToFront {
-                        PremiereChecker.shared.bringPremiereToFront()
+                        if let nleType = NLEType.from(projectPath: item.targetProject?.projectPath ?? "") {
+                            NLEChecker.shared.bringToFront(nleType)
+                        } else if NLEChecker.shared.isRunning(.premiere) {
+                            NLEChecker.shared.bringToFront(.premiere)
+                        } else if NLEChecker.shared.isRunning(.resolve) {
+                            NLEChecker.shared.bringToFront(.resolve)
+                        }
                     }
                 }
             }
@@ -624,7 +648,15 @@ struct QueueItemRow: View {
                         Text("•")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary.opacity(0.5))
-                        
+
+                        // NLE type icoon
+                        if let nleType = NLEType.from(projectPath: project.projectPath) {
+                            Image(systemName: nleType.icon)
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                                .help(nleType.displayName)
+                        }
+
                         // Project dropdown
                         Menu {
                             ForEach(appState.recentProjects) { projectOption in
@@ -633,7 +665,11 @@ struct QueueItemRow: View {
                                         appState.queuedItems[index].targetProject = projectOption
                                     }
                                 }) {
-                                    Text(projectOption.name)
+                                    if let nle = NLEType.from(projectPath: projectOption.projectPath) {
+                                        Label(projectOption.name, systemImage: nle.icon)
+                                    } else {
+                                        Text(projectOption.name)
+                                    }
                                 }
                             }
                         } label: {

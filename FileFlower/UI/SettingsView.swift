@@ -13,6 +13,8 @@ struct SettingsView: View {
     @State private var downloadsFolder: String = ""
     @State private var showPopupAfterDownload: Bool = true
     @State private var bringPremiereToFront: Bool = true
+    @State private var bringResolveToFront: Bool = true
+    @State private var resolveAutoImport: Bool = true
     @State private var autoOpenBridgePanel: Bool = true
     @State private var startAtLogin: Bool = false
     @State private var useClaudeClassification: Bool = false
@@ -94,6 +96,8 @@ struct SettingsView: View {
             blacklistedWebsites: $blacklistedWebsites,
             showPopupAfterDownload: $showPopupAfterDownload,
             bringPremiereToFront: $bringPremiereToFront,
+            bringResolveToFront: $bringResolveToFront,
+            resolveAutoImport: $resolveAutoImport,
             autoOpenBridgePanel: $autoOpenBridgePanel,
             startAtLogin: $startAtLogin,
             saveConfig: saveConfig,
@@ -228,6 +232,8 @@ struct SettingsView: View {
             WindowBehaviorSection(
                 showPopupAfterDownload: $showPopupAfterDownload,
                 bringPremiereToFront: $bringPremiereToFront,
+                bringResolveToFront: $bringResolveToFront,
+                resolveAutoImport: $resolveAutoImport,
                 autoOpenBridgePanel: $autoOpenBridgePanel,
                 startAtLogin: $startAtLogin
             )
@@ -324,7 +330,9 @@ struct SettingsView: View {
             }
             saveConfig()
         } catch {
+            #if DEBUG
             print("Fout bij wijzigen startAtLogin: \(error)")
+            #endif
             DispatchQueue.main.async {
                 startAtLogin = !enabled
             }
@@ -339,6 +347,8 @@ struct SettingsView: View {
         downloadsFolder = appState.config.customDownloadsFolder ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads").path
         showPopupAfterDownload = appState.config.showPopupAfterDownload
         bringPremiereToFront = appState.config.bringPremiereToFront
+        bringResolveToFront = appState.config.bringResolveToFront
+        resolveAutoImport = appState.config.resolveAutoImport
         autoOpenBridgePanel = appState.config.autoOpenBridgePanel
         startAtLogin = appState.config.startAtLogin
         useClaudeClassification = appState.config.useClaudeClassification
@@ -357,7 +367,9 @@ struct SettingsView: View {
     
     private func setupMLXIfNeeded() async {
         // Run op background thread om UI niet te blokkeren
+        #if DEBUG
         print("SettingsView: Setting up MLX classification...")
+        #endif
         let modelManager = ModelManager.shared
         
         // Haal model naam op main thread
@@ -369,27 +381,41 @@ struct SettingsView: View {
         do {
             let installed = try await modelManager.installMLX()
             if installed {
+                #if DEBUG
                 print("SettingsView: MLX installed successfully")
+                #endif
             } else {
+                #if DEBUG
                 print("SettingsView: MLX installation failed")
+                #endif
                 return
             }
         } catch {
+            #if DEBUG
             print("SettingsView: Error installing MLX: \(error)")
+            #endif
             return
         }
         
         // Download model als nodig (op background thread)
         if !modelManager.modelExists(modelName: modelName) {
+            #if DEBUG
             print("SettingsView: Downloading model \(modelName)...")
+            #endif
             do {
                 try await modelManager.downloadModel(modelName: modelName)
+                #if DEBUG
                 print("SettingsView: Model downloaded successfully")
+                #endif
             } catch {
+                #if DEBUG
                 print("SettingsView: Error downloading model: \(error)")
+                #endif
             }
         } else {
+            #if DEBUG
             print("SettingsView: Model already exists")
+            #endif
         }
         
         // Update classifier strategy op main thread
@@ -432,6 +458,8 @@ struct SettingsView: View {
         
         appState.config.showPopupAfterDownload = showPopupAfterDownload
         appState.config.bringPremiereToFront = bringPremiereToFront
+        appState.config.bringResolveToFront = bringResolveToFront
+        appState.config.resolveAutoImport = resolveAutoImport
         appState.config.autoOpenBridgePanel = autoOpenBridgePanel
         appState.config.startAtLogin = startAtLogin
         appState.config.useClaudeClassification = useClaudeClassification
@@ -460,6 +488,8 @@ private struct SettingsChangeHandlersA: ViewModifier {
     @Binding var blacklistedWebsites: [String]
     @Binding var showPopupAfterDownload: Bool
     @Binding var bringPremiereToFront: Bool
+    @Binding var bringResolveToFront: Bool
+    @Binding var resolveAutoImport: Bool
     @Binding var autoOpenBridgePanel: Bool
     @Binding var startAtLogin: Bool
     var saveConfig: () -> Void
@@ -473,6 +503,8 @@ private struct SettingsChangeHandlersA: ViewModifier {
             .onChange(of: blacklistedWebsites) { _, _ in saveConfig() }
             .onChange(of: showPopupAfterDownload) { _, _ in saveConfig() }
             .onChange(of: bringPremiereToFront) { _, _ in saveConfig() }
+            .onChange(of: bringResolveToFront) { _, _ in saveConfig() }
+            .onChange(of: resolveAutoImport) { _, _ in saveConfig() }
             .onChange(of: autoOpenBridgePanel) { _, _ in saveConfig() }
             .onChange(of: startAtLogin) { _, newValue in handleStartAtLoginChange(newValue) }
     }
@@ -1402,9 +1434,11 @@ struct BlacklistWebsitesSection: View {
 struct WindowBehaviorSection: View {
     @Binding var showPopupAfterDownload: Bool
     @Binding var bringPremiereToFront: Bool
+    @Binding var bringResolveToFront: Bool
+    @Binding var resolveAutoImport: Bool
     @Binding var autoOpenBridgePanel: Bool
     @Binding var startAtLogin: Bool
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "settings.window_behavior"))
@@ -1418,6 +1452,30 @@ struct WindowBehaviorSection: View {
 
             Toggle(String(localized: "settings.auto_open_bridge"), isOn: $autoOpenBridgePanel)
                 .font(.system(size: 11))
+
+            Divider()
+
+            Text("DaVinci Resolve")
+                .font(.system(size: 13, weight: .semibold))
+
+            Toggle(String(localized: "settings.bring_resolve"), isOn: $bringResolveToFront)
+                .font(.system(size: 11))
+
+            Toggle(String(localized: "settings.resolve_auto_import"), isOn: $resolveAutoImport)
+                .font(.system(size: 11))
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(ResolveScriptManager.shared.isRunning ? Color.green : Color.gray)
+                    .frame(width: 8, height: 8)
+                Text(ResolveScriptManager.shared.isRunning
+                     ? String(localized: "settings.resolve_bridge.running")
+                     : String(localized: "settings.resolve_bridge.stopped"))
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
 
             Toggle(String(localized: "settings.start_at_login"), isOn: $startAtLogin)
                 .font(.system(size: 11))

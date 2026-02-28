@@ -92,7 +92,9 @@ class CorrectionHistoryManager {
             )
         )
 
+        #if DEBUG
         print("CorrectionHistory: Correctie opgeslagen - \(originalType.rawValue) → \(correctedType.rawValue) voor \(filename)")
+        #endif
     }
 
     /// Haal relevante voorbeelden op voor few-shot prompting
@@ -170,9 +172,13 @@ class CorrectionHistoryManager {
         do {
             let data = try Data(contentsOf: fileURL)
             records = try JSONDecoder().decode([CorrectionRecord].self, from: data)
+            #if DEBUG
             print("CorrectionHistory: \(records.count) correcties geladen")
+            #endif
         } catch {
+            #if DEBUG
             print("CorrectionHistory: Fout bij laden: \(error.localizedDescription)")
+            #endif
             records = []
         }
     }
@@ -184,7 +190,9 @@ class CorrectionHistoryManager {
             let data = try encoder.encode(records)
             try data.write(to: fileURL, options: .atomic)
         } catch {
+            #if DEBUG
             print("CorrectionHistory: Fout bij opslaan: \(error.localizedDescription)")
+            #endif
         }
     }
 }

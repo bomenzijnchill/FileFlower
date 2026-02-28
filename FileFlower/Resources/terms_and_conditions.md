@@ -29,19 +29,26 @@ You can enable or disable anonymous usage statistics at any time in Settings.
 5. THIRD-PARTY SERVICES
 FileFlower integrates with the following third-party services:
 - Adobe Premiere Pro (via local plugin communication)
-- Google Chrome (via browser extension for metadata capture)
+- DaVinci Resolve (via local scripting API for project detection and media import)
+- Google Chrome / Safari (via browser extension for metadata capture)
+- Anthropic Claude API (optional, for AI-powered file classification — file names and metadata may be sent to Anthropic's servers if this feature is enabled)
 - Gumroad (for license validation)
 - GitHub (for update checking)
 
-FileFlower does not share your data with any third parties beyond what is described above.
+FileFlower does not share your data with any third parties beyond what is described above. AI classification via the Claude API is optional and can be disabled in Settings.
 
 6. INTELLECTUAL PROPERTY
 The Software, including all code, design, documentation, and associated assets, is the intellectual property of the developer. All rights not expressly granted in these Terms are reserved.
 
 7. DISCLAIMER & LIABILITY
-THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. THE DEVELOPER SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE THE SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. THE DEVELOPER SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE THE SOFTWARE.
 
-FileFlower modifies file locations on your system as part of its core functionality. While every effort is made to ensure reliability, the developer is not responsible for any data loss resulting from file operations.
+FILE OPERATIONS WARNING: FileFlower moves, copies, and renames files on your system as part of its core functionality. By using the Software, you acknowledge and accept the following:
+- Files may be moved to different locations on your disk based on automated detection and classification.
+- While every effort is made to ensure reliability, the developer is not responsible for any data loss, file corruption, accidental deletion, or unintended file relocation resulting from the use of the Software.
+- You are strongly advised to maintain regular backups of your files before and during use of the Software.
+- You are responsible for verifying the results of file operations performed by the Software.
+- The developer assumes no liability for any damages resulting from incorrect file placement, missing files, or any other consequence of automated file management.
 
 8. MODIFICATIONS TO TERMS
 We reserve the right to modify these Terms at any time. Users will be notified of significant changes through the Software. Continued use after notification constitutes acceptance of the modified Terms.

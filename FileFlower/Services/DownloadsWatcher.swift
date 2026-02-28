@@ -77,12 +77,16 @@ class DownloadsWatcher {
     
     func start() {
         guard stream == nil else {
+            #if DEBUG
             print("DownloadsWatcher: Stream already started")
+            #endif
             return
         }
         
+        #if DEBUG
         print("DownloadsWatcher: Starting FSEvents stream for: \(downloadsURL.path)")
-        
+        #endif
+
         var context = FSEventStreamContext(
             version: 0,
             info: Unmanaged.passUnretained(self).toOpaque(),
@@ -113,7 +117,9 @@ class DownloadsWatcher {
         )
         
         guard let stream = stream else {
+            #if DEBUG
             print("DownloadsWatcher: ERROR - Failed to create FSEventStream")
+            #endif
             return
         }
         
@@ -125,11 +131,13 @@ class DownloadsWatcher {
         }
         
         let success = FSEventStreamStart(stream)
+        #if DEBUG
         if success {
             print("DownloadsWatcher: FSEventStream started successfully")
         } else {
             print("DownloadsWatcher: ERROR - Failed to start FSEventStream")
         }
+        #endif
     }
     
     func stop() {
@@ -156,14 +164,18 @@ class DownloadsWatcher {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
               isDirectory.boolValue else {
+            #if DEBUG
             print("DownloadsWatcher: 4K Video Downloader map bestaat niet: \(url.path)")
+            #endif
             return
         }
         
         self.youtube4KURL = url
         
+        #if DEBUG
         print("DownloadsWatcher: Starting FSEvents stream for 4K Video Downloader: \(url.path)")
-        
+        #endif
+
         var context = FSEventStreamContext(
             version: 0,
             info: Unmanaged.passUnretained(self).toOpaque(),
@@ -194,7 +206,9 @@ class DownloadsWatcher {
         )
         
         guard let youtube4KStream = youtube4KStream else {
+            #if DEBUG
             print("DownloadsWatcher: ERROR - Failed to create FSEventStream for 4K Video Downloader")
+            #endif
             return
         }
         
@@ -206,11 +220,13 @@ class DownloadsWatcher {
         }
         
         let success = FSEventStreamStart(youtube4KStream)
+        #if DEBUG
         if success {
             print("DownloadsWatcher: 4K Video Downloader FSEventStream started successfully")
         } else {
             print("DownloadsWatcher: ERROR - Failed to start 4K Video Downloader FSEventStream")
         }
+        #endif
     }
     
     /// Stop de 4K Video Downloader watcher
@@ -230,18 +246,24 @@ class DownloadsWatcher {
         eventFlags: UnsafePointer<FSEventStreamEventFlags>
     ) {
         guard let paths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] else {
+            #if DEBUG
             print("DownloadsWatcher: ERROR - Failed to cast 4K event paths")
+            #endif
             return
         }
-        
+
+        #if DEBUG
         print("DownloadsWatcher: Received \(numEvents) 4K Video Downloader events")
-        
+        #endif
+
         for (index, path) in paths.enumerated() {
             let flags = eventFlags[index]
-            
+
             if flags & UInt32(kFSEventStreamEventFlagItemCreated) != 0 ||
                flags & UInt32(kFSEventStreamEventFlagItemRenamed) != 0 {
+                #if DEBUG
                 print("DownloadsWatcher: 4K event for path: \(path)")
+                #endif
                 checkYoutube4KFile(path: path)
             }
         }
@@ -271,10 +293,12 @@ class DownloadsWatcher {
         
         // Check if file extension is allowed
         if !ext.isEmpty && !allowedExtensions.contains(ext) {
+            #if DEBUG
             print("DownloadsWatcher: Skipping 4K file \(url.lastPathComponent) - file type '\(ext)' not supported")
+            #endif
             return
         }
-        
+
         // Thread-safe check if already known or currently processing
         var shouldSkip = false
         accessQueue.sync {
@@ -284,12 +308,16 @@ class DownloadsWatcher {
         }
         
         if shouldSkip {
+            #if DEBUG
             print("DownloadsWatcher: Skipping 4K file \(url.lastPathComponent) - already known or processing")
+            #endif
             return
         }
-        
+
+        #if DEBUG
         print("DownloadsWatcher: Detected new 4K Video Downloader file: \(url.lastPathComponent)")
-        
+        #endif
+
         // Thread-safe mark as processing
         accessQueue.async(flags: .barrier) {
             self.processingFiles.insert(path)
@@ -304,54 +332,68 @@ class DownloadsWatcher {
     /// Verify en process een 4K Video Downloader bestand
     private func verifyAndProcessYoutube4KFile(url: URL) {
         guard FileManager.default.fileExists(atPath: url.path) else {
+            #if DEBUG
             print("DownloadsWatcher: 4K file no longer exists: \(url.lastPathComponent)")
+            #endif
             accessQueue.async(flags: .barrier) {
                 self.processingFiles.remove(url.path)
             }
             return
         }
-        
+
         // Check if file is stable (not still downloading)
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = attrs[.size] as? Int64 else {
+            #if DEBUG
             print("DownloadsWatcher: Could not get 4K file attributes for: \(url.lastPathComponent)")
+            #endif
             accessQueue.async(flags: .barrier) {
                 self.processingFiles.remove(url.path)
             }
             return
         }
-        
+
+        #if DEBUG
         print("DownloadsWatcher: Checking 4K file stability for: \(url.lastPathComponent) (size: \(size))")
+        #endif
         
         // Check again after a delay to ensure size is stable
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.0) {
             guard FileManager.default.fileExists(atPath: url.path) else {
+                #if DEBUG
                 print("DownloadsWatcher: 4K file disappeared during stability check: \(url.lastPathComponent)")
+                #endif
                 self.accessQueue.async(flags: .barrier) {
                     self.processingFiles.remove(url.path)
                 }
                 return
             }
-            
+
             guard let newAttrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                   let newSize = newAttrs[.size] as? Int64 else {
+                #if DEBUG
                 print("DownloadsWatcher: Could not get 4K file attributes during stability check: \(url.lastPathComponent)")
+                #endif
                 self.accessQueue.async(flags: .barrier) {
                     self.processingFiles.remove(url.path)
                 }
                 return
             }
-            
+
             if newSize != size {
+                #if DEBUG
                 print("DownloadsWatcher: 4K file still downloading: \(url.lastPathComponent) (old: \(size), new: \(newSize))")
+                #endif
                 // File is still downloading, check again later
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2.0) {
                     self.verifyAndProcessYoutube4KFile(url: url)
                 }
                 return
             }
-            
+
+            #if DEBUG
             print("DownloadsWatcher: 4K file is stable: \(url.lastPathComponent)")
+            #endif
             
             // 4K Video Downloader bestanden worden ALTIJD verwerkt (geen origin URL check nodig)
             // Ze komen uit een specifieke map, dus we weten dat ze van YouTube komen
@@ -365,18 +407,24 @@ class DownloadsWatcher {
         eventFlags: UnsafePointer<FSEventStreamEventFlags>
     ) {
         guard let paths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] else {
+            #if DEBUG
             print("DownloadsWatcher: ERROR - Failed to cast event paths")
+            #endif
             return
         }
-        
+
+        #if DEBUG
         print("DownloadsWatcher: Received \(numEvents) events")
-        
+        #endif
+
         for (index, path) in paths.enumerated() {
             let flags = eventFlags[index]
-            
+
             if flags & UInt32(kFSEventStreamEventFlagItemCreated) != 0 ||
                flags & UInt32(kFSEventStreamEventFlagItemRenamed) != 0 {
+                #if DEBUG
                 print("DownloadsWatcher: Event for path: \(path)")
+                #endif
                 checkFile(path: path)
             }
         }
@@ -402,7 +450,9 @@ class DownloadsWatcher {
         if exists && !isDir.boolValue {
             let ext = url.pathExtension.lowercased()
             if !ext.isEmpty && !allowedExtensions.contains(ext) {
+                #if DEBUG
                 print("DownloadsWatcher: Skipping \(url.lastPathComponent) - file type '\(ext)' not supported")
+                #endif
                 return
             }
         }
@@ -414,7 +464,9 @@ class DownloadsWatcher {
         // If this is a directory, check if it matches a ZIP we're extracting
         if pathExists && isDirectory.boolValue {
             if isExtractingZipFolder(path) {
+                #if DEBUG
                 print("DownloadsWatcher: Skipping \(url.lastPathComponent) - folder matches ZIP we're extracting")
+                #endif
                 // Mark folder and all files inside as known immediately
                 accessQueue.async(flags: .barrier) {
                     self.knownFiles.insert(path)
@@ -449,15 +501,19 @@ class DownloadsWatcher {
         
         // If this is a known music folder, skip it immediately
         if isKnownMusicFolder {
+            #if DEBUG
             print("DownloadsWatcher: Skipping \(url.lastPathComponent) - this is a known music folder")
+            #endif
             return
         }
         
         if shouldSkip {
+            #if DEBUG
             print("DownloadsWatcher: Skipping \(url.lastPathComponent) - already known or processing")
+            #endif
             return
         }
-        
+
         // Check if this file/directory is inside a known music folder (to skip individual files in music ZIPs)
         let parentDir = url.deletingLastPathComponent()
         var isInKnownMusicFolder = false
@@ -466,7 +522,9 @@ class DownloadsWatcher {
         }
         
         if isInKnownMusicFolder {
+            #if DEBUG
             print("DownloadsWatcher: Skipping \(url.lastPathComponent) - inside known music folder")
+            #endif
             // Mark this file as known to prevent further processing
             accessQueue.async(flags: .barrier) {
                 self.knownFiles.insert(path)
@@ -474,8 +532,10 @@ class DownloadsWatcher {
             return
         }
         
+        #if DEBUG
         print("DownloadsWatcher: Detected new file: \(url.lastPathComponent)")
-        
+        #endif
+
         // Thread-safe mark as processing
         accessQueue.async(flags: .barrier) {
             self.processingFiles.insert(path)
@@ -489,46 +549,58 @@ class DownloadsWatcher {
     
     private func verifyAndProcessFile(url: URL) {
         guard FileManager.default.fileExists(atPath: url.path) else {
+            #if DEBUG
             print("DownloadsWatcher: File no longer exists: \(url.lastPathComponent)")
+            #endif
             accessQueue.async(flags: .barrier) {
                 self.processingFiles.remove(url.path)
             }
             return
         }
-        
+
         // Check if file is stable (not still downloading)
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
               let size = attrs[.size] as? Int64 else {
+            #if DEBUG
             print("DownloadsWatcher: Could not get file attributes for: \(url.lastPathComponent)")
+            #endif
             accessQueue.async(flags: .barrier) {
                 self.processingFiles.remove(url.path)
             }
             return
         }
-        
+
+        #if DEBUG
         print("DownloadsWatcher: Checking file stability for: \(url.lastPathComponent) (size: \(size))")
+        #endif
         
         // Check again after a delay to ensure size is stable - run off main thread
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1.0) {
             guard FileManager.default.fileExists(atPath: url.path) else {
+                #if DEBUG
                 print("DownloadsWatcher: File disappeared during stability check: \(url.lastPathComponent)")
+                #endif
                 self.accessQueue.async(flags: .barrier) {
                     self.processingFiles.remove(url.path)
                 }
                 return
             }
-            
+
             guard let newAttrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                   let newSize = newAttrs[.size] as? Int64 else {
+                #if DEBUG
                 print("DownloadsWatcher: Could not get file attributes during stability check: \(url.lastPathComponent)")
+                #endif
                 self.accessQueue.async(flags: .barrier) {
                     self.processingFiles.remove(url.path)
                 }
                 return
             }
-            
+
             if newSize != size {
+                #if DEBUG
                 print("DownloadsWatcher: File still downloading: \(url.lastPathComponent) (old: \(size), new: \(newSize))")
+                #endif
                 // File is still downloading, check again later
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2.0) {
                     self.verifyAndProcessFile(url: url)
@@ -539,25 +611,33 @@ class DownloadsWatcher {
             // Extra stability check voor ZIP bestanden - ZIPs worden soms in blokken geschreven
             let isZip = url.pathExtension.lowercased() == "zip"
             if isZip {
+                #if DEBUG
                 print("DownloadsWatcher: ZIP detected, extra stability check: \(url.lastPathComponent)")
+                #endif
                 DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3.0) {
                     guard FileManager.default.fileExists(atPath: url.path) else { return }
                     guard let finalAttrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                           let finalSize = finalAttrs[.size] as? Int64 else { return }
 
                     if finalSize != newSize {
+                        #if DEBUG
                         print("DownloadsWatcher: ZIP still downloading after extra check: \(url.lastPathComponent)")
+                        #endif
                         self.verifyAndProcessFile(url: url)
                         return
                     }
 
+                    #if DEBUG
                     print("DownloadsWatcher: ZIP is stable after extra check: \(url.lastPathComponent)")
+                    #endif
                     self.continueAfterStabilityCheck(url: url)
                 }
                 return
             }
 
+            #if DEBUG
             print("DownloadsWatcher: File is stable: \(url.lastPathComponent)")
+            #endif
             self.continueAfterStabilityCheck(url: url)
         }
     }
@@ -572,7 +652,9 @@ class DownloadsWatcher {
         }
 
         if shouldSkip {
+            #if DEBUG
             print("DownloadsWatcher: Skipping \(url.lastPathComponent) - marked as known during stability check")
+            #endif
             self.accessQueue.async(flags: .barrier) {
                 self.processingFiles.remove(url.path)
             }
@@ -593,7 +675,9 @@ class DownloadsWatcher {
         // If this is a directory, check if it matches a ZIP we're extracting
         if pathExists && isDirectory.boolValue {
             if isExtractingZipFolder(url.path) {
+                #if DEBUG
                 print("DownloadsWatcher: Skipping directory \(url.lastPathComponent) - folder matches ZIP we're extracting")
+                #endif
                 // Mark folder and all files inside as known immediately
                 accessQueue.sync(flags: .barrier) {
                     self.knownFiles.insert(url.path)
@@ -620,11 +704,13 @@ class DownloadsWatcher {
         
         // If this is a directory that's already known (e.g., from ZIP extraction), skip it immediately
         if isKnown {
+            #if DEBUG
             if pathExists && isDirectory.boolValue {
                 print("DownloadsWatcher: Skipping directory \(url.lastPathComponent) - already known (likely from ZIP extraction)")
             } else {
                 print("DownloadsWatcher: Skipping \(url.lastPathComponent) - already known (likely from ZIP extraction)")
             }
+            #endif
             accessQueue.async(flags: .barrier) {
                 self.processingFiles.remove(url.path)
             }
@@ -659,7 +745,9 @@ class DownloadsWatcher {
                     
                     if hasStems {
                         // This is likely a music ZIP folder - mark it as known and process it as one item
+                        #if DEBUG
                         print("DownloadsWatcher: Detected music folder with STEMS - marking as known: \(url.lastPathComponent)")
+                        #endif
                         accessQueue.sync(flags: .barrier) {
                             self.knownFiles.insert(url.path)
                             // Mark all files in the folder as known too
@@ -678,7 +766,9 @@ class DownloadsWatcher {
         
         // Read origin URL from quarantine attributes
         let originURL = getOriginURL(from: url)
+        #if DEBUG
         print("DownloadsWatcher: Origin URL for \(url.lastPathComponent): \(originURL ?? "none")")
+        #endif
         
         // Check if we should process this file
         if shouldProcessFile(url: url, originURL: originURL) {
@@ -689,7 +779,9 @@ class DownloadsWatcher {
                 processFile(url: url, originURL: originURL)
             }
         } else {
+            #if DEBUG
             print("DownloadsWatcher: Skipping \(url.lastPathComponent) - not from stock website and Premiere Pro not running")
+            #endif
             self.accessQueue.async(flags: .barrier) {
                 self.processingFiles.remove(url.path)
             }
@@ -745,28 +837,36 @@ class DownloadsWatcher {
     private func shouldProcessFile(url: URL, originURL: String?) -> Bool {
         let config = AppState.shared.config
         
-        // Always process if Premiere Pro is running
-        if PremiereChecker.shared.isPremiereProRunning() {
-            print("DownloadsWatcher: Premiere Pro is running - processing all downloads")
+        // Always process if any supported NLE is running (Premiere Pro, DaVinci Resolve)
+        if NLEChecker.shared.isAnyNLERunning() {
+            #if DEBUG
+            print("DownloadsWatcher: NLE actief (\(NLEChecker.shared.runningNLEs().map { $0.displayName }.joined(separator: ", "))) - processing all downloads")
+            #endif
             return true
         }
         
         // Check of er metadata beschikbaar is via de browser extensie
         if StockMetadataCache.shared.findForFile(url: url) != nil {
+            #if DEBUG
             print("DownloadsWatcher: Stock metadata gevonden in cache - processing")
+            #endif
             return true
         }
 
         // Check if origin URL matches stock or cloud storage websites
         guard let origin = originURL?.lowercased() else {
+            #if DEBUG
             print("DownloadsWatcher: No origin URL found - skipping")
+            #endif
             return false
         }
 
         // Check blacklist first
         for blacklisted in config.blacklistedWebsites {
             if origin.contains(blacklisted.lowercased()) {
+                #if DEBUG
                 print("DownloadsWatcher: Origin URL is blacklisted: \(blacklisted)")
+                #endif
                 return false
             }
         }
@@ -774,7 +874,9 @@ class DownloadsWatcher {
         // Check cloud storage websites (Dropbox, Google Drive)
         for cloudSite in config.cloudStorageWebsites {
             if origin.contains(cloudSite.lowercased()) {
+                #if DEBUG
                 print("DownloadsWatcher: Origin URL matches cloud storage: \(cloudSite)")
+                #endif
                 return true
             }
         }
@@ -783,7 +885,9 @@ class DownloadsWatcher {
         let allStockWebsites = config.stockWebsites
         for stockSite in allStockWebsites {
             if origin.contains(stockSite.lowercased()) {
+                #if DEBUG
                 print("DownloadsWatcher: Origin URL matches stock website: \(stockSite)")
+                #endif
                 // Track download detectie
                 AnalyticsService.shared.track(.downloadDetected(
                     sourceWebsite: stockSite,
@@ -795,12 +899,16 @@ class DownloadsWatcher {
             }
         }
         
+        #if DEBUG
         print("DownloadsWatcher: Origin URL does not match any stock website")
+        #endif
         return false
     }
     
     private func extractZipAndProcess(url: URL, originURL: String?) {
+        #if DEBUG
         print("DownloadsWatcher: Extracting ZIP file: \(url.lastPathComponent)")
+        #endif
 
         // Check of dit een Google Drive multi-part ZIP is
         if CloudZipMerger.shared.isGoogleDriveMultiPart(url) {
@@ -820,18 +928,24 @@ class DownloadsWatcher {
             self.knownFiles.insert(extractFolder.path)
         }
         
+        #if DEBUG
         print("DownloadsWatcher: Pre-marked folder as known: \(extractFolder.lastPathComponent)")
-        
+        #endif
+
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 // Check if ZIP contains only music files (WAV/MP3)
                 let isMusicZip = Unzipper.containsOnlyMusic(url)
+                #if DEBUG
                 print("DownloadsWatcher: ZIP contains only music: \(isMusicZip)")
+                #endif
                 
                 // Extract to Downloads
                 let extractedFiles = try Unzipper.unzip(url, to: downloadsDir)
-                
+
+                #if DEBUG
                 print("DownloadsWatcher: Extracted \(extractedFiles.count) files from ZIP")
+                #endif
                 
                 // Mark all extracted files as known immediately
                 self.accessQueue.sync(flags: .barrier) {
@@ -841,15 +955,21 @@ class DownloadsWatcher {
                     }
                 }
                 
+                #if DEBUG
                 print("DownloadsWatcher: Marked all \(extractedFiles.count) extracted files as known")
-                
+                #endif
+
                 // Behandel ALLE ZIPs als map-item: de extracted folder wordt als 1 item verwerkt
                 // Dit behoudt de mapstructuur (bijv. Epidemic Sound stems blijven bij elkaar)
                 if extractedFiles.isEmpty {
+                    #if DEBUG
                     print("DownloadsWatcher: ZIP contains no files - skipping")
+                    #endif
                 } else {
+                    #if DEBUG
                     let typeLabel = isMusicZip ? "Music" : "Non-music"
                     print("DownloadsWatcher: \(typeLabel) ZIP detected - treating folder as single item: \(extractFolder.lastPathComponent) (\(extractedFiles.count) files)")
+                    #endif
 
                     // Process the folder as a single item (use same origin URL as ZIP)
                     DispatchQueue.main.async {
@@ -868,7 +988,9 @@ class DownloadsWatcher {
                     self.extractingZips.remove(url.path)
                 }
             } catch {
+                #if DEBUG
                 print("DownloadsWatcher: Failed to extract ZIP: \(error.localizedDescription)")
+                #endif
                 // Remove from extracting set on error
                 self.accessQueue.async(flags: .barrier) {
                     self.extractingZips.remove(url.path)
@@ -903,7 +1025,9 @@ class DownloadsWatcher {
     // MARK: - Google Drive Multi-Part ZIP Handling
 
     private func handleGoogleDriveMultiPartZip(url: URL, originURL: String?) {
+        #if DEBUG
         print("DownloadsWatcher: Google Drive multi-part ZIP gedetecteerd: \(url.lastPathComponent)")
+        #endif
 
         // Markeer als known om re-detectie te voorkomen
         accessQueue.sync(flags: .barrier) {
@@ -917,7 +1041,9 @@ class DownloadsWatcher {
         case .allPartsReceived(let baseName):
             mergeAndProcessGoogleDriveGroup(baseName: baseName, originURL: originURL)
         case .waitingForMore(_, let received, let expected):
+            #if DEBUG
             print("DownloadsWatcher: Wachten op meer delen (\(received)/\(expected))")
+            #endif
         }
     }
 
@@ -946,15 +1072,21 @@ class DownloadsWatcher {
                     if self.allowedExtensions.contains(ext) {
                         return true
                     } else {
+                        #if DEBUG
                         print("DownloadsWatcher: Skip merged bestand \(fileURL.lastPathComponent) — type '\(ext)' niet ondersteund")
+                        #endif
                         return false
                     }
                 }
 
                 if supportedFiles.isEmpty {
+                    #if DEBUG
                     print("DownloadsWatcher: Google Drive merge bevat geen ondersteunde bestanden")
+                    #endif
                 } else {
+                    #if DEBUG
                     print("DownloadsWatcher: Google Drive merge — \(supportedFiles.count) ondersteunde bestanden verwerken")
+                    #endif
                     for fileURL in supportedFiles {
                         DispatchQueue.main.async {
                             if let callback = self.onNewFile {
@@ -964,7 +1096,9 @@ class DownloadsWatcher {
                     }
                 }
             } catch {
+                #if DEBUG
                 print("DownloadsWatcher: Google Drive merge mislukt: \(error.localizedDescription)")
+                #endif
             }
         }
     }
@@ -977,17 +1111,25 @@ class DownloadsWatcher {
             self.quarantineRetryCount.removeValue(forKey: url.path)
         }
         
+        #if DEBUG
         print("DownloadsWatcher: File ready: \(url.lastPathComponent)")
-        
+        #endif
+
         // Call callback on main thread
         DispatchQueue.main.async {
+            #if DEBUG
             print("DownloadsWatcher: Calling onNewFile callback for: \(url.lastPathComponent)")
+            #endif
             guard let callback = self.onNewFile else {
+                #if DEBUG
                 print("DownloadsWatcher: ERROR - onNewFile callback is nil!")
+                #endif
                 return
             }
             callback(url, originURL)
+            #if DEBUG
             print("DownloadsWatcher: Callback completed for: \(url.lastPathComponent)")
+            #endif
         }
     }
     

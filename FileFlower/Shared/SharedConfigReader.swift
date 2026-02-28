@@ -36,26 +36,36 @@ class SharedConfigReader {
     /// (voor de extension wijst dit automatisch naar z'n container)
     static func loadDeployConfig() -> DeployConfig? {
         guard let directory = appSupportDirectory else {
+            #if DEBUG
             print("SharedConfigReader: Cannot determine app support directory")
+            #endif
             return nil
         }
 
         let configURL = directory.appendingPathComponent(deployConfigFilename)
+        #if DEBUG
         print("SharedConfigReader: Loading from \(configURL.path)")
+        #endif
 
         guard FileManager.default.fileExists(atPath: configURL.path),
               let data = try? Data(contentsOf: configURL) else {
+            #if DEBUG
             print("SharedConfigReader: No deploy config found at \(configURL.path)")
+            #endif
             return nil
         }
 
         do {
             let decoder = JSONDecoder()
             let config = try decoder.decode(DeployConfig.self, from: data)
+            #if DEBUG
             print("SharedConfigReader: Loaded deploy config (preset: \(config.folderStructurePreset.rawValue), hasTemplate: \(config.customFolderTemplate != nil))")
+            #endif
             return config
         } catch {
+            #if DEBUG
             print("SharedConfigReader: Failed to decode deploy config: \(error)")
+            #endif
             return nil
         }
     }
@@ -64,7 +74,9 @@ class SharedConfigReader {
     static func saveDeployConfig(_ config: DeployConfig) {
         let encoder = JSONEncoder()
         guard let data = try? encoder.encode(config) else {
+            #if DEBUG
             print("SharedConfigReader: Failed to encode deploy config")
+            #endif
             return
         }
 
@@ -83,9 +95,13 @@ class SharedConfigReader {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let configURL = directory.appendingPathComponent(deployConfigFilename)
             try data.write(to: configURL, options: .atomic)
+            #if DEBUG
             print("SharedConfigReader: Deploy config saved to \(configURL.path)")
+            #endif
         } catch {
+            #if DEBUG
             print("SharedConfigReader: Failed to save to \(directory.path): \(error)")
+            #endif
         }
     }
 }

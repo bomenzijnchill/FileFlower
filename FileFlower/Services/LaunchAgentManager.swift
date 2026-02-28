@@ -28,7 +28,9 @@ class LaunchAgentManager {
 
             // Verwijder het plist bestand
             try? FileManager.default.removeItem(at: plistURL)
+            #if DEBUG
             print("LaunchAgentManager: Oude launch agent opgeruimd: \(plistName)")
+            #endif
         }
     }
 
@@ -45,12 +47,16 @@ class LaunchAgentManager {
             try? SMAppService.mainApp.unregister()
         }
         try SMAppService.mainApp.register()
+        #if DEBUG
         print("LaunchAgentManager: Start bij login ingeschakeld via SMAppService")
+        #endif
     }
 
     /// Verwijder de app als login item
     func disableStartAtLogin() throws {
         try SMAppService.mainApp.unregister()
+        #if DEBUG
         print("LaunchAgentManager: Start bij login uitgeschakeld via SMAppService")
+        #endif
     }
 }

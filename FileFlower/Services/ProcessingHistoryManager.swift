@@ -97,7 +97,9 @@ class ProcessingHistoryManager {
 
         saveToDisk()
 
+        #if DEBUG
         print("ProcessingHistory: Item opgeslagen - \(filename) (\(item.status.rawValue))")
+        #endif
     }
 
     /// Haal alle records van vandaag op
@@ -116,7 +118,9 @@ class ProcessingHistoryManager {
 
         if removed > 0 {
             saveToDisk()
+            #if DEBUG
             print("ProcessingHistory: \(removed) oude records verwijderd")
+            #endif
         }
     }
 
@@ -136,9 +140,13 @@ class ProcessingHistoryManager {
         do {
             let data = try Data(contentsOf: fileURL)
             records = try JSONDecoder().decode([HistoryItem].self, from: data)
+            #if DEBUG
             print("ProcessingHistory: \(records.count) records geladen")
+            #endif
         } catch {
+            #if DEBUG
             print("ProcessingHistory: Fout bij laden: \(error.localizedDescription)")
+            #endif
             records = []
         }
     }
@@ -151,7 +159,9 @@ class ProcessingHistoryManager {
             let data = try encoder.encode(records)
             try data.write(to: fileURL, options: .atomic)
         } catch {
+            #if DEBUG
             print("ProcessingHistory: Fout bij opslaan: \(error.localizedDescription)")
+            #endif
         }
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Popover die de verwerkingsgeschiedenis van vandaag toont
 struct HistoryView: View {
@@ -114,6 +115,17 @@ struct HistoryItemRow: View {
 
             Spacer()
 
+            // Open in Finder knop (verschijnt alleen bij hover op voltooide items)
+            if isHovered, record.status == .completed, record.destinationPath != nil {
+                Button(action: openInFinder) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "history.open_in_finder"))
+            }
+
             // Status + tijd
             VStack(alignment: .trailing, spacing: 3) {
                 HistoryStatusBadge(status: record.status)
@@ -129,6 +141,23 @@ struct HistoryItemRow: View {
         .contentShape(Rectangle())
         .onHover { hovering in
             isHovered = hovering
+        }
+    }
+
+    private func openInFinder() {
+        guard let destPath = record.destinationPath else { return }
+        let url = URL(fileURLWithPath: destPath)
+        let fileManager = FileManager.default
+
+        if fileManager.fileExists(atPath: destPath) {
+            // Bestand bestaat: selecteer het in Finder
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else {
+            // Bestand is verplaatst/verwijderd: open de bovenliggende map
+            let parent = url.deletingLastPathComponent()
+            if fileManager.fileExists(atPath: parent.path) {
+                NSWorkspace.shared.open(parent)
+            }
         }
     }
 

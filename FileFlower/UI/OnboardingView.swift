@@ -13,6 +13,7 @@ struct OnboardingView: View {
     @State private var isValidatingExtension = false
     @State private var extensionMarkedInstalled = false
     @State private var extensionServerRunning = false
+    @State private var selectedBrowser: String = "chrome"
     @State private var finderExtensionEnabled = false
     @State private var isCheckingFinderExtension = false
 
@@ -45,13 +46,14 @@ struct OnboardingView: View {
         case musicClassify = 2
         case sfxSubfolders = 3
         case premierePlugin = 4
-        case chromeExtension = 5
-        case finderExtension = 6
-        case projectSetup = 7
-        case workflow = 8
-        case autoStart = 9
-        case terms = 10
-        case complete = 11
+        case resolveSetup = 5
+        case chromeExtension = 6
+        case finderExtension = 7
+        case projectSetup = 8
+        case workflow = 9
+        case autoStart = 10
+        case terms = 11
+        case complete = 12
 
         var titleKey: String.LocalizationValue {
             switch self {
@@ -60,6 +62,7 @@ struct OnboardingView: View {
             case .musicClassify: return "onboarding.music.title"
             case .sfxSubfolders: return "onboarding.sfx.title"
             case .premierePlugin: return "onboarding.premiere.title"
+            case .resolveSetup: return "onboarding.resolve.title"
             case .chromeExtension: return "onboarding.chrome.title"
             case .finderExtension: return "onboarding.finder.title"
             case .projectSetup: return "onboarding.project.title"
@@ -81,6 +84,7 @@ struct OnboardingView: View {
             case .musicClassify: return "music.note.list"
             case .sfxSubfolders: return "speaker.wave.3.fill"
             case .premierePlugin: return "film.fill"
+            case .resolveSetup: return "film.stack.fill"
             case .chromeExtension: return "globe"
             case .finderExtension: return "folder.badge.plus"
             case .projectSetup: return "folder.fill"
@@ -177,6 +181,8 @@ struct OnboardingView: View {
             sfxSubfoldersContent
         case .premierePlugin:
             premierePluginContent
+        case .resolveSetup:
+            resolveSetupContent
         case .chromeExtension:
             chromeExtensionContent
         case .finderExtension:
@@ -459,7 +465,68 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Chrome Extension Step
+    // MARK: - DaVinci Resolve Setup Step
+
+    private var resolveSetupContent: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "film.stack.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.brandSkyBlue)
+
+            Text(String(localized: "onboarding.resolve.title"))
+                .font(.system(size: 24, weight: .bold))
+
+            Text(String(localized: "onboarding.resolve.description"))
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20)
+
+            VStack(alignment: .leading, spacing: 12) {
+                // Python 3 check
+                HStack(spacing: 12) {
+                    Image(systemName: SetupManager.shared.isPython3Available ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundColor(SetupManager.shared.isPython3Available ? .green : .orange)
+                        .font(.system(size: 20))
+                    VStack(alignment: .leading) {
+                        Text("Python 3")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(SetupManager.shared.isPython3Available
+                             ? String(localized: "onboarding.resolve.python_found")
+                             : String(localized: "onboarding.resolve.python_not_found"))
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Resolve scripting modules check
+                HStack(spacing: 12) {
+                    Image(systemName: SetupManager.shared.isResolveScriptingAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundColor(SetupManager.shared.isResolveScriptingAvailable ? .green : .orange)
+                        .font(.system(size: 20))
+                    VStack(alignment: .leading) {
+                        Text("DaVinci Resolve Scripting API")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(SetupManager.shared.isResolveScriptingAvailable
+                             ? String(localized: "onboarding.resolve.scripting_found")
+                             : String(localized: "onboarding.resolve.scripting_not_found"))
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            .cornerRadius(8)
+
+            Text(String(localized: "onboarding.resolve.skip_note"))
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .padding(.top, 8)
+        }
+    }
+
+    // MARK: - Browser Extension Step
 
     private var chromeExtensionContent: some View {
         VStack(spacing: 20) {
@@ -476,83 +543,158 @@ struct OnboardingView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 400)
 
-            VStack(alignment: .leading, spacing: 12) {
-                DisclosureGroup(
-                    isExpanded: $chromeInstructionsExpanded,
-                    content: {
-                        VStack(alignment: .leading, spacing: 16) {
-                            InstructionStep(number: 1, text: String(localized: "onboarding.chrome.step1"))
-                            InstructionStep(number: 2, text: String(localized: "onboarding.chrome.step2"))
-                            InstructionStep(number: 3, text: String(localized: "onboarding.chrome.step3"))
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Button(action: {
-                                    SetupManager.shared.openChromeExtensionFolder()
-                                }) {
-                                    HStack(spacing: 8) {
-                                        Image(systemName: "folder.fill")
-                                        Text(String(localized: "onboarding.chrome.open_folder"))
-                                    }
-                                }
-                                .buttonStyle(.borderedProminent)
-
-                                Text(String(localized: "onboarding.chrome.folder_hint"))
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                            }
-                            .padding(.leading, 36)
-
-                            InstructionStep(number: 4, text: String(localized: "onboarding.chrome.step4"))
-                        }
-                        .padding(.top, 12)
-                    },
-                    label: {
-                        HStack {
-                            Image(systemName: "info.circle.fill")
-                                .foregroundColor(.brandSkyBlue)
-                            Text(String(localized: "onboarding.chrome.instructions"))
-                                .font(.system(size: 14, weight: .medium))
-                        }
-                    }
+            // Browser keuze
+            HStack(spacing: 12) {
+                browserChoiceButton(
+                    browser: "chrome",
+                    icon: "globe",
+                    label: "Chrome"
                 )
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(8)
+                browserChoiceButton(
+                    browser: "safari",
+                    icon: "safari",
+                    label: "Safari"
+                )
             }
-            .frame(maxWidth: 450)
+            .padding(.top, 4)
 
-            Group {
-                if isValidatingExtension {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(String(localized: "onboarding.chrome.checking"))
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.top, 8)
-                } else if extensionMarkedInstalled {
-                    HStack(spacing: 8) {
-                        Image(systemName: extensionServerRunning ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                            .foregroundColor(extensionServerRunning ? .green : .orange)
-                        Text(extensionServerRunning
-                             ? String(localized: "onboarding.chrome.marked_installed")
-                             : String(localized: "onboarding.chrome.marked_no_server"))
-                            .font(.system(size: 13))
-                            .foregroundColor(extensionServerRunning ? .green : .orange)
-                    }
-                    .padding(.top, 8)
-                    .transition(.opacity.combined(with: .scale))
-                } else {
-                    Button(action: validateAndMarkExtensionInstalled) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "checkmark.circle")
-                            Text(String(localized: "onboarding.chrome.confirm_installed"))
+            if selectedBrowser == "chrome" {
+                chromeInstructions
+            } else {
+                safariInstructions
+            }
+
+            extensionStatusIndicator
+        }
+    }
+
+    private func browserChoiceButton(browser: String, icon: String, label: String) -> some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                selectedBrowser = browser
+                extensionMarkedInstalled = false
+            }
+        }) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 24))
+                Text(label)
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .frame(width: 100, height: 70)
+            .background(selectedBrowser == browser ? Color.accentColor.opacity(0.15) : Color(NSColor.controlBackgroundColor))
+            .cornerRadius(10)
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(selectedBrowser == browser ? Color.accentColor : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var chromeInstructions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            DisclosureGroup(
+                isExpanded: $chromeInstructionsExpanded,
+                content: {
+                    VStack(alignment: .leading, spacing: 16) {
+                        InstructionStep(number: 1, text: String(localized: "onboarding.chrome.step1"))
+                        InstructionStep(number: 2, text: String(localized: "onboarding.chrome.step2"))
+                        InstructionStep(number: 3, text: String(localized: "onboarding.chrome.step3"))
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Button(action: {
+                                SetupManager.shared.openChromeExtensionFolder()
+                            }) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "folder.fill")
+                                    Text(String(localized: "onboarding.chrome.open_folder"))
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+
+                            Text(String(localized: "onboarding.chrome.folder_hint"))
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
                         }
+                        .padding(.leading, 36)
+
+                        InstructionStep(number: 4, text: String(localized: "onboarding.chrome.step4"))
                     }
-                    .buttonStyle(.bordered)
-                    .padding(.top, 8)
+                    .padding(.top, 12)
+                },
+                label: {
+                    HStack {
+                        Image(systemName: "info.circle.fill")
+                            .foregroundColor(.brandSkyBlue)
+                        Text(String(localized: "onboarding.chrome.instructions"))
+                            .font(.system(size: 14, weight: .medium))
+                    }
                 }
+            )
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
+        }
+        .frame(maxWidth: 450)
+        .transition(.opacity)
+    }
+
+    private var safariInstructions: some View {
+        VStack(spacing: 16) {
+            Button(action: {
+                SetupManager.shared.openSafariExtensionApp()
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "safari")
+                    Text(String(localized: "onboarding.safari.install_button"))
+                }
+                .frame(minWidth: 200)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Text(String(localized: "onboarding.safari.install_hint"))
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 400)
+        }
+        .transition(.opacity)
+    }
+
+    private var extensionStatusIndicator: some View {
+        Group {
+            if isValidatingExtension {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(localized: "onboarding.chrome.checking"))
+                        .font(.system(size: 13))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 8)
+            } else if extensionMarkedInstalled {
+                HStack(spacing: 8) {
+                    Image(systemName: extensionServerRunning ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundColor(extensionServerRunning ? .green : .orange)
+                    Text(extensionServerRunning
+                         ? String(localized: "onboarding.chrome.marked_installed")
+                         : String(localized: "onboarding.chrome.marked_no_server"))
+                        .font(.system(size: 13))
+                        .foregroundColor(extensionServerRunning ? .green : .orange)
+                }
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .scale))
+            } else {
+                Button(action: validateAndMarkExtensionInstalled) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle")
+                        Text(String(localized: "onboarding.chrome.confirm_installed"))
+                    }
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 8)
             }
         }
     }
@@ -1227,6 +1369,8 @@ struct OnboardingView: View {
             return SetupManager.shared.isPremierePluginInstalled
                 ? String(localized: "common.next")
                 : String(localized: "common.skip")
+        case .resolveSetup:
+            return String(localized: "common.next")
         case .chromeExtension:
             return String(localized: "common.next")
         case .finderExtension:
@@ -1334,6 +1478,7 @@ struct OnboardingView: View {
                 extensionMarkedInstalled = true
             }
 
+            SetupManager.shared.selectedBrowser = selectedBrowser
             SetupManager.shared.markChromeExtensionInstalled()
         }
     }

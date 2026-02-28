@@ -441,12 +441,15 @@ class LicenseWindowController: NSObject, NSWindowDelegate {
     
     static func show(onActivated: @escaping () -> Void, onSkip: (() -> Void)? = nil) {
         shared?.windowController?.close()
-        
+
         let controller = LicenseWindowController()
         shared = controller
         controller.onActivatedCallback = onActivated
         controller.onSkipCallback = onSkip
-        
+
+        // Trial verlopen en geen skip → geen close knop
+        let isLocked = onSkip == nil
+
         let licenseView = LicenseView(
             onActivated: {
                 shared?.windowController?.close()
@@ -462,26 +465,26 @@ class LicenseWindowController: NSObject, NSWindowDelegate {
                     callback?()
                 }
             },
-            onClose: {
+            onClose: isLocked ? nil : {
                 shared?.windowController?.close()
                 shared = nil
             }
         )
-        
+
         let hostingController = NSHostingController(rootView: licenseView)
-        
+
         let window = NSWindow(contentViewController: hostingController)
         window.title = "FileFlower Activeren"
-        window.styleMask = [.titled, .closable]
+        window.styleMask = isLocked ? [.titled] : [.titled, .closable]
         window.setContentSize(NSSize(width: 450, height: 420))
         window.center()
         window.isReleasedWhenClosed = false
         window.delegate = controller
         window.level = .floating
-        
+
         controller.windowController = NSWindowController(window: window)
         controller.windowController?.showWindow(nil)
-        
+
         NSApplication.shared.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
@@ -494,8 +497,8 @@ class LicenseWindowController: NSObject, NSWindowDelegate {
     // MARK: - NSWindowDelegate
     
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        // Sta toe dat het venster sluit
-        return true
+        // Blokkeer sluiten als trial verlopen en geen license
+        return LicenseManager.shared.canUseApp
     }
     
     func windowWillClose(_ notification: Notification) {

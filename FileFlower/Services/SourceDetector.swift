@@ -115,7 +115,9 @@ class SourceDetector {
         let filePath = url.path
         guard filePath.hasPrefix(youtube4KFolder) else { return nil }
         
+        #if DEBUG
         print("SourceDetector: YouTube 4K gedetecteerd (pad: \(youtube4KFolder))")
+        #endif
         
         // Bepaal asset type op basis van extensie
         let videoExts = ["mp4", "mov", "avi", "mkv", "webm", "m4v"]
@@ -147,7 +149,9 @@ class SourceDetector {
             
             // Artlist
             if lower.contains("artlist.io") || lower.contains("artlist") {
+                #if DEBUG
                 print("SourceDetector: Artlist gedetecteerd via metadata tags")
+                #endif
                 return SourceDetectionResult(
                     source: .artlist,
                     assetType: classifyArtlistType(filename: filename, ext: ext),
@@ -157,7 +161,9 @@ class SourceDetector {
             
             // Epidemic Sound
             if lower.contains("epidemicsound") || lower.contains("epidemic sound") {
+                #if DEBUG
                 print("SourceDetector: Epidemic Sound gedetecteerd via metadata tags")
+                #endif
                 let (esType, esConfidence) = classifyEpidemicSoundType(filename: filename, ext: ext)
                 return SourceDetectionResult(
                     source: .epidemicSound,
@@ -170,7 +176,9 @@ class SourceDetector {
         // Check ook genre veld voor hints
         if let genre = meta.genre?.lowercased() {
             if genre.contains("artlist") {
+                #if DEBUG
                 print("SourceDetector: Artlist gedetecteerd via genre metadata")
+                #endif
                 return SourceDetectionResult(
                     source: .artlist,
                     assetType: classifyArtlistType(filename: filename, ext: ext),
@@ -193,7 +201,9 @@ class SourceDetector {
 
         // Check ES_ prefix (meest voorkomend)
         if filename.hasPrefix("ES_") {
+            #if DEBUG
             print("SourceDetector: Epidemic Sound gedetecteerd (ES_ prefix)")
+            #endif
             let (assetType, confidence) = classifyEpidemicSoundType(filename: nameWithoutExt, ext: ext)
             return SourceDetectionResult(
                 source: .epidemicSound,
@@ -204,7 +214,9 @@ class SourceDetector {
 
         // Check "- Epidemic Sound" suffix
         if nameWithoutExt.hasSuffix("- Epidemic Sound") {
+            #if DEBUG
             print("SourceDetector: Epidemic Sound gedetecteerd (- Epidemic Sound suffix)")
+            #endif
             let (assetType, confidence) = classifyEpidemicSoundType(filename: nameWithoutExt, ext: ext)
             return SourceDetectionResult(
                 source: .epidemicSound,
@@ -239,7 +251,9 @@ class SourceDetector {
 
         for keyword in sfxKeywords {
             if lower.contains(keyword) {
+                #if DEBUG
                 print("SourceDetector: SFX keyword gevonden in bestandsnaam: \(keyword)")
+                #endif
                 return (.sfx, .high)
             }
         }
@@ -267,7 +281,9 @@ class SourceDetector {
         let firstPart = components[0]
         guard !firstPart.isEmpty, firstPart.allSatisfy({ $0.isNumber }) else { return nil }
         
+        #if DEBUG
         print("SourceDetector: Freesound gedetecteerd (ID: \(firstPart))")
+        #endif
         
         // Freesound is altijd SFX
         return SourceDetectionResult(
@@ -285,7 +301,9 @@ class SourceDetector {
         
         // Adobe Stock: AdobeStock_123456789
         if lower.hasPrefix("adobestock_") {
+            #if DEBUG
             print("SourceDetector: Adobe Stock gedetecteerd")
+            #endif
             return SourceDetectionResult(
                 source: .adobeStock,
                 assetType: classifyStockType(ext: ext),
@@ -295,7 +313,9 @@ class SourceDetector {
         
         // Shutterstock: shutterstock_12345678
         if lower.hasPrefix("shutterstock_") {
+            #if DEBUG
             print("SourceDetector: Shutterstock gedetecteerd")
+            #endif
             return SourceDetectionResult(
                 source: .shutterstock,
                 assetType: classifyStockType(ext: ext),
@@ -305,7 +325,9 @@ class SourceDetector {
         
         // iStock: istockphoto-12345678-*
         if lower.hasPrefix("istockphoto-") {
+            #if DEBUG
             print("SourceDetector: iStock gedetecteerd")
+            #endif
             return SourceDetectionResult(
                 source: .iStock,
                 assetType: classifyStockType(ext: ext),
@@ -315,7 +337,9 @@ class SourceDetector {
         
         // Getty Images: gettyimages-12345678-*
         if lower.hasPrefix("gettyimages-") {
+            #if DEBUG
             print("SourceDetector: Getty Images gedetecteerd")
+            #endif
             return SourceDetectionResult(
                 source: .gettyImages,
                 assetType: classifyStockType(ext: ext),
@@ -325,7 +349,9 @@ class SourceDetector {
         
         // Pond5: Pond5-12345678-name of pond5_12345678
         if lower.hasPrefix("pond5-") || lower.hasPrefix("pond5_") {
+            #if DEBUG
             print("SourceDetector: Pond5 gedetecteerd")
+            #endif
             return SourceDetectionResult(
                 source: .pond5,
                 assetType: classifyStockType(ext: ext),
@@ -335,7 +361,9 @@ class SourceDetector {
         
         // Depositphotos: depositphotos_1234567-stock...
         if lower.hasPrefix("depositphotos_") {
+            #if DEBUG
             print("SourceDetector: Depositphotos gedetecteerd")
+            #endif
             return SourceDetectionResult(
                 source: .depositphotos,
                 assetType: classifyStockType(ext: ext),
@@ -374,7 +402,9 @@ class SourceDetector {
             let lower = originUrl.lowercased()
             
             if lower.contains("artlist.io") {
+                #if DEBUG
                 print("SourceDetector: Artlist gedetecteerd via metadata")
+                #endif
                 return SourceDetectionResult(
                     source: .artlist,
                     assetType: classifyArtlistType(filename: filename, ext: ext),
@@ -413,7 +443,9 @@ class SourceDetector {
                 if (lower.contains("artlist.io/royalty-free-music/song/") ||
                     lower.contains("artlist.io/song/")) &&
                    !lower.contains("cms-artifacts") {
+                    #if DEBUG
                     print("SourceDetector: Gevonden Artlist trackpagina URL")
+                    #endif
                     return urlString
                 }
             }
@@ -422,7 +454,9 @@ class SourceDetector {
             for urlString in urls {
                 let lower = urlString.lowercased()
                 if lower.contains("epidemicsound.com/track/") {
+                    #if DEBUG
                     print("SourceDetector: Gevonden Epidemic Sound trackpagina URL")
+                    #endif
                     return urlString
                 }
             }
@@ -437,7 +471,9 @@ class SourceDetector {
                    lower.contains(".wav?") ||
                    lower.contains(".mp3?") ||
                    lower.contains("?d=true") {
+                    #if DEBUG
                     print("SourceDetector: Skipping CDN/download URL: \(urlString.prefix(60))...")
+                    #endif
                     continue
                 }
                 // Skip root URLs zonder specifiek pad
@@ -445,17 +481,23 @@ class SourceDetector {
                    urlString == "https://artlist.io" ||
                    urlString == "https://www.artlist.io/" ||
                    urlString == "https://www.artlist.io" {
+                    #if DEBUG
                     print("SourceDetector: Skipping root URL (geen trackpagina): \(urlString)")
+                    #endif
                     continue
                 }
                 // Return URL met meer specifiek pad
+                #if DEBUG
                 print("SourceDetector: Gevonden provider URL: \(urlString)")
+                #endif
                 return urlString
             }
             
             // Geen goede URL gevonden - log waarom
+            #if DEBUG
             print("SourceDetector: Geen scrapable trackpagina URL gevonden in extended attributes")
             print("SourceDetector: De browser slaat alleen de CDN download URL of homepage op, niet de trackpagina")
+            #endif
             return nil
         }
         
@@ -520,21 +562,25 @@ class SourceDetector {
             return result
         }
         
-        // Haal origin URLs op voor debugging
+        // Haal origin URLs op
         let allUrls = getAllOriginURLs(url: url)
+        #if DEBUG
         if !allUrls.isEmpty {
             print("SourceDetector: Alle origin URLs voor \(url.lastPathComponent):")
             for (index, originUrl) in allUrls.enumerated() {
                 print("  [\(index)] \(originUrl)")
             }
         }
+        #endif
         
         // ============================================================================
         // NIEUW: Zoek metadata in de Chrome extensie cache
         // ============================================================================
         if let stockMeta = await StockMetadataCache.shared.findForFile(url: url, originUrls: allUrls) {
+            #if DEBUG
             print("SourceDetector: Chrome extensie metadata gevonden voor '\(stockMeta.title ?? "unknown")'")
-            
+            #endif
+
             // Haal de origin URL uit de metadata
             if let pageUrl = stockMeta.pageUrl {
                 result.originUrl = pageUrl
@@ -560,23 +606,34 @@ class SourceDetector {
                     // Dit is een SFX, niet muziek!
                     result.assetType = .sfx
                     result.confidence = .high  // BELANGRIJK: Zorgt ervoor dat MLX geskipt wordt
+                    #if DEBUG
                     print("SourceDetector: SFX gedetecteerd via \(isSfxUrl ? "pageUrl" : "genre"): \(pageUrl)")
+                    #endif
                     
                     // Extraheer de SFX categorie uit de URL of genres
                     if let category = extractSfxCategory(from: pageUrl) {
                         result.sfxCategory = category
+                        #if DEBUG
                         print("SourceDetector: SFX categorie uit URL: \(category)")
+                        #endif
                     } else if let genres = stockMeta.genres, !genres.isEmpty {
                         // Gebruik eerste genre (niet sound-design/sfx) als categorie
                         let filteredGenres = genres.filter { !sfxGenres.contains($0.lowercased()) }
                         if let category = filteredGenres.first {
                             result.sfxCategory = category.capitalized
+                            #if DEBUG
                             print("SourceDetector: SFX categorie uit genres: \(category.capitalized)")
+                            #endif
                         }
                     } else if let title = stockMeta.title, !title.lowercased().contains("sound effect") {
-                        // Gebruik de title als categorie als we die niet uit de URL konden halen
-                        result.sfxCategory = title
-                        print("SourceDetector: SFX categorie uit title: \(title)")
+                        // Gebruik het eerste komma-gescheiden descriptor als categorie
+                        // "Crowds, Applause, Medium Audience, Short" → "Crowds"
+                        let firstDescriptor = title.split(separator: ",").first
+                            .map { $0.trimmingCharacters(in: .whitespaces) } ?? title
+                        result.sfxCategory = firstDescriptor
+                        #if DEBUG
+                        print("SourceDetector: SFX categorie uit title (eerste descriptor): \(firstDescriptor)")
+                        #endif
                     }
                 } else {
                     // Muziek - zet assetType en confidence
@@ -586,30 +643,40 @@ class SourceDetector {
                     // Gebruik de eerste genre/mood
                     if let genre = stockMeta.primaryGenre {
                         result.scrapedGenre = genre
+                        #if DEBUG
                         print("SourceDetector: Genre uit Chrome extensie: \(genre)")
+                        #endif
                     } else {
                         // Fallback: probeer genre uit URL te halen
                         // URL format: /music/genres/jazz/ -> "Jazz"
                         if let genre = extractMusicGenreFromUrl(pageUrl) {
                             result.scrapedGenre = genre
+                            #if DEBUG
                             print("SourceDetector: Genre uit URL (fallback): \(genre)")
+                            #endif
                         }
                     }
                     
                     if let mood = stockMeta.primaryMood {
                         result.scrapedMood = mood
+                        #if DEBUG
                         print("SourceDetector: Mood uit Chrome extensie: \(mood)")
+                        #endif
                     } else {
                         // Fallback: probeer mood uit URL te halen
                         // URL format: /music/moods/happy/ -> "Happy"
                         if let mood = extractMusicMoodFromUrl(pageUrl) {
                             result.scrapedMood = mood
+                            #if DEBUG
                             print("SourceDetector: Mood uit URL (fallback): \(mood)")
+                            #endif
                         }
                     }
                 }
                 
+                #if DEBUG
                 print("SourceDetector: Chrome extensie metadata - shouldSkipMLX: \(result.shouldSkipMLX)")
+                #endif
             } else {
                 // Geen pageUrl - gebruik standaard genre/mood maar stel assetType nog steeds in
                 result.assetType = .music  // Default voor audio zonder URL
@@ -617,19 +684,25 @@ class SourceDetector {
                 
                 if let genre = stockMeta.primaryGenre {
                     result.scrapedGenre = genre
+                    #if DEBUG
                     print("SourceDetector: Genre uit Chrome extensie: \(genre)")
+                    #endif
                 }
                 if let mood = stockMeta.primaryMood {
                     result.scrapedMood = mood
+                    #if DEBUG
                     print("SourceDetector: Mood uit Chrome extensie: \(mood)")
+                    #endif
                 }
             }
-            
+
             return result
         }
         
+        #if DEBUG
         print("SourceDetector: Geen Chrome extensie metadata gevonden voor \(url.lastPathComponent)")
         print("SourceDetector: Tip - Installeer de Chrome extensie voor automatische genre/mood detectie")
+        #endif
         
         return result
     }
@@ -701,7 +774,9 @@ class SourceDetector {
             // soundTerm bevat "Drone OR Rumble" -> pak eerste term
             let terms = soundTerm.components(separatedBy: " OR ").first ?? soundTerm
             let category = terms.trimmingCharacters(in: .whitespaces).capitalized
+            #if DEBUG
             print("SourceDetector: Geëxtraheerde SFX categorie '\(category)' uit soundTerm parameter")
+            #endif
             return category
         }
         
@@ -721,7 +796,16 @@ class SourceDetector {
         guard let lastCategory = pathComponents.last, !lastCategory.isEmpty else {
             return nil
         }
-        
+
+        // Filter UUID-achtige componenten (bijv. 70bb6d68-b1aa-4788-9b08-2306803e8abc)
+        // Epidemic Sound track URLs bevatten alleen een UUID als pad-component
+        if lastCategory.range(of: #"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            #if DEBUG
+            print("SourceDetector: SFX pad-component is een UUID, skip: \(lastCategory)")
+            #endif
+            return nil
+        }
+
         // Filter ook taalcodes zoals "en-nl"
         if lastCategory.contains("-") && lastCategory.count <= 5 {
             return nil
@@ -731,7 +815,9 @@ class SourceDetector {
         var category = lastCategory.replacingOccurrences(of: "-", with: " ")
         category = category.capitalized
         
+        #if DEBUG
         print("SourceDetector: Geëxtraheerde SFX categorie '\(category)' uit URL pad: \(pathComponents.joined(separator: " > "))")
+        #endif
         
         return category
     }

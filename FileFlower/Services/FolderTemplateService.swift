@@ -78,7 +78,9 @@ class FolderTemplateService {
             }
 
             if attempt < Self.maxRetries {
+                #if DEBUG
                 print("FolderTemplateService: Poging \(attempt + 1) mislukt, retry...")
+                #endif
                 try await Task.sleep(nanoseconds: 500_000_000)
             }
         }
@@ -105,7 +107,9 @@ class FolderTemplateService {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         } catch {
+            #if DEBUG
             print("FolderTemplateService: JSON encoding fout: \(error.localizedDescription)")
+            #endif
             return nil
         }
 
@@ -113,13 +117,17 @@ class FolderTemplateService {
             let (data, response) = try await URLSession.shared.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
+                #if DEBUG
                 print("FolderTemplateService: Ongeldig response type")
+                #endif
                 return nil
             }
 
             if httpResponse.statusCode != 200 {
                 if let errorBody = String(data: data, encoding: .utf8) {
+                    #if DEBUG
                     print("FolderTemplateService: HTTP \(httpResponse.statusCode) - \(errorBody.prefix(200))")
+                    #endif
                 }
                 return nil
             }
@@ -127,7 +135,9 @@ class FolderTemplateService {
             return parseProxyResponse(data: data)
 
         } catch {
+            #if DEBUG
             print("FolderTemplateService: Netwerk fout: \(error.localizedDescription)")
+            #endif
             return nil
         }
     }
@@ -140,19 +150,25 @@ class FolderTemplateService {
               let content = json["content"] as? [[String: Any]],
               let firstBlock = content.first,
               let text = firstBlock["text"] as? String else {
+            #if DEBUG
             print("FolderTemplateService: Kon proxy response niet parsen")
+            #endif
             return nil
         }
 
         // Extraheer JSON uit de AI response tekst
         guard let mappingJSON = extractJSON(from: text) else {
+            #if DEBUG
             print("FolderTemplateService: Geen JSON gevonden in response: \(text.prefix(200))")
+            #endif
             return nil
         }
 
         guard let outputData = mappingJSON.data(using: .utf8),
               let output = try? JSONSerialization.jsonObject(with: outputData) as? [String: Any] else {
+            #if DEBUG
             print("FolderTemplateService: Kon mapping JSON niet parsen")
+            #endif
             return nil
         }
 

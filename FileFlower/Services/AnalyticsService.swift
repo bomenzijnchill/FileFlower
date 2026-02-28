@@ -63,10 +63,14 @@ class AnalyticsService {
                     self.queue.async {
                         self.eventQueue.insert(contentsOf: eventsToSend, at: 0)
                         self.saveQueueToDisk()
+                        #if DEBUG
                         print("AnalyticsService: Events terug in queue na fout (\(eventsToSend.count) events)")
+                        #endif
                     }
                 } else {
+                    #if DEBUG
                     print("AnalyticsService: \(eventsToSend.count) events succesvol verstuurd")
+                    #endif
                 }
             }
         }
@@ -109,7 +113,9 @@ class AnalyticsService {
         AppState.shared.config.analyticsEnabled = true
         AppState.shared.saveConfig()
         startSession()
+        #if DEBUG
         print("AnalyticsService: Opt-in - analytics ingeschakeld")
+        #endif
     }
 
     func optOut() {
@@ -120,7 +126,9 @@ class AnalyticsService {
             self?.eventQueue.removeAll()
             self?.saveQueueToDisk()
         }
+        #if DEBUG
         print("AnalyticsService: Opt-out - analytics uitgeschakeld, queue geleegd")
+        #endif
     }
 
     // MARK: - Persistentie
@@ -146,7 +154,9 @@ class AnalyticsService {
         eventQueue = (try? decoder.decode([AnalyticsEvent].self, from: data)) ?? []
 
         if !eventQueue.isEmpty {
+            #if DEBUG
             print("AnalyticsService: \(eventQueue.count) events geladen uit queue")
+            #endif
         }
     }
 

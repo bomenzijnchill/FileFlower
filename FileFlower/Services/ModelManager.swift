@@ -211,7 +211,9 @@ class ModelManager {
     /// Download een model als het nog niet bestaat
     func downloadModel(modelName: String) async throws {
         if modelExists(modelName: modelName) {
+            #if DEBUG
             print("ModelManager: Model \(modelName) already exists")
+            #endif
             return // Model bestaat al
         }
         
@@ -224,23 +226,31 @@ class ModelManager {
                 throw ModelManagerError.downloadFailed
             }
         } catch {
+            #if DEBUG
             print("ModelManager: Failed to install MLX: \(error)")
+            #endif
             throw ModelManagerError.downloadFailed
         }
-        
+
         // Vind Python met MLX
         guard let pythonPath = findPythonWithMLX() else {
+            #if DEBUG
             print("ModelManager: No Python with MLX found")
+            #endif
             throw ModelManagerError.pythonNotAvailable
         }
-        
+
         // Check of download script bestaat
         guard FileManager.default.fileExists(atPath: downloadScriptPath.path) else {
+            #if DEBUG
             print("ModelManager: Download script not found at \(downloadScriptPath.path)")
+            #endif
             throw ModelManagerError.scriptNotFound
         }
-        
+
+        #if DEBUG
         print("ModelManager: Downloading model \(modelName) to \(modelPath.path)...")
+        #endif
         
         // Run download script
         let process = Process()
@@ -262,17 +272,23 @@ class ModelManager {
         guard process.terminationStatus == 0 else {
             let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
             let output = String(data: data, encoding: .utf8) ?? "Unknown error"
+            #if DEBUG
             print("ModelManager: Model download failed: \(output)")
+            #endif
             throw ModelManagerError.downloadFailed
         }
         
         // Verify model werd gedownload
         guard modelExists(modelName: modelName) else {
+            #if DEBUG
             print("ModelManager: Model download completed but validation failed")
+            #endif
             throw ModelManagerError.downloadFailed
         }
-        
+
+        #if DEBUG
         print("ModelManager: Model \(modelName) downloaded successfully")
+        #endif
     }
     
     // MARK: - Python Management
@@ -291,9 +307,11 @@ class ModelManager {
         pythonPathChecked = true
         cachedPythonPath = path
         
+        #if DEBUG
         if let path = path {
             print("ModelManager: Found Python with MLX at \(path) (cached)")
         }
+        #endif
         
         return path
     }
@@ -326,7 +344,9 @@ class ModelManager {
                 try checkProcess.run()
                 checkProcess.waitUntilExit()
                 if checkProcess.terminationStatus == 0 {
+                    #if DEBUG
                     print("ModelManager: MLX already installed")
+                    #endif
                     return true
                 }
             } catch {
@@ -337,7 +357,9 @@ class ModelManager {
         // Zoek Python met MLX
         if let pythonPath = findPythonWithMLX() {
             // MLX is al geïnstalleerd
+            #if DEBUG
             print("ModelManager: MLX already installed at \(pythonPath)")
+            #endif
             return true
         }
         
@@ -352,7 +374,9 @@ class ModelManager {
     }
     
     private func installMLXInPython(_ pythonPath: String) throws -> Bool {
+        #if DEBUG
         print("ModelManager: Installing MLX in \(pythonPath)...")
+        #endif
         
         let process = Process()
         process.executableURL = URL(fileURLWithPath: pythonPath)
@@ -366,7 +390,9 @@ class ModelManager {
         process.waitUntilExit()
         
         if process.terminationStatus == 0 {
+            #if DEBUG
             print("ModelManager: MLX installed successfully")
+            #endif
             // Update cache
             refreshPythonPath()
             _ = findPythonWithMLX()
@@ -374,7 +400,9 @@ class ModelManager {
         } else {
             let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
             let errorString = String(data: errorData, encoding: .utf8) ?? "Unknown error"
+            #if DEBUG
             print("ModelManager: Failed to install MLX: \(errorString)")
+            #endif
             throw ModelManagerError.downloadFailed
         }
     }
@@ -385,30 +413,40 @@ class ModelManager {
     func startDaemon(modelName: String) async throws {
         // Check of daemon al draait
         if await isDaemonRunning() {
+            #if DEBUG
             print("ModelManager: Daemon already running")
+            #endif
             return
         }
-        
+
         // Check of daemon script bestaat
         guard FileManager.default.fileExists(atPath: daemonScriptPath.path) else {
+            #if DEBUG
             print("ModelManager: Daemon script not found at \(daemonScriptPath.path)")
+            #endif
             throw ModelManagerError.scriptNotFound
         }
-        
+
         // Vind Python
         guard let pythonPath = findPythonWithMLX() else {
+            #if DEBUG
             print("ModelManager: No Python with MLX found for daemon")
+            #endif
             throw ModelManagerError.pythonNotAvailable
         }
-        
+
         // Haal model path op
         let modelPath = getModelPath(modelName: modelName)
         guard validateModelPath(modelPath.path) else {
+            #if DEBUG
             print("ModelManager: Model not found at \(modelPath.path)")
+            #endif
             throw ModelManagerError.modelNotFound
         }
-        
+
+        #if DEBUG
         print("ModelManager: Starting MLX daemon...")
+        #endif
         
         // Start daemon process
         let process = Process()
@@ -433,13 +471,19 @@ class ModelManager {
             try await Task.sleep(nanoseconds: 500_000_000)  // 0.5 seconde
             
             if process.isRunning {
+                #if DEBUG
                 print("ModelManager: Daemon started successfully on port \(daemonPort)")
+                #endif
             } else {
+                #if DEBUG
                 print("ModelManager: Daemon failed to start")
+                #endif
                 throw ModelManagerError.daemonStartFailed
             }
         } catch {
+            #if DEBUG
             print("ModelManager: Failed to start daemon: \(error)")
+            #endif
             throw ModelManagerError.daemonStartFailed
         }
     }
@@ -447,7 +491,9 @@ class ModelManager {
     /// Stop de MLX daemon
     func stopDaemon() {
         if let process = daemonProcess, process.isRunning {
+            #if DEBUG
             print("ModelManager: Stopping daemon...")
+            #endif
             process.terminate()
             daemonProcess = nil
         }

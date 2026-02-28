@@ -36,6 +36,8 @@ struct Config: Codable {
     var customFolderTemplate: CustomFolderTemplate?   // Template mappenstructuur voor .custom preset
     var cloudStorageWebsites: [String]              // Cloud storage websites (Dropbox, Google Drive)
     var loadFolderPresets: [LoadFolderPreset]        // Veelgebruikte mappen voor snelle import
+    var bringResolveToFront: Bool              // Breng DaVinci Resolve naar voren na import
+    var resolveAutoImport: Bool                // Automatisch importeren in Resolve Media Pool
 
     static let defaultCloudStorageWebsites = [
         "drive.google.com", "googleusercontent.com",
@@ -100,7 +102,9 @@ struct Config: Codable {
         folderStructurePreset: .standard,
         customFolderTemplate: nil,
         cloudStorageWebsites: defaultCloudStorageWebsites,
-        loadFolderPresets: []
+        loadFolderPresets: [],
+        bringResolveToFront: true,
+        resolveAutoImport: true
     )
 
     // Default init
@@ -139,7 +143,9 @@ struct Config: Codable {
         folderStructurePreset: FolderStructurePreset = .standard,
         customFolderTemplate: CustomFolderTemplate? = nil,
         cloudStorageWebsites: [String] = defaultCloudStorageWebsites,
-        loadFolderPresets: [LoadFolderPreset] = []
+        loadFolderPresets: [LoadFolderPreset] = [],
+        bringResolveToFront: Bool = true,
+        resolveAutoImport: Bool = true
     ) {
         self.projectRoots = projectRoots
         self.musicClassification = musicClassification
@@ -176,6 +182,8 @@ struct Config: Codable {
         self.customFolderTemplate = customFolderTemplate
         self.cloudStorageWebsites = cloudStorageWebsites
         self.loadFolderPresets = loadFolderPresets
+        self.bringResolveToFront = bringResolveToFront
+        self.resolveAutoImport = resolveAutoImport
     }
 
     // Custom decoder voor migratie van oude configs
@@ -225,6 +233,8 @@ struct Config: Codable {
         customFolderTemplate = try container.decodeIfPresent(CustomFolderTemplate.self, forKey: .customFolderTemplate)
         cloudStorageWebsites = try container.decodeIfPresent([String].self, forKey: .cloudStorageWebsites) ?? Config.defaultCloudStorageWebsites
         loadFolderPresets = try container.decodeIfPresent([LoadFolderPreset].self, forKey: .loadFolderPresets) ?? []
+        bringResolveToFront = try container.decodeIfPresent(Bool.self, forKey: .bringResolveToFront) ?? true
+        resolveAutoImport = try container.decodeIfPresent(Bool.self, forKey: .resolveAutoImport) ?? true
     }
     
     // Custom encoder
@@ -265,6 +275,8 @@ struct Config: Codable {
         try container.encodeIfPresent(customFolderTemplate, forKey: .customFolderTemplate)
         try container.encode(cloudStorageWebsites, forKey: .cloudStorageWebsites)
         try container.encode(loadFolderPresets, forKey: .loadFolderPresets)
+        try container.encode(bringResolveToFront, forKey: .bringResolveToFront)
+        try container.encode(resolveAutoImport, forKey: .resolveAutoImport)
     }
     
     enum CodingKeys: String, CodingKey {
@@ -303,6 +315,8 @@ struct Config: Codable {
         case customFolderTemplate
         case cloudStorageWebsites
         case loadFolderPresets
+        case bringResolveToFront
+        case resolveAutoImport
     }
     
     // Helper om alleen custom toegevoegde websites te krijgen (exclusief standaard)

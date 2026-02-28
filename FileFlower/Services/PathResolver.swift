@@ -63,7 +63,9 @@ class PathResolver {
             configuredRootPath: project.rootPath
         )
         
+        #if DEBUG
         print("PathResolver: Using project root: \(projectRoot.path)")
+        #endif
         
         // For audio/music files, first try to find existing audio/music folder in project
         // Then fall back to creating standard structure
@@ -72,7 +74,9 @@ class PathResolver {
         case .music, .vo:
             // First, try to find existing audio/music folder
             if let existingAudioFolder = findExistingAudioFolder(in: projectRoot) {
+                #if DEBUG
                 print("PathResolver: Found existing audio folder: \(existingAudioFolder.path)")
+                #endif
                 baseFolder = existingAudioFolder
             } else {
                 // Create standard audio folder structure
@@ -146,7 +150,9 @@ class PathResolver {
                 // YouTube 4K bestanden gaan naar Visuals/4KYoutube downloader/
                 let youtube4KFolder = try findOrCreateFolder(in: baseFolder, names: [youtube4KSubfolderName])
                 targetFolder = youtube4KFolder
+                #if DEBUG
                 print("PathResolver: YouTube 4K bestand -> \(targetFolder.path)")
+                #endif
             } else {
                 let footageFolder = try findOrCreateFolder(in: baseFolder, names: ["StockFootage"])
                 targetFolder = footageFolder
@@ -176,7 +182,9 @@ class PathResolver {
             configuredRootPath: project.rootPath
         )
 
+        #if DEBUG
         print("PathResolver: Custom template routing vanuit: \(projectRoot.path)")
+        #endif
 
         let mapping = template.mapping
 
@@ -201,7 +209,9 @@ class PathResolver {
 
         guard let path = relativePath, !path.isEmpty else {
             // Fallback naar standaard routing als mapping ontbreekt
+            #if DEBUG
             print("PathResolver: Geen custom mapping voor \(assetType), fallback naar standaard")
+            #endif
             // Gebruik de bestaande languageMapping als fallback
             let fallbackNames: [String]
             switch assetType {
@@ -237,7 +247,9 @@ class PathResolver {
             }
         }
 
+        #if DEBUG
         print("PathResolver: Custom template resolved -> \(targetFolder.path)")
+        #endif
         return TargetFolder(url: targetFolder, relativePath: targetFolder.path)
     }
 
@@ -276,11 +288,30 @@ class PathResolver {
     private func findProjectMainFolder(prprojPath: URL, configuredRootPath: String) -> URL {
         let fileManager = FileManager.default
         let configuredRootURL = URL(fileURLWithPath: configuredRootPath)
-        
+
+        // Virtueel Resolve pad: database-backed project zonder .drp op disk
+        // Gebruik het geconfigureerde rootpad als dat een echte directory is
+        if prprojPath.path.hasPrefix("/resolve-project/") {
+            if fileManager.fileExists(atPath: configuredRootURL.path) {
+                #if DEBUG
+                print("PathResolver: Virtual Resolve project, using configured root: \(configuredRootURL.path)")
+                #endif
+                return configuredRootURL
+            }
+            // Geconfigureerde root bestaat niet — dit is waarschijnlijk "/resolve-project"
+            // Kan geen bestanden organiseren zonder een echte map op disk
+            #if DEBUG
+            print("PathResolver: Virtual Resolve project, geen echte projectmap gevonden voor: \(configuredRootPath)")
+            #endif
+            return configuredRootURL
+        }
+
         // Start from the .prproj file's parent directory
         var current = prprojPath.deletingLastPathComponent()
-        
+
+        #if DEBUG
         print("PathResolver: Starting search from: \(current.path)")
+        #endif
         
         // Walk up the directory tree until we find the project's main folder
         // This is the folder that contains folders like 03_Muziek, 04_SFX, etc.
@@ -288,7 +319,9 @@ class PathResolver {
         while current.path != "/" {
             // Check if we've gone above the configured root
             if !current.path.hasPrefix(configuredRootURL.path) {
+                #if DEBUG
                 print("PathResolver: Gone above configured root, using parent of .prproj")
+                #endif
                 // We've gone too far, use the parent of .prproj
                 return prprojPath.deletingLastPathComponent()
             }
@@ -308,25 +341,33 @@ class PathResolver {
                     return url.lastPathComponent
                 }
                 
+                #if DEBUG
                 print("PathResolver: Checking folder: \(current.path)")
                 print("PathResolver: Found folders: \(folderNames.joined(separator: ", "))")
+                #endif
                 
                 // First check: Are we CURRENTLY in a Premiere-specific folder? (check current folder name, not contents)
                 let currentFolderName = current.lastPathComponent.lowercased()
-                let isCurrentlyInPremiereFolder = currentFolderName.contains("adobe") ||
+                let isCurrentlyInNLEFolder = currentFolderName.contains("adobe") ||
                                                   currentFolderName.contains("premiere") ||
+                                                  currentFolderName.contains("davinci") ||
+                                                  currentFolderName.contains("resolve") ||
                                                   currentFolderName.contains("audio previews") ||
                                                   currentFolderName.contains("auto-save") ||
                                                   currentFolderName.hasPrefix("01_")
                 
                 // If we're currently in a Premiere folder (e.g. 01_Adobe), the parent is the project root
-                if isCurrentlyInPremiereFolder {
-                    print("PathResolver: Currently in Premiere folder, skipping: \(current.path)")
+                if isCurrentlyInNLEFolder {
+                    #if DEBUG
+                    print("PathResolver: Currently in NLE folder, skipping: \(current.path)")
+                    #endif
                     let parent = current.deletingLastPathComponent()
                     if parent.path != current.path && parent.path.hasPrefix(configuredRootURL.path) {
                         // De parent van een 01_Adobe/Premiere folder IS de project root
                         // ook als er nog geen 03_/04_ mappen bestaan (nieuw project)
+                        #if DEBUG
                         print("PathResolver: Found project main folder (parent of Premiere folder): \(parent.path)")
+                        #endif
                         return parent
                     }
                 }
@@ -352,7 +393,9 @@ class PathResolver {
                 
                 // If we find project structure folders OR audio/music folders, this is the project main folder
                 if hasProjectStructureFolder || hasAudioMusicFolder {
+                    #if DEBUG
                     print("PathResolver: Found project main folder at: \(current.path)")
+                    #endif
                     return current
                 }
             }
@@ -372,13 +415,17 @@ class PathResolver {
         var fallback = prprojPath.deletingLastPathComponent()
         while fallback.path != "/" {
             let folderName = fallback.lastPathComponent.lowercased()
-            // If this is not a Premiere folder, use it
+            // If this is not an NLE folder, use it
             if !folderName.contains("adobe") &&
                !folderName.contains("premiere") &&
+               !folderName.contains("davinci") &&
+               !folderName.contains("resolve") &&
                !folderName.contains("audio previews") &&
                !folderName.contains("auto-save") &&
                !folderName.hasPrefix("01_") {
+                #if DEBUG
                 print("PathResolver: Fallback - using: \(fallback.path)")
+                #endif
                 return fallback
             }
             // Otherwise, go up one more level
@@ -390,7 +437,9 @@ class PathResolver {
         }
         
         // Last resort: use parent of .prproj
+        #if DEBUG
         print("PathResolver: Fallback - using parent of .prproj: \(prprojPath.deletingLastPathComponent().path)")
+        #endif
         return prprojPath.deletingLastPathComponent()
     }
     
@@ -417,9 +466,11 @@ class PathResolver {
             
             let itemName = item.lastPathComponent.lowercased()
             
-            // Skip Premiere-specific folders
+            // Skip NLE-specific folders
             if itemName.contains("adobe") ||
                itemName.contains("premiere") ||
+               itemName.contains("davinci") ||
+               itemName.contains("resolve") ||
                itemName.contains("preview") ||
                itemName.contains("auto-save") ||
                itemName.hasPrefix("01_") {
@@ -431,7 +482,9 @@ class PathResolver {
                itemName == "audio" || 
                itemName == "music" ||
                itemName.hasPrefix("03_") {
+                #if DEBUG
                 print("PathResolver: Found audio folder: \(item.path)")
+                #endif
                 return item
             }
         }

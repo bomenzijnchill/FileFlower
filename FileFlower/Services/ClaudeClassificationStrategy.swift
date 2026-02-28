@@ -28,7 +28,9 @@ class ClaudeClassificationStrategy: ClassificationStrategy {
         originUrl: String?
     ) async -> (assetType: AssetType, genre: String?, mood: String?, sfxCategory: String?) {
         guard let apiKey = Self.loadAPIKey(), !apiKey.isEmpty else {
+            #if DEBUG
             print("ClaudeClassifier: Geen API key geconfigureerd")
+            #endif
             return (.unknown, nil, nil, nil)
         }
 
@@ -46,17 +48,23 @@ class ClaudeClassificationStrategy: ClassificationStrategy {
 
             if let result = result {
                 let elapsed = Int(Date().timeIntervalSince(startTime) * 1000)
+                #if DEBUG
                 print("ClaudeClassifier: \(result.assetType.displayName) in \(elapsed)ms (poging \(attempt + 1))")
+                #endif
                 return result
             }
 
             if attempt < Self.maxRetries {
+                #if DEBUG
                 print("ClaudeClassifier: Poging \(attempt + 1) mislukt, retry...")
+                #endif
                 try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s wachten
             }
         }
 
+        #if DEBUG
         print("ClaudeClassifier: Alle pogingen mislukt, fallback naar unknown")
+        #endif
         return (.unknown, nil, nil, nil)
     }
 
@@ -92,7 +100,9 @@ class ClaudeClassificationStrategy: ClassificationStrategy {
         do {
             request.httpBody = try JSONSerialization.data(withJSONObject: requestBody)
         } catch {
+            #if DEBUG
             print("ClaudeClassifier: JSON encoding fout: \(error.localizedDescription)")
+            #endif
             return nil
         }
 
@@ -100,13 +110,17 @@ class ClaudeClassificationStrategy: ClassificationStrategy {
             let (data, response) = try await URLSession.shared.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
+                #if DEBUG
                 print("ClaudeClassifier: Ongeldig response type")
+                #endif
                 return nil
             }
 
             if httpResponse.statusCode != 200 {
                 if let errorBody = String(data: data, encoding: .utf8) {
+                    #if DEBUG
                     print("ClaudeClassifier: HTTP \(httpResponse.statusCode) - \(errorBody.prefix(200))")
+                    #endif
                 }
                 return nil
             }
@@ -114,7 +128,9 @@ class ClaudeClassificationStrategy: ClassificationStrategy {
             return parseResponse(data: data)
 
         } catch {
+            #if DEBUG
             print("ClaudeClassifier: Netwerk fout: \(error.localizedDescription)")
+            #endif
             return nil
         }
     }
@@ -127,20 +143,26 @@ class ClaudeClassificationStrategy: ClassificationStrategy {
               let content = json["content"] as? [[String: Any]],
               let firstBlock = content.first,
               let text = firstBlock["text"] as? String else {
+            #if DEBUG
             print("ClaudeClassifier: Kon response niet parsen")
+            #endif
             return nil
         }
 
         // Zoek JSON in de response text (Claude kan soms extra tekst toevoegen)
         guard let classificationJSON = extractJSON(from: text) else {
+            #if DEBUG
             print("ClaudeClassifier: Geen JSON gevonden in response: \(text.prefix(200))")
+            #endif
             return nil
         }
 
         // Parse de classificatie output
         guard let outputData = classificationJSON.data(using: .utf8),
               let output = try? JSONSerialization.jsonObject(with: outputData) as? [String: Any] else {
+            #if DEBUG
             print("ClaudeClassifier: Kon classificatie JSON niet parsen")
+            #endif
             return nil
         }
 
@@ -305,10 +327,14 @@ class ClaudeClassificationStrategy: ClassificationStrategy {
             let (_, response) = try await URLSession.shared.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else { return false }
+            #if DEBUG
             print("ClaudeClassifier: Test connectie status: \(httpResponse.statusCode)")
+            #endif
             return httpResponse.statusCode == 200
         } catch {
+            #if DEBUG
             print("ClaudeClassifier: Test connectie fout: \(error.localizedDescription)")
+            #endif
             return false
         }
     }

@@ -90,11 +90,16 @@ class FileProcessor {
             )
         }
         
-        // Create job request for Premiere
+        // Detecteer NLE type op basis van project extensie
+        let nleType = NLEType.from(projectPath: project.projectPath) ?? .premiere
+
+        // Create job request for NLE import
         let premiereBinPath: String
         if let mapping = getPremiereBinMapping(project: project, finderPath: targetDir.path) {
             premiereBinPath = mapping
+            #if DEBUG
             print("FileProcessor: Using mapped bin path: \(mapping)")
+            #endif
         } else {
             // Default: create bin path from folder structure relative to project main folder
             let projectMainFolder = findProjectMainFolder(from: targetDir, projectPath: project.projectPath)
@@ -122,29 +127,36 @@ class FileProcessor {
                     let normalizedFirst = BinMatcher.shared.normalizeName(components[0])
                     let normalizedMatch = BinMatcher.shared.normalizeName(matchedFolder)
                     if normalizedFirst != normalizedMatch {
+                        #if DEBUG
                         print("FileProcessor: Smart match - '\(components[0])' → '\(matchedFolder)' voor type \(item.predictedType.rawValue)")
+                        #endif
                         components[0] = matchedFolder
                     }
                 }
             }
 
             premiereBinPath = components.isEmpty ? targetDir.lastPathComponent : components.joined(separator: "/")
+            #if DEBUG
             print("FileProcessor: Project main folder: \(projectMainFolder.path)")
             print("FileProcessor: Target dir: \(targetDir.path)")
             print("FileProcessor: Relative path: \(relativePath)")
             print("FileProcessor: Calculated bin path: \(premiereBinPath)")
+            #endif
         }
         
+        #if DEBUG
         print("FileProcessor: Creating job for project: \(project.projectPath)")
         print("FileProcessor: Files to import: \(filesToImport)")
         print("FileProcessor: Premiere bin path: \(premiereBinPath)")
+        #endif
         
         let job = JobRequest(
             projectPath: project.projectPath,
             finderTargetDir: targetDir.path,
             premiereBinPath: premiereBinPath,
             files: filesToImport,
-            assetType: item.predictedType.rawValue
+            assetType: item.predictedType.rawValue,
+            nleType: nleType
         )
         
         JobServer.shared.addJob(job)
@@ -173,7 +185,11 @@ class FileProcessor {
         let fileManager = FileManager.default
         let projectURL = URL(fileURLWithPath: projectPath)
         let prprojParent = projectURL.deletingLastPathComponent()
-        
+
+        // Virtueel Resolve pad: gebruik targetDir als startpunt (is al een echte directory)
+        // De fallback-logica hieronder zou anders een virtueel pad teruggeven
+        let isVirtualResolvePath = projectPath.hasPrefix("/resolve-project/")
+
         // Walk up from target directory to find the project structure folder
         var current = targetDir
         
@@ -215,6 +231,10 @@ class FileProcessor {
         }
         
         // Fallback: go up two levels from .prproj (from 01_Adobe/project.prproj to project root)
+        // Voor virtuele Resolve paden: gebruik targetDir zelf als fallback (is een echte directory)
+        if isVirtualResolvePath {
+            return targetDir
+        }
         return prprojParent.deletingLastPathComponent()
     }
 }

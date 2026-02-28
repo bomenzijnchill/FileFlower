@@ -59,11 +59,15 @@ class MLXClassificationStrategy: ClassificationStrategy {
     }
     
     func classify(url: URL, uti: String?, metadata: DownloadMetadata?, originUrl: String?) async -> AssetType {
+        #if DEBUG
         print("MLXClassificationStrategy: Starting classification for \(url.lastPathComponent)")
-        
+        #endif
+
         // Check thermal status
         guard await thermalManager.waitUntilCanProcess() else {
+            #if DEBUG
             print("MLXClassificationStrategy: Thermal throttling active, skipping MLX")
+            #endif
             return .unknown
         }
         
@@ -77,28 +81,38 @@ class MLXClassificationStrategy: ClassificationStrategy {
             
             if result.error == nil {
                 if let assetType = parseAssetType(result.assetType) {
+                    #if DEBUG
                     let timeStr = result.processingTimeMs.map { "\($0)ms" } ?? "N/A"
                     print("MLXClassificationStrategy: Daemon result - \(assetType) in \(timeStr)")
+                    #endif
                     return assetType
                 }
             } else {
+                #if DEBUG
                 print("MLXClassificationStrategy: Daemon error - \(result.error ?? "unknown")")
+                #endif
             }
         }
         
         // Fallback: gebruik script (traag)
+        #if DEBUG
         print("MLXClassificationStrategy: Falling back to script-based classification")
-        
+        #endif
+
         guard await ensureModelLoaded() else {
+            #if DEBUG
             print("MLXClassificationStrategy: Model not available")
+            #endif
             return .unknown
         }
         
         guard let modelPath = modelPath else {
+            #if DEBUG
             print("MLXClassificationStrategy: No model path available")
+            #endif
             return .unknown
         }
-        
+
         let result = await classifyWithScript(
             filename: url.lastPathComponent,
             metadata: metadata,
@@ -130,8 +144,10 @@ class MLXClassificationStrategy: ClassificationStrategy {
             
             if result.error == nil {
                 let assetType = parseAssetType(result.assetType) ?? .unknown
+                #if DEBUG
                 let timeStr = result.processingTimeMs.map { "\($0)ms" } ?? "N/A"
                 print("MLXClassificationStrategy: Daemon result - \(assetType), genre: \(result.genre ?? "nil"), mood: \(result.mood ?? "nil") in \(timeStr)")
+                #endif
                 return (assetType, result.genre, result.mood)
             }
         }
@@ -282,31 +298,41 @@ class MLXClassificationStrategy: ClassificationStrategy {
             return true
         }
         
+        #if DEBUG
         print("MLXClassificationStrategy: Ensuring model is loaded...")
-        
+        #endif
+
         // Zorg eerst dat MLX geïnstalleerd is
         do {
             let mlxInstalled = try await modelManager.installMLX()
             if !mlxInstalled {
+                #if DEBUG
                 print("MLXClassificationStrategy: Failed to install MLX")
+                #endif
                 return false
             }
         } catch {
+            #if DEBUG
             print("MLXClassificationStrategy: Error installing MLX: \(error)")
+            #endif
             return false
         }
-        
+
         // Probeer model te laden uit config
         let config = AppState.shared.config
         let modelName = config.mlxModelName
-        
+
+        #if DEBUG
         print("MLXClassificationStrategy: Checking for model \(modelName)...")
+        #endif
         
         // Check of model bestaat
         if modelManager.modelExists(modelName: modelName) {
             let path = modelManager.getModelPath(modelName: modelName)
             if modelManager.validateModelPath(path.path) {
+                #if DEBUG
                 print("MLXClassificationStrategy: Model found at \(path.path)")
+                #endif
                 self.modelPath = path.path
                 self.isModelLoaded = true
                 return true
@@ -314,21 +340,29 @@ class MLXClassificationStrategy: ClassificationStrategy {
         }
         
         // Probeer model te downloaden als het niet bestaat
+        #if DEBUG
         print("MLXClassificationStrategy: Model not found, downloading...")
+        #endif
         do {
             try await modelManager.downloadModel(modelName: modelName)
             let path = modelManager.getModelPath(modelName: modelName)
             if modelManager.validateModelPath(path.path) {
+                #if DEBUG
                 print("MLXClassificationStrategy: Model downloaded successfully to \(path.path)")
+                #endif
                 self.modelPath = path.path
                 self.isModelLoaded = true
                 return true
             } else {
+                #if DEBUG
                 print("MLXClassificationStrategy: Model download completed but validation failed")
+                #endif
                 return false
             }
         } catch {
+            #if DEBUG
             print("MLXClassificationStrategy: Kon model niet downloaden: \(error)")
+            #endif
             return false
         }
     }
@@ -365,18 +399,24 @@ class MLXClassificationStrategy: ClassificationStrategy {
         let scriptPath = modelManager.getClassifierScriptPath()
         
         guard FileManager.default.fileExists(atPath: scriptPath.path) else {
+            #if DEBUG
             print("MLXClassificationStrategy: Classifier script not found at \(scriptPath.path)")
+            #endif
             return ClassificationResult(assetType: "Unknown", genre: nil, mood: nil, error: "Classifier script not found", processingTimeMs: nil)
         }
         
         // Find Python with MLX installed
         guard let pythonPath = modelManager.findPythonWithMLX() else {
+            #if DEBUG
             print("MLXClassificationStrategy: No Python with MLX found")
+            #endif
             return ClassificationResult(assetType: "Unknown", genre: nil, mood: nil, error: "Python with MLX not found", processingTimeMs: nil)
         }
         
+        #if DEBUG
         print("MLXClassificationStrategy: Using Python at \(pythonPath)")
-        
+        #endif
+
         // Run het Python script op een background thread om UI niet te blokkeren
         return await Task.detached(priority: .userInitiated) {
             let process = Process()
@@ -395,7 +435,9 @@ class MLXClassificationStrategy: ClassificationStrategy {
             process.standardError = errorPipe
             
             do {
+                #if DEBUG
                 print("MLXClassificationStrategy: Running classifier script...")
+                #endif
                 
                 try process.run()
                 
@@ -413,7 +455,9 @@ class MLXClassificationStrategy: ClassificationStrategy {
                 let errorString = String(data: errorData, encoding: .utf8) ?? ""
                 
                 if process.terminationStatus != 0 {
+                    #if DEBUG
                     print("MLXClassificationStrategy: Script failed: \(errorString)")
+                    #endif
                     return ClassificationResult(assetType: "Unknown", genre: nil, mood: nil, error: errorString.isEmpty ? "Script failed" : errorString, processingTimeMs: nil)
                 }
                 
@@ -454,7 +498,9 @@ class MLXClassificationStrategy: ClassificationStrategy {
                 return ClassificationResult(assetType: "Unknown", genre: nil, mood: nil, error: "Parse error", processingTimeMs: nil)
                 
             } catch {
+                #if DEBUG
                 print("MLXClassificationStrategy: Exception: \(error)")
+                #endif
                 return ClassificationResult(assetType: "Unknown", genre: nil, mood: nil, error: error.localizedDescription, processingTimeMs: nil)
             }
         }.value

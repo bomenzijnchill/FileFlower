@@ -24,7 +24,9 @@ class ProjectScanner {
 
         // Filter server-projecten tot alleen lokaal geopende (via Spotlight)
         if filterToLocal {
-            let localRecentPaths = PremiereRecentProjectsReader.getRecentProjectPaths()
+            let premiereRecentPaths = PremiereRecentProjectsReader.getRecentProjectPaths()
+            let resolveRecentPaths = ResolveRecentProjectsReader.getRecentProjectPaths()
+            let localRecentPaths = premiereRecentPaths.union(resolveRecentPaths)
             projects = projects.filter { project in
                 // Lokale projecten altijd doorlaten
                 if !PremiereRecentProjectsReader.isNetworkPath(project.projectPath) {
@@ -87,7 +89,8 @@ class ProjectScanner {
         for item in contents {
             guard !Task.isCancelled else { break }
 
-            if item.pathExtension.lowercased() == "prproj" {
+            let ext = item.pathExtension.lowercased()
+            if ext == "prproj" || ext == "drp" {
                 if let attrs = try? item.resourceValues(forKeys: [.contentModificationDateKey]),
                    let modDate = attrs.contentModificationDate {
                     let project = ProjectInfo(

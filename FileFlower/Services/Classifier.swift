@@ -118,7 +118,9 @@ class DirectClassifier {
         // IMAGE BESTANDEN
         // ============================================
         if imageExtensions.contains(ext) {
+            #if DEBUG
             print("DirectClassifier: Image bestand gedetecteerd - Graphic")
+            #endif
             return DirectClassificationResult(assetType: .graphic, confidence: .high, reason: "Image file extension")
         }
         
@@ -126,7 +128,9 @@ class DirectClassifier {
         // MOTION GRAPHIC BESTANDEN
         // ============================================
         if motionGraphicExtensions.contains(ext) {
+            #if DEBUG
             print("DirectClassifier: Motion graphic bestand gedetecteerd")
+            #endif
             return DirectClassificationResult(assetType: .motionGraphic, confidence: .high, reason: "Motion graphic file extension")
         }
         
@@ -142,7 +146,9 @@ class DirectClassifier {
         if let origin = originUrl?.lowercased() {
             for platform in stockFootagePlatforms {
                 if origin.contains(platform) {
+                    #if DEBUG
                     print("DirectClassifier: Stock footage platform in URL - \(platform)")
+                    #endif
                     return DirectClassificationResult(assetType: .stockFootage, confidence: .high, reason: "Stock footage platform in origin URL")
                 }
             }
@@ -160,19 +166,25 @@ class DirectClassifier {
                                   lower.contains("storyblocks")
         
         if stockFootagePattern {
+            #if DEBUG
             print("DirectClassifier: Stock footage pattern in bestandsnaam")
+            #endif
             return DirectClassificationResult(assetType: .stockFootage, confidence: .high, reason: "Stock footage pattern in filename")
         }
         
         // 3. Check voor stock footage keywords
         if stockFootageKeywords.contains(where: { lower.contains($0) }) {
+            #if DEBUG
             print("DirectClassifier: Stock footage keyword gevonden")
+            #endif
             return DirectClassificationResult(assetType: .stockFootage, confidence: .high, reason: "Stock footage keyword in filename")
         }
         
         // 4. Check voor motion graphic keywords
         if motionGraphicKeywords.contains(where: { lower.contains($0) }) {
+            #if DEBUG
             print("DirectClassifier: Motion graphic keyword gevonden")
+            #endif
             return DirectClassificationResult(assetType: .motionGraphic, confidence: .high, reason: "Motion graphic keyword in filename")
         }
         
@@ -180,7 +192,9 @@ class DirectClassifier {
         // Pattern: begint met nummer gevolgd door underscore
         let hasNumericPrefix = lower.first?.isNumber == true && lower.contains("_")
         if hasNumericPrefix {
+            #if DEBUG
             print("DirectClassifier: Numeriek prefix gevonden (stock footage pattern)")
+            #endif
             return DirectClassificationResult(assetType: .stockFootage, confidence: .medium, reason: "Numeric ID prefix (stock footage pattern)")
         }
         
@@ -188,13 +202,17 @@ class DirectClassifier {
         if let meta = metadata, let duration = meta.duration {
             if duration < 30 {
                 // Korte video's zijn vaak motion graphics
+                #if DEBUG
                 print("DirectClassifier: Korte video (<30s) - Motion Graphic (medium confidence)")
+                #endif
                 return DirectClassificationResult(assetType: .motionGraphic, confidence: .medium, reason: "Short video duration")
             }
         }
         
         // 7. Default voor video: Stock Footage (meest voorkomend)
+        #if DEBUG
         print("DirectClassifier: Default classificatie voor video - Stock Footage")
+        #endif
         return DirectClassificationResult(assetType: .stockFootage, confidence: .medium, reason: "Default for video files")
     }
     
@@ -204,24 +222,32 @@ class DirectClassifier {
         
         // 1. STEMS check - hoogste prioriteit, altijd Music
         if stemsKeywords.contains(where: { lower.contains($0) }) {
+            #if DEBUG
             print("DirectClassifier: STEMS keyword gevonden - Music")
+            #endif
             return DirectClassificationResult(assetType: .music, confidence: .high, reason: "STEMS keyword in filename")
         }
         
         // 2. VO check - specifieke VO indicators
         if voKeywords.contains(where: { lower.contains($0) }) {
+            #if DEBUG
             print("DirectClassifier: VO keyword gevonden")
+            #endif
             return DirectClassificationResult(assetType: .vo, confidence: .high, reason: "VO keyword in filename")
         }
         
         // 3. Origin URL check voor bekende platforms
         if let origin = originUrl?.lowercased() {
             if origin.contains("elevenlabs") || origin.contains("murf.ai") || origin.contains("play.ht") {
+                #if DEBUG
                 print("DirectClassifier: VO platform gedetecteerd")
+                #endif
                 return DirectClassificationResult(assetType: .vo, confidence: .high, reason: "VO platform in origin URL")
             }
             if origin.contains("freesound") || origin.contains("zapsplat") || origin.contains("soundsnap") {
+                #if DEBUG
                 print("DirectClassifier: SFX platform gedetecteerd")
+                #endif
                 return DirectClassificationResult(assetType: .sfx, confidence: .high, reason: "SFX platform in origin URL")
             }
         }
@@ -231,7 +257,9 @@ class DirectClassifier {
         let hasMusicKeyword = musicKeywords.contains(where: { lower.contains($0) })
         
         if hasSfxKeyword && !hasMusicKeyword {
+            #if DEBUG
             print("DirectClassifier: SFX keyword gevonden (geen music keywords)")
+            #endif
             return DirectClassificationResult(assetType: .sfx, confidence: .high, reason: "SFX keyword in filename")
         }
         
@@ -241,7 +269,9 @@ class DirectClassifier {
         let hasPlatformSuffix = platformSuffixes.contains(where: { lower.contains("- \($0)") })
         let hasArtistPattern = lower.contains(" - ") && !hasSfxKeyword && !hasPlatformSuffix
         if hasArtistPattern || hasMusicKeyword {
+            #if DEBUG
             print("DirectClassifier: Music pattern gevonden (artist of music keyword)")
+            #endif
             return DirectClassificationResult(assetType: .music, confidence: .high, reason: "Music pattern in filename")
         }
         
@@ -249,31 +279,41 @@ class DirectClassifier {
         if let meta = metadata {
             // BPM of key = definitief muziek
             if meta.bpm != nil || meta.key != nil {
+                #if DEBUG
                 print("DirectClassifier: BPM/Key in metadata - Music")
+                #endif
                 return DirectClassificationResult(assetType: .music, confidence: .high, reason: "BPM or Key in metadata")
             }
             
             // Artist in metadata = muziek
             if meta.artist != nil && !meta.artist!.isEmpty {
+                #if DEBUG
                 print("DirectClassifier: Artist in metadata - Music")
+                #endif
                 return DirectClassificationResult(assetType: .music, confidence: .high, reason: "Artist in metadata")
             }
             
             // Duration-based heuristics
             if let duration = meta.duration {
                 if duration < 10 {
+                    #if DEBUG
                     print("DirectClassifier: Korte audio (<10s) - SFX")
+                    #endif
                     return DirectClassificationResult(assetType: .sfx, confidence: .medium, reason: "Duration < 10 seconds")
                 }
                 if duration >= 30 {
+                    #if DEBUG
                     print("DirectClassifier: Lange audio (>=30s) - Music")
+                    #endif
                     return DirectClassificationResult(assetType: .music, confidence: .medium, reason: "Duration >= 30 seconds")
                 }
             }
         }
         
         // 7. Default voor audio zonder duidelijke indicators: Music (meest voorkomend)
+        #if DEBUG
         print("DirectClassifier: Default classificatie voor audio - Music (medium confidence)")
+        #endif
         return DirectClassificationResult(assetType: .music, confidence: .medium, reason: "Default for audio files")
     }
 }
@@ -724,7 +764,9 @@ class Classifier {
         
         // Geen default suggestie - alleen invullen als we het echt weten
         if genre == nil && mood == nil {
+            #if DEBUG
             print("Classifier: Geen keywords gevonden in bestandsnaam, geen genre/mood suggestie")
+            #endif
         }
         
         return (genre, mood)
@@ -783,21 +825,29 @@ class Classifier {
             if config.useGenreMoodDetection {
                 if let scrapedGenre = sourceResult.scrapedGenre {
                     predictedGenre = scrapedGenre
+                    #if DEBUG
                     print("Classifier: Scraped genre van website: \(scrapedGenre)")
+                    #endif
                 }
                 if let scrapedMood = sourceResult.scrapedMood {
                     predictedMood = scrapedMood
+                    #if DEBUG
                     print("Classifier: Scraped mood van website: \(scrapedMood)")
+                    #endif
                 }
                 if let sfxCategory = sourceResult.sfxCategory {
                     predictedSfxCategory = sfxCategory
+                    #if DEBUG
                     print("Classifier: Scraped SFX categorie: \(sfxCategory)")
+                    #endif
                 }
             }
             
             if sourceResult.shouldSkipMLX, let detectedType = sourceResult.assetType {
                 // Bron gedetecteerd met hoge zekerheid - skip MLX
+                #if DEBUG
                 print("Classifier: \(sourceResult.source.rawValue) gedetecteerd - type: \(detectedType.displayName) (MLX overgeslagen)")
+                #endif
                 assetType = detectedType
             } else {
                 // STAP 2: Probeer DirectClassifier (instant, geen Python)
@@ -809,18 +859,24 @@ class Classifier {
                 
                 if directResult.shouldSkipMLX, let directType = directResult.assetType {
                     // DirectClassifier heeft hoge zekerheid - skip MLX
+                    #if DEBUG
                     print("Classifier: DirectClassifier - \(directType.displayName) (\(directResult.reason))")
+                    #endif
                     assetType = directType
                 } else if directResult.confidence == .medium, let directType = directResult.assetType {
                     // DirectClassifier heeft medium zekerheid - gebruik type maar probeer Claude/MLX voor genre/mood
+                    #if DEBUG
                     print("Classifier: DirectClassifier medium confidence - \(directType.displayName)")
+                    #endif
                     assetType = directType
 
                     // Probeer Claude API voor genre/mood (primair)
                     if let claude = claudeStrategy, config.useClaudeClassification,
                        config.useGenreMoodDetection,
                        predictedGenre == nil || predictedMood == nil {
+                        #if DEBUG
                         print("Classifier: Claude API voor genre/mood detectie (type al bekend)")
+                        #endif
                         let result = await claude.classifyWithDetails(url: url, uti: uti, metadata: metadata, originUrl: originUrl)
                         if predictedGenre == nil { predictedGenre = result.genre }
                         if predictedMood == nil { predictedMood = result.mood }
@@ -830,14 +886,18 @@ class Classifier {
                     else if config.useMLXClassification && config.useGenreMoodDetection,
                             predictedGenre == nil || predictedMood == nil,
                             let mlx = mlxStrategy {
+                        #if DEBUG
                         print("Classifier: MLX voor genre/mood detectie (type al bekend)")
+                        #endif
                         let result = await mlx.classifyWithDetails(url: url, uti: uti, metadata: metadata, originUrl: originUrl)
                         if predictedGenre == nil { predictedGenre = result.genre }
                         if predictedMood == nil { predictedMood = result.mood }
                     }
                 } else if let claude = claudeStrategy, config.useClaudeClassification {
                     // STAP 3: Claude API classificatie (primaire AI)
+                    #if DEBUG
                     print("Classifier: Using Claude API classification (DirectClassifier had low confidence)")
+                    #endif
                     let result = await claude.classifyWithDetails(url: url, uti: uti, metadata: metadata, originUrl: originUrl)
                     assetType = result.assetType
                     if predictedGenre == nil { predictedGenre = result.genre }
@@ -846,12 +906,16 @@ class Classifier {
 
                     // Fallback to heuristic if Claude returns unknown
                     if assetType == .unknown {
+                        #if DEBUG
                         print("Classifier: Claude returned unknown, falling back to heuristic")
+                        #endif
                         assetType = await classificationStrategy.classify(url: url, uti: uti, metadata: metadata, originUrl: originUrl)
                     }
                 } else if let mlx = mlxStrategy, config.useMLXClassification {
                     // STAP 3b: MLX classificatie (secundaire/legacy AI)
+                    #if DEBUG
                     print("Classifier: Using MLX classification (DirectClassifier had low confidence)")
+                    #endif
                     let result = await mlx.classifyWithDetails(url: url, uti: uti, metadata: metadata, originUrl: originUrl)
                     assetType = result.assetType
                     if predictedGenre == nil { predictedGenre = result.genre }
@@ -859,12 +923,16 @@ class Classifier {
 
                     // Fallback to heuristic if MLX returns unknown
                     if assetType == .unknown {
+                        #if DEBUG
                         print("Classifier: MLX returned unknown, falling back to heuristic")
+                        #endif
                         assetType = await classificationStrategy.classify(url: url, uti: uti, metadata: metadata, originUrl: originUrl)
                     }
                 } else {
                     // STAP 4: Fallback naar heuristic
+                    #if DEBUG
                     print("Classifier: Using heuristic classification (AI disabled or not available)")
+                    #endif
                     assetType = await classificationStrategy.classify(url: url, uti: uti, metadata: metadata, originUrl: originUrl)
                 }
             }
@@ -876,11 +944,15 @@ class Classifier {
                 
                 if predictedGenre == nil, let genre = guessed.genre {
                     predictedGenre = genre
+                    #if DEBUG
                     print("Classifier: Geraden genre van bestandsnaam: \(genre)")
+                    #endif
                 }
                 if predictedMood == nil, let mood = guessed.mood {
                     predictedMood = mood
+                    #if DEBUG
                     print("Classifier: Geraden mood van bestandsnaam: \(mood)")
+                    #endif
                 }
             }
         }
@@ -962,7 +1034,9 @@ class Classifier {
         
         // If directory contains STEMS (DRUMS, BASS, INSTRUMENTS, MELODY), it's definitely music
         if hasStems && stemKeywords.count >= 2 {
+            #if DEBUG
             print("Classifier: Directory contains STEMS (\(stemKeywords.joined(separator: ", "))) - classifying as Music")
+            #endif
             return .music
         }
         

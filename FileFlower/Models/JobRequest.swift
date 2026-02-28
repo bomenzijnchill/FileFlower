@@ -10,6 +10,12 @@ struct JobRequest: Codable {
     let syncId: UUID?
     let pendingHashes: [String]
     let assetType: String?
+    let nleType: NLEType
+
+    enum CodingKeys: String, CodingKey {
+        case id, projectPath, finderTargetDir, premiereBinPath, files
+        case createdAt, syncId, pendingHashes, assetType, nleType
+    }
 
     init(
         id: UUID = UUID(),
@@ -20,7 +26,8 @@ struct JobRequest: Codable {
         createdAt: TimeInterval = Date().timeIntervalSince1970,
         syncId: UUID? = nil,
         pendingHashes: [String] = [],
-        assetType: String? = nil
+        assetType: String? = nil,
+        nleType: NLEType = .premiere
     ) {
         self.id = id
         self.projectPath = projectPath
@@ -31,6 +38,21 @@ struct JobRequest: Codable {
         self.syncId = syncId
         self.pendingHashes = pendingHashes
         self.assetType = assetType
+        self.nleType = nleType
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        projectPath = try container.decode(String.self, forKey: .projectPath)
+        finderTargetDir = try container.decode(String.self, forKey: .finderTargetDir)
+        premiereBinPath = try container.decode(String.self, forKey: .premiereBinPath)
+        files = try container.decode([String].self, forKey: .files)
+        createdAt = try container.decode(TimeInterval.self, forKey: .createdAt)
+        syncId = try container.decodeIfPresent(UUID.self, forKey: .syncId)
+        pendingHashes = try container.decodeIfPresent([String].self, forKey: .pendingHashes) ?? []
+        assetType = try container.decodeIfPresent(String.self, forKey: .assetType)
+        nleType = try container.decodeIfPresent(NLEType.self, forKey: .nleType) ?? .premiere
     }
 }
 

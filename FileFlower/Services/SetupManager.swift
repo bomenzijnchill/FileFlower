@@ -11,6 +11,7 @@ class SetupManager {
     private let lastOnboardingVersionKey = "lastOnboardingVersion"
     private let installedPremierePluginVersionKey = "installedPremierePluginVersion"
     private let installedChromeExtensionVersionKey = "installedChromeExtensionVersion"
+    private let selectedBrowserKey = "selectedBrowser"
     
     // Plugin locaties
     private var premierePluginDestination: URL {
@@ -43,7 +44,9 @@ class SetupManager {
         hasCompletedOnboarding = true
         let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
         UserDefaults.standard.set(currentVersion, forKey: lastOnboardingVersionKey)
+        #if DEBUG
         print("SetupManager: Onboarding voltooid voor versie \(currentVersion)")
+        #endif
     }
 
     /// Check of de onboarding opnieuw getoond moet worden na een app update
@@ -59,7 +62,9 @@ class SetupManager {
         hasCompletedOnboarding = false
         UserDefaults.standard.removeObject(forKey: installedPremierePluginVersionKey)
         UserDefaults.standard.removeObject(forKey: installedChromeExtensionVersionKey)
+        #if DEBUG
         print("SetupManager: Onboarding gereset")
+        #endif
     }
     
     // MARK: - Version Management
@@ -179,7 +184,9 @@ class SetupManager {
         do {
             try setPermissions(at: premierePluginDestination)
         } catch {
+            #if DEBUG
             print("SetupManager: Waarschuwing - kon permissions niet instellen: \(error)")
+            #endif
         }
 
         // Update de opgeslagen versie
@@ -187,15 +194,22 @@ class SetupManager {
             installedPremierePluginVersion = version
         }
 
+        #if DEBUG
         print("SetupManager: Premiere plugin succesvol geïnstalleerd naar \(premierePluginDestination.path)")
+        #endif
         return .success(())
+    }
+
+    /// Escape een pad voor gebruik in single-quoted shell strings
+    private func shellEscape(_ path: String) -> String {
+        return path.replacingOccurrences(of: "'", with: "'\\''")
     }
 
     /// Installeer plugin met admin rechten via shell command
     private func installPremierePluginElevated(sourceURL: URL) -> Result<Void, SetupError> {
-        let destPath = premierePluginDestination.path
-        let extensionsPath = premierePluginDestination.deletingLastPathComponent().path
-        let sourcePath = sourceURL.path
+        let destPath = shellEscape(premierePluginDestination.path)
+        let extensionsPath = shellEscape(premierePluginDestination.deletingLastPathComponent().path)
+        let sourcePath = shellEscape(sourceURL.path)
 
         // Bouw shell script dat mkdir, rm en cp doet
         let script = """
@@ -218,12 +232,16 @@ class SetupManager {
                 if let version = bundledPremierePluginVersion {
                     installedPremierePluginVersion = version
                 }
+                #if DEBUG
                 print("SetupManager: Premiere plugin geïnstalleerd met admin rechten naar \(destPath)")
+                #endif
                 return .success(())
             } else {
                 let errorData = pipe.fileHandleForReading.readDataToEndOfFile()
                 let errorMsg = String(data: errorData, encoding: .utf8) ?? "Onbekende fout"
+                #if DEBUG
                 print("SetupManager: Elevated install mislukt: \(errorMsg)")
+                #endif
                 return .failure(.permissionDenied)
             }
         } catch {
@@ -234,14 +252,18 @@ class SetupManager {
     /// Update de Premiere plugin naar de nieuwste versie
     func updatePremierePluginIfNeeded() -> Result<Bool, SetupError> {
         guard isPremierePluginUpdateAvailable else {
+            #if DEBUG
             print("SetupManager: Premiere plugin is up-to-date")
+            #endif
             return .success(false)
         }
         
         let result = installPremierePlugin()
         switch result {
         case .success:
+            #if DEBUG
             print("SetupManager: Premiere plugin ge-updatet naar versie \(bundledPremierePluginVersion ?? "onbekend")")
+            #endif
             return .success(true)
         case .failure(let error):
             return .failure(error)
@@ -252,7 +274,9 @@ class SetupManager {
     func openChromeExtensionFolder() {
         guard let extensionURL = bundledChromeExtensionURL,
               FileManager.default.fileExists(atPath: extensionURL.path) else {
+            #if DEBUG
             print("SetupManager: Chrome extensie niet gevonden in bundle")
+            #endif
             return
         }
         
@@ -263,10 +287,38 @@ class SetupManager {
     func markChromeExtensionInstalled() {
         if let version = bundledChromeExtensionVersion {
             installedChromeExtensionVersion = version
+            #if DEBUG
             print("SetupManager: Chrome extensie gemarkeerd als geïnstalleerd (versie \(version))")
+            #endif
         }
     }
     
+    // MARK: - Browser Selection
+
+    var selectedBrowser: String {
+        get { UserDefaults.standard.string(forKey: selectedBrowserKey) ?? "chrome" }
+        set { UserDefaults.standard.set(newValue, forKey: selectedBrowserKey) }
+    }
+
+    // MARK: - Safari Extension
+
+    private var safariExtensionAppURL: URL? {
+        Bundle.main.resourceURL?.appendingPathComponent("FileFlower Safari.app")
+    }
+
+    /// Open de Safari extensie container app, die de extensie registreert en Safari preferences opent
+    func openSafariExtensionApp() {
+        guard let appURL = safariExtensionAppURL,
+              FileManager.default.fileExists(atPath: appURL.path) else {
+            #if DEBUG
+            print("SetupManager: Safari extensie app niet gevonden in bundle")
+            #endif
+            return
+        }
+
+        NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
+    }
+
     // MARK: - Finder Extension
 
     private let finderExtensionBundleID = "com.fileflower.app.FileFlowerFinderSync"
@@ -284,9 +336,13 @@ class SetupManager {
             do {
                 try addProcess.run()
                 addProcess.waitUntilExit()
+                #if DEBUG
                 print("SetupManager: FinderSync appex geregistreerd via pluginkit -a (status \(addProcess.terminationStatus))")
+                #endif
             } catch {
+                #if DEBUG
                 print("SetupManager: Fout bij pluginkit -a: \(error)")
+                #endif
             }
         }
 
@@ -299,12 +355,18 @@ class SetupManager {
             try process.run()
             process.waitUntilExit()
             if process.terminationStatus == 0 {
+                #if DEBUG
                 print("SetupManager: FinderSync extensie geactiveerd via pluginkit -e use")
+                #endif
             } else {
+                #if DEBUG
                 print("SetupManager: pluginkit -e use mislukt (status \(process.terminationStatus))")
+                #endif
             }
         } catch {
+            #if DEBUG
             print("SetupManager: Fout bij activeren FinderSync extensie: \(error)")
+            #endif
         }
     }
 
@@ -327,10 +389,14 @@ class SetupManager {
             let enabled = lines.contains { line in
                 line.contains(finderExtensionBundleID) && line.contains("+")
             }
+            #if DEBUG
             print("SetupManager: FinderSync extensie enabled: \(enabled)")
+            #endif
             return enabled
         } catch {
+            #if DEBUG
             print("SetupManager: Fout bij checken FinderSync extensie status: \(error)")
+            #endif
             return false
         }
     }
@@ -341,6 +407,24 @@ class SetupManager {
         if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    // MARK: - DaVinci Resolve Checks
+
+    /// Check of Python 3 beschikbaar is op het systeem
+    var isPython3Available: Bool {
+        let candidates = [
+            "/usr/bin/python3",
+            "/opt/homebrew/bin/python3",
+            "/usr/local/bin/python3"
+        ]
+        return candidates.contains { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// Check of de DaVinci Resolve scripting modules beschikbaar zijn
+    var isResolveScriptingAvailable: Bool {
+        let modulesPath = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules"
+        return FileManager.default.fileExists(atPath: modulesPath)
     }
 
     // MARK: - Startup Checks
@@ -355,10 +439,14 @@ class SetupManager {
             switch result {
             case .success(let updated):
                 if updated {
+                    #if DEBUG
                     print("SetupManager: Premiere plugin automatisch ge-updatet bij opstarten")
+                    #endif
                 }
             case .failure(let error):
+                #if DEBUG
                 print("SetupManager: Fout bij updaten Premiere plugin: \(error.localizedDescription)")
+                #endif
             }
         }
     }
@@ -395,7 +483,9 @@ class SetupManager {
                 return version
             }
         } catch {
+            #if DEBUG
             print("SetupManager: Fout bij parsen Chrome manifest: \(error)")
+            #endif
         }
         
         return nil

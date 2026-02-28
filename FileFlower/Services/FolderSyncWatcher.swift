@@ -53,14 +53,18 @@ class FolderSyncWatcher {
     /// Start monitoring voor een folder sync
     func startWatching(sync: FolderSync) {
         guard sync.isEnabled else {
+            #if DEBUG
             print("FolderSyncWatcher: Sync \(sync.id) is uitgeschakeld, niet starten")
+            #endif
             return
         }
 
         // Stop bestaande stream als die er is
         stopWatching(syncId: sync.id)
 
+        #if DEBUG
         print("FolderSyncWatcher: Start monitoring voor map: \(sync.folderPath)")
+        #endif
 
         // Initialiseer processed files set met bestaande hashes — NIET overschrijven als er al
         // in-flight hashes zijn (voorkomt dubbele syncs bij race condition)
@@ -88,7 +92,9 @@ class FolderSyncWatcher {
         FSEventStreamRelease(stream)
         streams.removeValue(forKey: syncId)
         
+        #if DEBUG
         print("FolderSyncWatcher: Gestopt met monitoring voor sync: \(syncId)")
+        #endif
     }
     
     /// Stop alle actieve watchers
@@ -153,7 +159,9 @@ class FolderSyncWatcher {
             latency,
             FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagUseCFTypes)
         ) else {
+            #if DEBUG
             print("FolderSyncWatcher: ERROR - Failed to create FSEventStream")
+            #endif
             return
         }
         
@@ -162,9 +170,13 @@ class FolderSyncWatcher {
         
         if FSEventStreamStart(stream) {
             streams[sync.id] = stream
+            #if DEBUG
             print("FolderSyncWatcher: FSEventStream gestart voor: \(sync.folderPath)")
+            #endif
         } else {
+            #if DEBUG
             print("FolderSyncWatcher: ERROR - Failed to start FSEventStream")
+            #endif
         }
     }
     
@@ -239,7 +251,9 @@ class FolderSyncWatcher {
             
             DispatchQueue.main.asyncAfter(deadline: .now() + self.batchDelay, execute: workItem)
             
+            #if DEBUG
             print("FolderSyncWatcher: \(files.count) bestand(en) toegevoegd aan batch voor sync \(syncId), wachten op meer...")
+            #endif
         }
     }
     
@@ -260,11 +274,15 @@ class FolderSyncWatcher {
         
         // Haal sync configuratie op
         guard let sync = AppState.shared.config.folderSyncs.first(where: { $0.id == syncId }) else {
+            #if DEBUG
             print("FolderSyncWatcher: Sync niet gevonden voor batch processing")
+            #endif
             return
         }
         
+        #if DEBUG
         print("FolderSyncWatcher: Verwerken batch van \(filesToProcess.count) bestanden")
+        #endif
         
         Task {
             await self.processBatch(files: filesToProcess, sync: sync)
@@ -317,7 +335,9 @@ class FolderSyncWatcher {
         )
 
         JobServer.shared.addJob(job)
+        #if DEBUG
         print("FolderSyncWatcher: Batch job voor '\(premiereBinPath)' met \(batchedFiles.count) bestanden")
+        #endif
 
         await MainActor.run {
             onStatusChange?(sync.id, .completed(fileCount: syncedCount))
@@ -353,7 +373,9 @@ class FolderSyncWatcher {
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
             options: [.skipsHiddenFiles]
         ) else {
+            #if DEBUG
             print("FolderSyncWatcher: Kon map niet enumereren: \(sync.folderPath)")
+            #endif
             await MainActor.run {
                 onStatusChange?(sync.id, .error(message: "Kon map niet openen"))
             }
@@ -363,7 +385,9 @@ class FolderSyncWatcher {
         let extensions = allowedExtensions
         let filesToSync: [URL] = collectFiles(from: enumerator, allowedExtensions: extensions)
 
+        #if DEBUG
         print("FolderSyncWatcher: Gevonden \(filesToSync.count) bestanden voor initiële sync")
+        #endif
 
         if filesToSync.isEmpty {
             await MainActor.run {
@@ -394,7 +418,9 @@ class FolderSyncWatcher {
             }
 
             if alreadyProcessed {
+                #if DEBUG
                 print("FolderSyncWatcher: Skip \(fileURL.lastPathComponent) - al gesynchroniseerd")
+                #endif
                 continue
             }
 
@@ -424,19 +450,31 @@ class FolderSyncWatcher {
             )
 
             JobServer.shared.addJob(job)
+            #if DEBUG
             print("FolderSyncWatcher: Job aangemaakt voor bin '\(premiereBinPath)' met \(syncedCount) bestanden")
+            #endif
         }
 
         await MainActor.run {
             onStatusChange?(sync.id, .completed(fileCount: syncedCount))
         }
 
+        #if DEBUG
         print("FolderSyncWatcher: Initiële sync voltooid - \(syncedCount) bestanden")
+        #endif
     }
     
     /// Verwerk een enkel bestand (geen kopiëren — gebruik origineel pad)
     @discardableResult
     private func processFile(url: URL, sync: FolderSync) async -> Bool {
+        // Blokkeer verwerking als trial verlopen en geen license
+        guard LicenseManager.shared.canUseApp else {
+            #if DEBUG
+            print("FolderSyncWatcher: Sync geblokkeerd — license vereist")
+            #endif
+            return false
+        }
+
         let fileHash = calculateFileHash(url: url)
 
         var alreadyProcessed = false
@@ -445,7 +483,9 @@ class FolderSyncWatcher {
         }
 
         if alreadyProcessed {
+            #if DEBUG
             print("FolderSyncWatcher: Skip \(url.lastPathComponent) - al gesynchroniseerd")
+            #endif
             return false
         }
 

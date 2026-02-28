@@ -97,7 +97,29 @@ struct MenuBarView: View {
 
             // Content area met tabs of settings/picker
             Group {
-                if showingSettings {
+                if !LicenseManager.shared.canUseApp {
+                    // Locked state — trial verlopen
+                    Divider()
+                    VStack(spacing: 16) {
+                        Spacer()
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.secondary)
+                        Text(String(localized: "license.trial_expired"))
+                            .font(.system(size: 14, weight: .medium))
+                        Text(String(localized: "license.activate_subtitle"))
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button(String(localized: "license.activate")) {
+                            LicenseWindowController.show(onActivated: { }, onSkip: nil)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 32)
+                } else if showingSettings {
                     Divider()
                     SettingsView(onDismiss: {
                         withAnimation {

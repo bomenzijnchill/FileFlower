@@ -53,7 +53,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         OnboardingWindowController.show { [weak self] in
             // Na onboarding, check license
             self?.checkLicenseAndContinue()
+            #if DEBUG
             print("AppDelegate: Onboarding voltooid")
+            #endif
         }
     }
     
@@ -77,8 +79,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func showLicenseActivation() {
+        // Stop downloads watcher zodat de app echt stil staat
+        AppState.shared.stopDownloadsWatcher()
+
         LicenseWindowController.show(
             onActivated: { [weak self] in
+                // Herstart downloads watcher na activering
+                AppState.shared.restartDownloadsWatcher()
                 self?.startApp()
             },
             onSkip: nil // Geen skip optie als trial verlopen is
@@ -86,9 +93,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func startApp() {
+        #if DEBUG
+        print("AppDelegate: startApp() aangeroepen")
+        #endif
+
         // Voer startup checks uit (plugin updates etc.)
         SetupManager.shared.performStartupChecks()
+
+        #if DEBUG
         print("AppDelegate: App gestart, license status: \(LicenseManager.shared.isLicensed ? "licensed" : "trial")")
+        #endif
     }
 }
 
@@ -139,7 +153,11 @@ class AppState: ObservableObject {
             guard let self = self else { return }
             self.downloadsWatcher.loadCustomFolderIfNeeded(config: self.config)
             self.startAllFolderSyncs()
-            
+
+            // Start Resolve bridge monitoring zodat het actieve project beschikbaar is
+            // voordat de eerste download binnenkomt (niet gated achter license check)
+            ResolveScriptManager.shared.startMonitoring()
+
             // Start MLX daemon als MLX classificatie is ingeschakeld
             if self.config.useMLXClassification {
                 self.startMLXDaemon()
@@ -174,11 +192,15 @@ class AppState: ObservableObject {
         ) { [weak self] notification in
             guard let self = self,
                   let targetPath = notification.object as? String else {
+                #if DEBUG
                 print("AppState: Deploy notification ontvangen maar geen pad")
+                #endif
                 return
             }
 
+            #if DEBUG
             print("AppState: Deploy template verzoek ontvangen voor: \(targetPath)")
+            #endif
 
             let targetURL = URL(fileURLWithPath: targetPath)
             let deployConfig = DeployConfig(
@@ -188,21 +210,39 @@ class AppState: ObservableObject {
 
             do {
                 let count = try TemplateDeployer.deploy(to: targetURL, config: deployConfig)
+                #if DEBUG
                 print("AppState: \(count) mappen aangemaakt in \(targetPath)")
+                #endif
             } catch {
+                #if DEBUG
                 print("AppState: Deploy error: \(error.localizedDescription)")
+                #endif
             }
         }
     }
 
-    /// Luister naar wijzigingen in het actieve project vanuit de CEP plugin
+    private var resolveActiveProjectCancellable: AnyCancellable?
+
+    /// Luister naar wijzigingen in het actieve project vanuit de CEP plugin en Python bridge
     private func setupActiveProjectListener() {
+        // Premiere Pro (CEP plugin)
         activeProjectCancellable = jobServer.$activeProjectPath
             .receive(on: DispatchQueue.main)
             .sink { [weak self] activeProjectPath in
                 guard let self = self, let path = activeProjectPath else { return }
                 self.handleActiveProjectChange(path: path)
             }
+
+        // DaVinci Resolve (Python bridge) — reageer op zowel projectPath als mediaRoot wijzigingen
+        resolveActiveProjectCancellable = Publishers.CombineLatest(
+            jobServer.$resolveActiveProjectPath,
+            jobServer.$resolveMediaRoot
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] (resolveActiveProjectPath, _) in
+            guard let self = self, let path = resolveActiveProjectPath else { return }
+            self.handleActiveProjectChange(path: path)
+        }
     }
     
     /// Verwerk een wijziging in het actieve project
@@ -210,8 +250,25 @@ class AppState: ObservableObject {
         let projectURL = URL(fileURLWithPath: path)
         let projectName = projectURL.deletingPathExtension().lastPathComponent
 
+        // Virtuele Resolve paden (database-backed projecten) hebben geen echte locatie op disk
+        let isVirtualResolvePath = path.hasPrefix("/resolve-project/")
+        let isResolveProject = isVirtualResolvePath || NLEType.from(projectPath: path) == .resolve
+
+        // Lees de media root gerapporteerd door de Python bridge (indien beschikbaar)
+        let mediaRoot = jobServer.resolveMediaRoot
+
+        // Ruim eventuele foutief toegevoegde virtuele roots op (van eerdere versies)
+        if config.projectRoots.contains("/resolve-project") {
+            config.projectRoots.removeAll { $0 == "/resolve-project" }
+            saveConfig()
+            #if DEBUG
+            print("AppState: Virtuele /resolve-project root verwijderd uit configuratie")
+            #endif
+        }
+
         // Auto-add project root als het niet in geconfigureerde roots staat
-        if config.autoAddActiveProjectRoot {
+        // Skip voor virtuele Resolve paden (geen echte directories)
+        if config.autoAddActiveProjectRoot && !isVirtualResolvePath {
             let projectDir = projectURL.deletingLastPathComponent().path
             let alreadyInRoots = config.projectRoots.contains { root in
                 projectDir.hasPrefix(root) || path.hasPrefix(root)
@@ -222,7 +279,9 @@ class AppState: ObservableObject {
                 let newRoot = projectURL.deletingLastPathComponent().deletingLastPathComponent().path
                 config.projectRoots.append(newRoot)
                 saveConfig()
+                #if DEBUG
                 print("AppState: Project root \(newRoot) automatisch toegevoegd voor \(projectName)")
+                #endif
             }
         }
 
@@ -231,13 +290,83 @@ class AppState: ObservableObject {
 
         // Controleer of dit project al in recentProjects zit
         if let existingIndex = recentProjects.firstIndex(where: { $0.projectPath == path }) {
-            // Verplaats naar het begin van de lijst (hoogste prioriteit)
-            let project = recentProjects.remove(at: existingIndex)
+            var project = recentProjects.remove(at: existingIndex)
+
+            // Update rootPath met de beste beschikbare bron
+            if isResolveProject {
+                if let mediaRoot = mediaRoot, FileManager.default.fileExists(atPath: mediaRoot) {
+                    // Prioriteit 1: mediaRoot van de bridge (automatisch gedetecteerd uit clips)
+                    let projectRoot = findProjectRootFromMediaRoot(mediaRoot)
+                    if project.rootPath != projectRoot {
+                        project.rootPath = projectRoot
+                        #if DEBUG
+                        print("AppState: Resolve project rootPath bijgewerkt via mediaRoot: \(projectRoot)")
+                        #endif
+                    }
+                } else if isVirtualResolvePath && (project.rootPath == "/resolve-project" || !FileManager.default.fileExists(atPath: project.rootPath)) {
+                    // Prioriteit 2: naam-matching in project roots (fallback)
+                    if let realFolder = findRealProjectFolder(name: projectName) {
+                        project.rootPath = realFolder
+                        #if DEBUG
+                        print("AppState: Resolve project rootPath bijgewerkt via naam-matching: \(realFolder)")
+                        #endif
+                    }
+                }
+            }
+
             recentProjects.insert(project, at: 0)
-            print("AppState: Actief project \(project.name) naar voren verplaatst")
+            if existingIndex != 0 {
+                #if DEBUG
+                print("AppState: Actief project \(project.name) naar voren verplaatst")
+                #endif
+            }
         } else {
-            // Voeg het actieve project toe aan het begin van de lijst
-            let rootPath = projectURL.deletingLastPathComponent().deletingLastPathComponent().path
+            // Nieuw project: bepaal rootPath met prioriteitsketen
+            let rootPath: String
+            if isResolveProject {
+                if let mediaRoot = mediaRoot, FileManager.default.fileExists(atPath: mediaRoot) {
+                    // Prioriteit 1: mediaRoot van de bridge (automatisch gedetecteerd uit clips)
+                    rootPath = findProjectRootFromMediaRoot(mediaRoot)
+                    #if DEBUG
+                    print("AppState: Resolve project '\(projectName)' rootPath via mediaRoot: \(rootPath) (mediaRoot was: \(mediaRoot))")
+                    #endif
+                } else if isVirtualResolvePath {
+                    // Prioriteit 2: naam-matching in geconfigureerde project roots
+                    if let realFolder = findRealProjectFolder(name: projectName) {
+                        rootPath = realFolder
+                        #if DEBUG
+                        print("AppState: Resolve project '\(projectName)' gekoppeld via naam-matching: \(realFolder)")
+                        #endif
+                    } else {
+                        // Prioriteit 3: virtueel pad (kan geen bestanden organiseren)
+                        rootPath = "/resolve-project"
+                        #if DEBUG
+                        print("AppState: Resolve project '\(projectName)' heeft geen overeenkomstige map — wacht op mediaRoot van bridge")
+                        #endif
+                    }
+                } else {
+                    // Resolve project met .drp op disk
+                    rootPath = projectURL.deletingLastPathComponent().deletingLastPathComponent().path
+                }
+            } else {
+                // Premiere project
+                rootPath = projectURL.deletingLastPathComponent().deletingLastPathComponent().path
+            }
+
+            // Auto-add project root voor virtuele Resolve projecten met echte rootPath
+            if config.autoAddActiveProjectRoot && isVirtualResolvePath && rootPath != "/resolve-project" {
+                let alreadyInRoots = config.projectRoots.contains { root in
+                    rootPath.hasPrefix(root) || root.hasPrefix(rootPath)
+                }
+                if !alreadyInRoots {
+                    let parentRoot = URL(fileURLWithPath: rootPath).deletingLastPathComponent().path
+                    config.projectRoots.append(parentRoot)
+                    saveConfig()
+                    #if DEBUG
+                    print("AppState: Project root \(parentRoot) automatisch toegevoegd voor virtueel Resolve project \(projectName)")
+                    #endif
+                }
+            }
 
             let newProject = ProjectInfo(
                 name: projectName,
@@ -247,17 +376,87 @@ class AppState: ObservableObject {
             )
 
             recentProjects.insert(newProject, at: 0)
+            #if DEBUG
             print("AppState: Actief project \(projectName) toegevoegd als eerste project")
+            #endif
         }
     }
     
-    /// Geeft het beste project terug: 1) actief CEP project, 2) eerste recente project, 3) Spotlight fallback
+    /// Zoek een echte projectmap in geconfigureerde project roots die overeenkomt met de projectnaam
+    /// Wordt gebruikt voor database-backed DaVinci Resolve projecten die geen .drp op disk hebben
+    private func findRealProjectFolder(name: String) -> String? {
+        let fileManager = FileManager.default
+        let normalizedName = name.lowercased()
+
+        for root in config.projectRoots {
+            // Skip virtuele paden
+            if root.hasPrefix("/resolve-project") { continue }
+
+            let rootURL = URL(fileURLWithPath: root)
+            guard let contents = try? fileManager.contentsOfDirectory(
+                at: rootURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+
+            for item in contents {
+                var isDir: ObjCBool = false
+                guard fileManager.fileExists(atPath: item.path, isDirectory: &isDir),
+                      isDir.boolValue else { continue }
+
+                if item.lastPathComponent.lowercased() == normalizedName {
+                    return item.path
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Zoek de project root vanuit een mediaRoot pad.
+    /// Als mediaRoot een genummerde submap is (bijv. 02_Footage), geeft de parent terug.
+    private func findProjectRootFromMediaRoot(_ mediaRoot: String) -> String {
+        let url = URL(fileURLWithPath: mediaRoot)
+        let folderName = url.lastPathComponent
+        let fileManager = FileManager.default
+
+        // Check of mediaRoot zelf een genummerde projectsubmap is (bijv. 02_Footage, 03_Audio)
+        if folderName.range(of: #"^\d+[_\-]"#, options: .regularExpression) != nil {
+            let parent = url.deletingLastPathComponent()
+            if fileManager.fileExists(atPath: parent.path) {
+                return parent.path
+            }
+        }
+
+        // Alternatief: check of de parent van mediaRoot genummerde project folders bevat
+        let parent = url.deletingLastPathComponent()
+        if let contents = try? fileManager.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) {
+            let hasProjectStructure = contents.contains { item in
+                let name = item.lastPathComponent
+                return name.hasPrefix("02_") || name.hasPrefix("03_") ||
+                       name.hasPrefix("04_") || name.hasPrefix("05_")
+            }
+            if hasProjectStructure {
+                return parent.path
+            }
+        }
+
+        return mediaRoot
+    }
+
+    /// Geeft het beste project terug: 1) actief NLE project, 2) eerste recente project, 3) Spotlight fallback
     var preferredProject: ProjectInfo? {
-        // Prioriteit 1: Actief project via CEP plugin (indien vers)
+        // Prioriteit 1a: Actief Premiere project via CEP plugin (indien vers)
         if let activeProjectPath = jobServer.activeProjectPath,
            jobServer.isActiveProjectFresh,
            let activeProject = recentProjects.first(where: { $0.projectPath == activeProjectPath }) {
             return activeProject
+        }
+        // Prioriteit 1b: Actief Resolve project via Python bridge (indien vers)
+        if let resolveProjectPath = jobServer.resolveActiveProjectPath,
+           jobServer.isResolveActiveProjectFresh,
+           let resolveProject = recentProjects.first(where: { $0.projectPath == resolveProjectPath }) {
+            return resolveProject
         }
         // Prioriteit 2: Eerste recente project (bevat nu ook Spotlight resultaten)
         if let firstRecent = recentProjects.first {
@@ -267,14 +466,16 @@ class AppState: ObservableObject {
         return spotlightProjects.first
     }
 
-    /// Spotlight-ontdekte projecten, gecached voor 30 seconden
+    /// Spotlight-ontdekte projecten (Premiere + Resolve), gecached voor 30 seconden
     private var spotlightProjects: [ProjectInfo] {
         if let cached = cachedSpotlightProjects,
            let cacheTime = spotlightProjectsCacheTime,
            Date().timeIntervalSince(cacheTime) < 30 {
             return cached
         }
-        let projects = PremiereRecentProjectsReader.getRecentProjects(limit: 5)
+        var projects = PremiereRecentProjectsReader.getRecentProjects(limit: 5)
+        projects.append(contentsOf: ResolveRecentProjectsReader.getRecentProjects(limit: 5))
+        projects.sort { $0.lastModified > $1.lastModified }
         cachedSpotlightProjects = projects
         spotlightProjectsCacheTime = Date()
         return projects
@@ -282,8 +483,15 @@ class AppState: ObservableObject {
 
     /// Controleer of een project onder een geconfigureerde project root valt
     func isProjectInConfiguredRoots(_ project: ProjectInfo) -> Bool {
+        // Voor virtuele Resolve paden: check of rootPath onder een geconfigureerde root valt
+        let isVirtualResolve = project.projectPath.hasPrefix("/resolve-project/")
         return config.projectRoots.contains { root in
-            project.projectPath.hasPrefix(root)
+            if isVirtualResolve {
+                // Check of de echte rootPath (bijv. /Volumes/SSD/Projects/MyProject)
+                // onder een geconfigureerde root valt, of dat rootPath zelf een root is
+                return project.rootPath.hasPrefix(root) || root.hasPrefix(project.rootPath)
+            }
+            return project.projectPath.hasPrefix(root)
         }
     }
 
@@ -296,7 +504,9 @@ class AppState: ObservableObject {
             do {
                 try LaunchAgentManager.shared.enableStartAtLogin()
             } catch {
+                #if DEBUG
                 print("Fout bij inschakelen login item bij opstarten: \(error)")
+                #endif
             }
         } else if !shouldBeEnabled && isCurrentlyEnabled {
             // Gebruiker heeft het via Systeeminstellingen aangezet — sync config
@@ -310,7 +520,9 @@ class AppState: ObservableObject {
             do {
                 try JobServer.shared.start()
             } catch {
+                #if DEBUG
                 print("Failed to start JobServer: \(error)")
+                #endif
             }
         }
     }
@@ -339,7 +551,9 @@ class AppState: ObservableObject {
 
         if didChange {
             configManager.save(config)
+            #if DEBUG
             print("AppState: Migratie - oude syncedFileHashes gewist voor alle folder syncs")
+            #endif
         }
 
         UserDefaults.standard.set(true, forKey: migrationKey)
@@ -368,7 +582,9 @@ class AppState: ObservableObject {
         )
 
         // Stap 2: Voeg Spotlight-ontdekte projecten toe die nog niet in de lijst staan
+        // Zoek zowel Premiere (.prproj) als DaVinci Resolve (.drp) projecten
         var spotlightProjects = PremiereRecentProjectsReader.getRecentProjects(limit: 5)
+        spotlightProjects.append(contentsOf: ResolveRecentProjectsReader.getRecentProjects(limit: 5))
         if config.filterServerProjectsToLocal {
             spotlightProjects = spotlightProjects.filter { !PremiereRecentProjectsReader.isNetworkPath($0.projectPath) }
         }
@@ -410,6 +626,17 @@ class AppState: ObservableObject {
     }
     
     private func handleNewDownload(url: URL, originURL: String?) async {
+        // Blokkeer verwerking als trial verlopen en geen license
+        guard LicenseManager.shared.canUseApp else {
+            #if DEBUG
+            print("AppState: Download genegeerd — license vereist")
+            #endif
+            await MainActor.run {
+                LicenseWindowController.show(onActivated: { }, onSkip: nil)
+            }
+            return
+        }
+
         // Haal file size op (werkt ook voor mappen)
         let fileManager = FileManager.default
         let size: Int64 = fileManager.fileSize(at: url) ?? 0
@@ -442,7 +669,9 @@ class AppState: ObservableObject {
             var newItem = tempItem
             if let project = preferredProject {
                 newItem.targetProject = project
+                #if DEBUG
                 print("AppState: Nieuw item gekoppeld aan project \(project.name)")
+                #endif
             }
             queuedItems.append(newItem)
             
@@ -550,11 +779,32 @@ class AppState: ObservableObject {
         isPaused.toggle()
         if isPaused {
             downloadsWatcher.stop()
+            #if DEBUG
             print("AppState: Downloads watcher gepauzeerd")
+            #endif
         } else {
             downloadsWatcher.start()
+            #if DEBUG
             print("AppState: Downloads watcher hervat")
+            #endif
         }
+    }
+
+    /// Stop de downloads watcher (gebruikt bij trial lockdown)
+    func stopDownloadsWatcher() {
+        downloadsWatcher.stop()
+        #if DEBUG
+        print("AppState: Downloads watcher gestopt (license vereist)")
+        #endif
+    }
+
+    /// Herstart de downloads watcher (na license activering)
+    func restartDownloadsWatcher() {
+        downloadsWatcher.start()
+        isPaused = false
+        #if DEBUG
+        print("AppState: Downloads watcher herstart (license geactiveerd)")
+        #endif
     }
     
     // MARK: - MLX Daemon Methods
@@ -562,7 +812,9 @@ class AppState: ObservableObject {
     /// Start de MLX daemon voor snelle classificatie
     func startMLXDaemon() {
         guard config.useMLXClassification else {
+            #if DEBUG
             print("AppState: MLX classificatie is uitgeschakeld, daemon niet gestart")
+            #endif
             return
         }
         
@@ -575,7 +827,9 @@ class AppState: ObservableObject {
                     await MainActor.run {
                         self.isDaemonRunning = true
                         self.isDaemonLoading = false
+                        #if DEBUG
                         print("AppState: MLX daemon draait al")
+                        #endif
                     }
                     startDaemonHealthCheck()
                     return
@@ -587,7 +841,9 @@ class AppState: ObservableObject {
                 await MainActor.run {
                     self.isDaemonRunning = true
                     self.isDaemonLoading = false
+                    #if DEBUG
                     print("AppState: MLX daemon gestart")
+                    #endif
                 }
                 
                 startDaemonHealthCheck()
@@ -596,7 +852,9 @@ class AppState: ObservableObject {
                 await MainActor.run {
                     self.isDaemonRunning = false
                     self.isDaemonLoading = false
+                    #if DEBUG
                     print("AppState: Kon MLX daemon niet starten: \(error)")
+                    #endif
                 }
             }
         }
@@ -609,7 +867,9 @@ class AppState: ObservableObject {
         
         modelManager.stopDaemon()
         isDaemonRunning = false
+        #if DEBUG
         print("AppState: MLX daemon gestopt")
+        #endif
     }
     
     /// Herstart de MLX daemon
@@ -636,7 +896,9 @@ class AppState: ObservableObject {
                     if self.isDaemonRunning != running {
                         self.isDaemonRunning = running
                         if !running {
+                            #if DEBUG
                             print("AppState: MLX daemon is gestopt (health check)")
+                            #endif
                         }
                     }
                 }
@@ -665,7 +927,9 @@ class AppState: ObservableObject {
             }
             folderSyncStatuses[sync.id] = .idle
         }
+        #if DEBUG
         print("AppState: \(startedCount) folder syncs gestart (van \(config.folderSyncs.filter { $0.isEnabled }.count) enabled)")
+        #endif
     }
     
     /// Voeg een nieuwe folder sync toe
@@ -684,7 +948,9 @@ class AppState: ObservableObject {
         folderSyncWatcher.startWatching(sync: newSync)
         folderSyncStatuses[newSync.id] = .idle
         
+        #if DEBUG
         print("AppState: Nieuwe folder sync toegevoegd: \(folderPath) -> \(projectPath)")
+        #endif
     }
     
     /// Verwijder een folder sync
@@ -697,7 +963,9 @@ class AppState: ObservableObject {
         config.folderSyncs.removeAll { $0.id == syncId }
         saveConfig()
         
+        #if DEBUG
         print("AppState: Folder sync verwijderd: \(syncId)")
+        #endif
     }
     
     /// Toggle een folder sync aan/uit
@@ -711,11 +979,15 @@ class AppState: ObservableObject {
         if sync.isEnabled {
             folderSyncWatcher.startWatching(sync: sync)
             folderSyncStatuses[sync.id] = .idle
+            #if DEBUG
             print("AppState: Folder sync ingeschakeld: \(sync.folderName)")
+            #endif
         } else {
             folderSyncWatcher.stopWatching(syncId: syncId)
             folderSyncStatuses.removeValue(forKey: syncId)
+            #if DEBUG
             print("AppState: Folder sync uitgeschakeld: \(sync.folderName)")
+            #endif
         }
     }
     
@@ -726,7 +998,9 @@ class AppState: ObservableObject {
         config.folderSyncs[index].premiereBinRoot = binRoot
         saveConfig()
         
+        #if DEBUG
         print("AppState: Folder sync bin root bijgewerkt: \(binRoot)")
+        #endif
     }
     
     /// Forceer een volledige sync voor een map
@@ -749,14 +1023,18 @@ class AppState: ObservableObject {
         )
         config.loadFolderPresets.append(preset)
         saveConfig()
+        #if DEBUG
         print("AppState: LoadFolder preset toegevoegd: \(displayName)")
+        #endif
     }
 
     /// Verwijder een LoadFolder preset
     func removeLoadFolderPreset(presetId: UUID) {
         config.loadFolderPresets.removeAll { $0.id == presetId }
         saveConfig()
+        #if DEBUG
         print("AppState: LoadFolder preset verwijderd: \(presetId)")
+        #endif
     }
 
     /// Update een LoadFolder preset
@@ -765,18 +1043,24 @@ class AppState: ObservableObject {
         config.loadFolderPresets[index].displayName = displayName
         config.loadFolderPresets[index].premiereBinPath = premiereBinPath
         saveConfig()
+        #if DEBUG
         print("AppState: LoadFolder preset bijgewerkt: \(displayName)")
+        #endif
     }
 
     /// Laad een map in het actieve Premiere project
     func loadFolderIntoProject(preset: LoadFolderPreset) async {
         guard preset.folderExists else {
+            #if DEBUG
             print("AppState: LoadFolder map bestaat niet: \(preset.folderPath)")
+            #endif
             return
         }
 
         guard let project = preferredProject else {
+            #if DEBUG
             print("AppState: Geen actief project beschikbaar voor LoadFolder")
+            #endif
             return
         }
 
@@ -789,7 +1073,9 @@ class AppState: ObservableObject {
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else {
+            #if DEBUG
             print("AppState: Kon map niet enumereren: \(preset.folderPath)")
+            #endif
             return
         }
 
@@ -799,7 +1085,9 @@ class AppState: ObservableObject {
         }
 
         guard !files.isEmpty else {
+            #if DEBUG
             print("AppState: LoadFolder map is leeg: \(preset.folderPath)")
+            #endif
             return
         }
 
@@ -814,7 +1102,9 @@ class AppState: ObservableObject {
         )
 
         JobServer.shared.addJob(job)
+        #if DEBUG
         print("AppState: LoadFolder job aangemaakt - \(files.count) bestanden naar bin '\(binPath)'")
+        #endif
     }
 }
 

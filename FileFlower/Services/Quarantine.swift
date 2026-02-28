@@ -17,7 +17,9 @@ class Quarantine {
         // (App Sandbox can block this, but that's OK - file will still work)
         if process.terminationStatus != 0 {
             // Silently ignore - file can still be used without removing quarantine
+            #if DEBUG
             print("Note: Could not remove quarantine attribute (may need App Sandbox disabled)")
+            #endif
         }
     }
 }

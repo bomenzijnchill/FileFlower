@@ -105,6 +105,7 @@ actor StockMetadataCache {
         recentMetadata.append(entry)
         
         // Log
+        #if DEBUG
         print("StockMetadataCache: Metadata ontvangen voor '\(metadata.title ?? "unknown")' van \(metadata.provider ?? "unknown")")
         if let genres = metadata.genres, !genres.isEmpty {
             print("  Genres: \(genres.joined(separator: ", "))")
@@ -112,6 +113,7 @@ actor StockMetadataCache {
         if let moods = metadata.moods, !moods.isEmpty {
             print("  Moods: \(moods.joined(separator: ", "))")
         }
+        #endif
         
         // Notify callbacks
         for callback in onMetadataReceivedCallbacks {
@@ -152,7 +154,9 @@ actor StockMetadataCache {
         // Probeer eerst op origin URLs
         for originUrl in originUrls {
             if let meta = findByUrl(originUrl) {
+                #if DEBUG
                 print("StockMetadataCache: Match gevonden op origin URL")
+                #endif
                 return meta
             }
         }
@@ -160,7 +164,9 @@ actor StockMetadataCache {
         // Probeer op filename
         let filename = url.lastPathComponent
         if let meta = findByFilename(filename) {
+            #if DEBUG
             print("StockMetadataCache: Match gevonden op filename '\(filename)'")
+            #endif
             return meta
         }
         
@@ -169,7 +175,9 @@ actor StockMetadataCache {
         for entry in recentMetadata.reversed() {
             if entry.receivedAt > recentCutoff {
                 // Check of provider matcht met detected source
+                #if DEBUG
                 print("StockMetadataCache: Gebruiken van recente metadata (binnen 60s)")
+                #endif
                 return entry.metadata
             }
         }

@@ -52,7 +52,9 @@ class CloudZipMerger {
                 group.lastPartReceivedAt = Date()
                 pendingGroups[parsed.baseName] = group
 
+                #if DEBUG
                 print("CloudZipMerger: Deel \(parsed.partNumber)/\(parsed.totalParts) toegevoegd aan groep '\(parsed.folderName)'")
+                #endif
 
                 if group.isComplete {
                     result = .allPartsReceived(baseName: parsed.baseName)
@@ -82,7 +84,9 @@ class CloudZipMerger {
                 )
 
                 pendingGroups[parsed.baseName] = group
+                #if DEBUG
                 print("CloudZipMerger: Nieuwe groep '\(parsed.folderName)' (verwacht \(parsed.totalParts) delen)")
+                #endif
 
                 if group.isComplete {
                     result = .allPartsReceived(baseName: parsed.baseName)
@@ -105,7 +109,9 @@ class CloudZipMerger {
             throw CloudZipMergerError.groupNotFound(baseName)
         }
 
+        #if DEBUG
         print("CloudZipMerger: Start merge voor '\(baseName)' (\(group.receivedParts.count)/\(group.expectedPartCount) delen)")
+        #endif
 
         let fileManager = FileManager.default
         let downloadsDir = fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
@@ -125,7 +131,9 @@ class CloudZipMerger {
         let sortedParts = group.receivedParts.sorted { $0.partNumber < $1.partNumber }
 
         for part in sortedParts {
+            #if DEBUG
             print("CloudZipMerger: Uitpakken deel \(part.partNumber)...")
+            #endif
 
             // Pak uit naar een tijdelijke map
             let tempFolder = downloadsDir.appendingPathComponent(
@@ -179,7 +187,9 @@ class CloudZipMerger {
                 // Ruim temp map op
                 try? fileManager.removeItem(at: tempFolder)
             } catch {
+                #if DEBUG
                 print("CloudZipMerger: Fout bij uitpakken deel \(part.partNumber): \(error)")
+                #endif
                 try? fileManager.removeItem(at: tempFolder)
             }
 
@@ -192,7 +202,9 @@ class CloudZipMerger {
             pendingGroups.removeValue(forKey: baseName)
         }
 
+        #if DEBUG
         print("CloudZipMerger: Merge voltooid — \(allExtractedFiles.count) bestanden in \(mergedFolder.path)")
+        #endif
         return allExtractedFiles
     }
 
@@ -224,7 +236,9 @@ class CloudZipMerger {
                 let timeSinceLastPart = now.timeIntervalSince(group.lastPartReceivedAt)
                 if timeSinceLastPart > timeoutSeconds && !group.receivedParts.isEmpty {
                     timedOutGroups.append((baseName, group.originURL))
+                    #if DEBUG
                     print("CloudZipMerger: Groep '\(baseName)' timeout na \(Int(timeSinceLastPart))s — merge met \(group.receivedParts.count)/\(group.expectedPartCount) delen")
+                    #endif
                 }
             }
         }

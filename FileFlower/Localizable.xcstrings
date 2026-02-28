@@ -1004,6 +1004,12 @@
         }
       }
     },
+    "DaVinci Resolve" : {
+
+    },
+    "DaVinci Resolve Scripting API" : {
+
+    },
     "foldersync.add_folder" : {
       "localizations" : {
         "de" : {
@@ -2228,6 +2234,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld vandaag"
+          }
+        }
+      }
+    },
+    "history.open_in_finder" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Finder anzeigen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show in Finder"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostrar en Finder"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afficher dans le Finder"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toon in Finder"
           }
         }
       }
@@ -4228,31 +4268,31 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die Chrome-Erweiterung erfasst Metadaten von Stock-Websites und sendet sie an die App."
+            "value" : "Die Browser-Erweiterung erfasst Metadaten von Stock-Websites und sendet sie an die App."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The Chrome extension captures metadata from stock websites and sends it to the app."
+            "value" : "The browser extension captures metadata from stock websites and sends it to the app."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La extensión de Chrome captura metadatos de sitios web de stock y los envía a la aplicación."
+            "value" : "La extensión del navegador captura metadatos de sitios web de stock y los envía a la aplicación."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L'extension Chrome capture les métadonnées des sites stock et les envoie à l'application."
+            "value" : "L'extension de navigateur capture les métadonnées des sites de stock et les envoie à l'application."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "De Chrome extensie vangt metadata van stock websites op en stuurt deze naar de app."
+            "value" : "De browser extensie scrapt metadata van stock websites en stuurt het naar de app."
           }
         }
       }
@@ -4262,31 +4302,269 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chrome-Erweiterung"
+            "value" : "Browser-Erweiterung"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chrome Extension"
+            "value" : "Browser Extension"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Extensión de Chrome"
+            "value" : "Extensión del navegador"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Extension Chrome"
+            "value" : "Extension navigateur"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chrome Extensie"
+            "value" : "Browser Extensie"
+          }
+        }
+      }
+    },
+    "onboarding.complete.chrome_check" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chrome-Erweiterung installiert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chrome extension installed"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extensión de Chrome instalada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extension Chrome installée"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chrome extensie geïnstalleerd"
+          }
+        }
+      }
+    },
+    "onboarding.complete.finder_check" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finder-Erweiterung aktiviert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finder extension enabled"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extensión del Finder activada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extension Finder activée"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finder extensie ingeschakeld"
+          }
+        }
+      }
+    },
+    "onboarding.complete.premiere_check" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Premiere Pro Plugin installiert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Premiere Pro plugin installed"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plugin de Premiere Pro instalado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plugin Premiere Pro installé"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Premiere Pro plugin geïnstalleerd"
+          }
+        }
+      }
+    },
+    "onboarding.complete.project_check" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projektspeicherort festgelegt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Project location set"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ubicación del proyecto configurada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emplacement du projet défini"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Project locatie ingesteld"
+          }
+        }
+      }
+    },
+    "onboarding.complete.restart_premiere" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starte Premiere Pro neu, um das Plugin zu aktivieren."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restart Premiere Pro to activate the plugin."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reinicia Premiere Pro para activar el plugin."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redémarrez Premiere Pro pour activer le plugin."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Herstart Premiere Pro om de plugin te activeren."
+          }
+        }
+      }
+    },
+    "onboarding.complete.subtitle" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FileFlower ist jetzt eingerichtet und einsatzbereit. Die App läuft in der Menüleiste."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FileFlower is now set up and ready to use. The app runs in the menu bar."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FileFlower está configurado y listo para usar. La aplicación se ejecuta en la barra de menú."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FileFlower est maintenant configuré et prêt à l'emploi. L'application fonctionne dans la barre de menu."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FileFlower is nu ingesteld en klaar voor gebruik. De app draait in de menubalk."
+          }
+        }
+      }
+    },
+    "onboarding.complete.title" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alles bereit!"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You're all set!"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¡Todo listo!"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vous êtes prêt !"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Je bent klaar!"
           }
         }
       }
@@ -4593,244 +4871,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Finder Extensie"
-          }
-        }
-      }
-    },
-    "onboarding.complete.chrome_check" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chrome-Erweiterung installiert"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chrome extension installed"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Extensión de Chrome instalada"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Extension Chrome installée"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Chrome extensie geïnstalleerd"
-          }
-        }
-      }
-    },
-    "onboarding.complete.finder_check" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Finder-Erweiterung aktiviert"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Finder extension enabled"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Extensión del Finder activada"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Extension Finder activée"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Finder extensie ingeschakeld"
-          }
-        }
-      }
-    },
-    "onboarding.complete.premiere_check" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Premiere Pro Plugin installiert"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Premiere Pro plugin installed"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Plugin de Premiere Pro instalado"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Plugin Premiere Pro installé"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Premiere Pro plugin geïnstalleerd"
-          }
-        }
-      }
-    },
-    "onboarding.complete.project_check" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Projektspeicherort festgelegt"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Project location set"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ubicación del proyecto configurada"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Emplacement du projet défini"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Project locatie ingesteld"
-          }
-        }
-      }
-    },
-    "onboarding.complete.restart_premiere" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Starte Premiere Pro neu, um das Plugin zu aktivieren."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restart Premiere Pro to activate the plugin."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reinicia Premiere Pro para activar el plugin."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Redémarrez Premiere Pro pour activer le plugin."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Herstart Premiere Pro om de plugin te activeren."
-          }
-        }
-      }
-    },
-    "onboarding.complete.subtitle" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FileFlower ist jetzt eingerichtet und einsatzbereit. Die App läuft in der Menüleiste."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FileFlower is now set up and ready to use. The app runs in the menu bar."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FileFlower está configurado y listo para usar. La aplicación se ejecuta en la barra de menú."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FileFlower est maintenant configuré et prêt à l'emploi. L'application fonctionne dans la barre de menu."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "FileFlower is nu ingesteld en klaar voor gebruik. De app draait in de menubalk."
-          }
-        }
-      }
-    },
-    "onboarding.complete.title" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Alles bereit!"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "You're all set!"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "¡Todo listo!"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vous êtes prêt !"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Je bent klaar!"
           }
         }
       }
@@ -5477,6 +5517,312 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Project Locatie"
+          }
+        }
+      }
+    },
+    "onboarding.resolve.description" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FileFlower kann Dateien auch automatisch in DaVinci Resolve importieren. Dafür werden Python 3 und die Resolve Scripting API benötigt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FileFlower can also auto-import files into DaVinci Resolve. This requires Python 3 and the Resolve Scripting API."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FileFlower también puede importar archivos automáticamente en DaVinci Resolve. Esto requiere Python 3 y la API de scripting de Resolve."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FileFlower peut aussi importer automatiquement des fichiers dans DaVinci Resolve. Cela nécessite Python 3 et l'API de scripting Resolve."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "FileFlower kan ook automatisch bestanden importeren in DaVinci Resolve. Hiervoor zijn Python 3 en de Resolve Scripting API nodig."
+          }
+        }
+      }
+    },
+    "onboarding.resolve.python_found" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Python 3 gefunden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Python 3 found"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Python 3 encontrado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Python 3 trouvé"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Python 3 gevonden"
+          }
+        }
+      }
+    },
+    "onboarding.resolve.python_not_found" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Python 3 nicht gefunden. Installiere es über python.org oder Homebrew."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Python 3 not found. Install via python.org or Homebrew."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Python 3 no encontrado. Instálalo desde python.org o Homebrew."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Python 3 non trouvé. Installez-le via python.org ou Homebrew."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Python 3 niet gevonden. Installeer via python.org of Homebrew."
+          }
+        }
+      }
+    },
+    "onboarding.resolve.scripting_found" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scripting-Module gefunden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scripting modules found"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Módulos de scripting encontrados"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modules de scripting trouvés"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scripting modules gevonden"
+          }
+        }
+      }
+    },
+    "onboarding.resolve.scripting_not_found" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht gefunden. Installiere DaVinci Resolve, um die Scripting-Module zu erhalten."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not found. Install DaVinci Resolve to get the scripting modules."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No encontrado. Instala DaVinci Resolve para obtener los módulos de scripting."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non trouvé. Installez DaVinci Resolve pour obtenir les modules de scripting."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Niet gevonden. Installeer DaVinci Resolve om de scripting modules te krijgen."
+          }
+        }
+      }
+    },
+    "onboarding.resolve.skip_note" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Überspringe diesen Schritt, wenn du DaVinci Resolve nicht verwendest."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip this step if you don't use DaVinci Resolve."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Omite este paso si no usas DaVinci Resolve."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Passez cette étape si vous n'utilisez pas DaVinci Resolve."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sla deze stap over als je geen DaVinci Resolve gebruikt."
+          }
+        }
+      }
+    },
+    "onboarding.resolve.title" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DaVinci Resolve"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DaVinci Resolve"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DaVinci Resolve"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DaVinci Resolve"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DaVinci Resolve"
+          }
+        }
+      }
+    },
+    "onboarding.safari.install_button" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Safari-Erweiterung installieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install Safari Extension"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalar extensión de Safari"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installer l'extension Safari"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installeer Safari Extensie"
+          }
+        }
+      }
+    },
+    "onboarding.safari.install_hint" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die FileFlower Safari App wird geöffnet. Aktiviere dann die Erweiterung unter Safari > Einstellungen > Erweiterungen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The FileFlower Safari app will open. Then enable the extension in Safari > Settings > Extensions."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se abrirá la app FileFlower Safari. Luego activa la extensión en Safari > Configuración > Extensiones."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'app FileFlower Safari va s'ouvrir. Activez ensuite l'extension dans Safari > Réglages > Extensions."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De FileFlower Safari app wordt geopend. Schakel daarna de extensie in via Safari > Instellingen > Extensies."
           }
         }
       }
@@ -6754,6 +7100,9 @@
     "Project" : {
       "comment" : "A label and picker for selecting a project.",
       "isCommentAutoGenerated" : true
+    },
+    "Python 3" : {
+
     },
     "queue.auto_shown" : {
       "localizations" : {
@@ -8056,6 +8405,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Premiere naar voren halen na import"
+          }
+        }
+      }
+    },
+    "settings.bring_resolve" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve nach Import in den Vordergrund bringen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bring Resolve to front after import"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Traer Resolve al frente después de importar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mettre Resolve au premier plan après l'import"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve naar voren halen na import"
           }
         }
       }
@@ -10615,6 +10998,108 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Setup resetten?"
+          }
+        }
+      }
+    },
+    "settings.resolve_auto_import" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatisch in Resolve Media Pool importieren"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-import into Resolve Media Pool"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar automáticamente en Resolve Media Pool"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer automatiquement dans Resolve Media Pool"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatisch importeren in Resolve Media Pool"
+          }
+        }
+      }
+    },
+    "settings.resolve_bridge.running" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve Bridge: Aktiv"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve Bridge: Running"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve Bridge: Activo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve Bridge: Actif"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve Bridge: Draait"
+          }
+        }
+      }
+    },
+    "settings.resolve_bridge.stopped" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve Bridge: Gestoppt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve Bridge: Stopped"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve Bridge: Detenido"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve Bridge: Arrêté"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve Bridge: Gestopt"
           }
         }
       }

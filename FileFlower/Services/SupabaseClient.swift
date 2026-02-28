@@ -3,9 +3,6 @@ import Foundation
 /// Simpele HTTP client voor Supabase REST API
 /// Stuurt analytics events als JSON naar de analytics_events tabel
 class SupabaseClient {
-    // TODO: Vervang deze waarden met je eigen Supabase project credentials
-    // Ga naar https://supabase.com om een gratis project aan te maken
-    // De anon key is veilig om in de app te bundelen (met RLS policies)
     private let supabaseURL = "https://YOUR_PROJECT.supabase.co"
     private let supabaseAnonKey = "YOUR_ANON_KEY"
     private let tableName = "analytics_events"
@@ -22,14 +19,17 @@ class SupabaseClient {
     /// Stuur een batch events naar Supabase
     func sendEvents(_ events: [AnalyticsEvent], anonymousId: String, completion: @escaping (Bool) -> Void) {
         guard !supabaseURL.contains("YOUR_PROJECT") else {
+            #if DEBUG
             print("SupabaseClient: Supabase is nog niet geconfigureerd. Sla events lokaal op.")
-            // Events worden lokaal opgeslagen maar niet verstuurd tot Supabase is geconfigureerd
-            completion(true) // Return true zodat events niet steeds opnieuw geprobeerd worden
+            #endif
+            completion(true)
             return
         }
 
         guard let url = URL(string: "\(supabaseURL)/rest/v1/\(tableName)") else {
+            #if DEBUG
             print("SupabaseClient: Ongeldige URL")
+            #endif
             completion(false)
             return
         }
@@ -60,7 +60,9 @@ class SupabaseClient {
         }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: rows) else {
+            #if DEBUG
             print("SupabaseClient: Kan events niet serialiseren")
+            #endif
             completion(false)
             return
         }
@@ -75,13 +77,17 @@ class SupabaseClient {
 
         let task = session.dataTask(with: request) { data, response, error in
             if let error = error {
+                #if DEBUG
                 print("SupabaseClient: Netwerk fout: \(error.localizedDescription)")
+                #endif
                 completion(false)
                 return
             }
 
             guard let httpResponse = response as? HTTPURLResponse else {
+                #if DEBUG
                 print("SupabaseClient: Geen HTTP response")
+                #endif
                 completion(false)
                 return
             }
@@ -89,8 +95,10 @@ class SupabaseClient {
             if (200...299).contains(httpResponse.statusCode) {
                 completion(true)
             } else {
+                #if DEBUG
                 let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? "geen body"
                 print("SupabaseClient: HTTP \(httpResponse.statusCode) - \(body)")
+                #endif
                 completion(false)
             }
         }

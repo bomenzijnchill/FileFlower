@@ -15,9 +15,13 @@ class ConfigManager {
         if fileManager.fileExists(atPath: oldAppDir.path) && !fileManager.fileExists(atPath: appDir.path) {
             do {
                 try fileManager.moveItem(at: oldAppDir, to: appDir)
+                #if DEBUG
                 print("ConfigManager: Config gemigreerd van DLtoPremiere naar FileFlower")
+                #endif
             } catch {
+                #if DEBUG
                 print("ConfigManager: Migratie gefaald: \(error), nieuwe map wordt aangemaakt")
+                #endif
                 try? fileManager.createDirectory(at: appDir, withIntermediateDirectories: true)
             }
         } else {

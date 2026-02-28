@@ -1,17 +1,17 @@
 import Foundation
 
-/// Leest recent geopende Premiere Pro projecten op deze Mac via Spotlight
-class PremiereRecentProjectsReader {
+/// Leest recent geopende DaVinci Resolve projecten op deze Mac via Spotlight
+class ResolveRecentProjectsReader {
 
-    /// Haal paden op van .prproj bestanden die recent geopend zijn op deze Mac
+    /// Haal paden op van .drp bestanden die recent geopend zijn op deze Mac
     /// Gebruikt Spotlight (mdfind) om bestanden te vinden met kMDItemLastUsedDate
     static func getRecentProjectPaths(maxAge: TimeInterval = 90 * 24 * 3600) -> Set<String> {
         var paths = Set<String>()
 
-        // Gebruik mdfind om .prproj bestanden te vinden die recent geopend zijn
+        // Gebruik mdfind om .drp bestanden te vinden die recent geopend zijn
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
-        process.arguments = ["kMDItemFSName == '*.prproj' && kMDItemLastUsedDate >= $time.today(-90)"]
+        process.arguments = ["kMDItemFSName == '*.drp' && kMDItemLastUsedDate >= $time.today(-90)"]
 
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -28,13 +28,13 @@ class PremiereRecentProjectsReader {
                     let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmed.isEmpty else { continue }
                     // Filter auto-save bestanden uit
-                    if trimmed.contains("Auto-Save") { continue }
+                    if trimmed.contains("Auto-Save") || trimmed.contains("Backup") { continue }
                     paths.insert(trimmed)
                 }
             }
         } catch {
             #if DEBUG
-            print("PremiereRecentProjectsReader: mdfind fout: \(error)")
+            print("ResolveRecentProjectsReader: mdfind fout: \(error)")
             #endif
         }
 
@@ -42,7 +42,7 @@ class PremiereRecentProjectsReader {
     }
 
     /// Converteer Spotlight-gevonden paden naar ProjectInfo objecten
-    /// Leidt rootPath af als grandparent van het .prproj bestand (zelfde conventie als handleActiveProjectChange)
+    /// Leidt rootPath af als grandparent van het .drp bestand (zelfde conventie als Premiere projecten)
     static func getRecentProjects(limit: Int = 5) -> [ProjectInfo] {
         let paths = getRecentProjectPaths()
         let fileManager = FileManager.default
