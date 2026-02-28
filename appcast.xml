@@ -9,6 +9,28 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 2.0.1</title>
+            <sparkle:version>20</sparkle:version>
+            <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>FileFlower 2.0.1</h2>
+                <ul>
+                    <li><strong>Bloemblaadjes-animatie</strong> — Leuke petal burst animatie bij het menu bar icoon na succesvolle verwerking</li>
+                    <li><strong>Instelling</strong> — Animatie aan/uit te zetten in Instellingen</li>
+                    <li><strong>Settings refactor</strong> — Instellingenpagina geoptimaliseerd</li>
+                </ul>
+            ]]></description>
+            <pubDate>Fri, 28 Feb 2026 16:00:00 +0100</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v2.0.1/FileFlower.dmg"
+                sparkle:edSignature="plOQBDi+edXhXqECcKPWNvN8j/3m2aXAxM2dSH1kbxMyDqnS5WjJ7dTusWYLCMShf1B4ZLvFKUOb6Mk5Dk3EAw=="
+                length="4937243"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 2.0.0</title>
             <sparkle:version>19</sparkle:version>
             <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
