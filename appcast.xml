@@ -9,6 +9,26 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 2.0.3</title>
+            <sparkle:version>22</sparkle:version>
+            <sparkle:shortVersionString>2.0.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>FileFlower 2.0.3</h2>
+                <ul>
+                    <li><strong>Safari extensie fix</strong> — Safari extensie wordt nu correct meegebundeld in de distributie</li>
+                </ul>
+            ]]></description>
+            <pubDate>Fri, 07 Mar 2026 13:45:00 +0100</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v2.0.3/FileFlower.dmg"
+                sparkle:edSignature="uQgajCNn+4x+4qutb6vAMqDJ+79zXSDkTm3nmtiQx2F0yz8A9MgLrU6JuiIjBbPYNjosPT52pHJqhNvqCetvAw=="
+                length="5556998"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 2.0.2</title>
             <sparkle:version>21</sparkle:version>
             <sparkle:shortVersionString>2.0.2</sparkle:shortVersionString>
