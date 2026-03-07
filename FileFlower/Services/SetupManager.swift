@@ -327,10 +327,11 @@ class SetupManager {
         Bundle.main.resourceURL?.appendingPathComponent("FileFlower Safari.app")
     }
 
-    /// Open de Safari extensie container app, die de extensie registreert en Safari preferences opent
+    /// Open de Safari extensie container app, die de extensie registreert en Safari preferences opent.
+    /// Kopieert de app eerst naar Application Support zodat macOS Launch Services de extensie correct indexeert.
     func openSafariExtensionApp(completion: @escaping (Result<Void, SetupError>) -> Void) {
-        guard let appURL = safariExtensionAppURL,
-              FileManager.default.fileExists(atPath: appURL.path) else {
+        guard let bundledAppURL = safariExtensionAppURL,
+              FileManager.default.fileExists(atPath: bundledAppURL.path) else {
             #if DEBUG
             print("SetupManager: Safari extensie app niet gevonden in bundle")
             #endif
@@ -338,8 +339,34 @@ class SetupManager {
             return
         }
 
+        // Kopieer naar ~/Library/Application Support/FileFlower/ zodat Safari de extensie kan vinden
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            completion(.failure(.safariExtensionOpenFailed(NSError(domain: "SetupManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Application Support niet gevonden"]))))
+            return
+        }
+
+        let ffDir = appSupport.appendingPathComponent("FileFlower")
+        let installedAppURL = ffDir.appendingPathComponent("FileFlower Safari.app")
+
+        do {
+            try FileManager.default.createDirectory(at: ffDir, withIntermediateDirectories: true)
+            if FileManager.default.fileExists(atPath: installedAppURL.path) {
+                try FileManager.default.removeItem(at: installedAppURL)
+            }
+            try FileManager.default.copyItem(at: bundledAppURL, to: installedAppURL)
+            #if DEBUG
+            print("SetupManager: Safari app gekopieerd naar \(installedAppURL.path)")
+            #endif
+        } catch {
+            #if DEBUG
+            print("SetupManager: Fout bij kopiëren Safari app: \(error)")
+            #endif
+            completion(.failure(.safariExtensionOpenFailed(error)))
+            return
+        }
+
         let config = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, error in
+        NSWorkspace.shared.openApplication(at: installedAppURL, configuration: config) { _, error in
             DispatchQueue.main.async {
                 if let error = error {
                     completion(.failure(.safariExtensionOpenFailed(error)))

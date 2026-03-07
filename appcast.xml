@@ -9,6 +9,28 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 2.0.4</title>
+            <sparkle:version>23</sparkle:version>
+            <sparkle:shortVersionString>2.0.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>FileFlower 2.0.4</h2>
+                <ul>
+                    <li><strong>Safari extensie fix</strong> — Extensie registreert zich nu correct bij Safari via Application Support</li>
+                    <li><strong>Icoon fix</strong> — Safari app toont nu het juiste FileFlower icoon</li>
+                    <li><strong>Error handling</strong> — Duidelijke foutmelding als Safari extensie niet geopend kan worden</li>
+                </ul>
+            ]]></description>
+            <pubDate>Fri, 07 Mar 2026 14:20:00 +0100</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v2.0.4/FileFlower.dmg"
+                sparkle:edSignature="RjUVmJe+07rAURI61ToaVL7yeW9AuuZeIGXcxAI4bpwIWxOKEx5NCcy95ImOGvAZdN0DqGD/JmIsBnw7lGy4AQ=="
+                length="5576342"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 2.0.3</title>
             <sparkle:version>22</sparkle:version>
             <sparkle:shortVersionString>2.0.3</sparkle:shortVersionString>
