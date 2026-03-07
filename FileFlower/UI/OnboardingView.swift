@@ -29,6 +29,10 @@ struct OnboardingView: View {
     @State private var savesFilesNextToProject: Bool = true
     @State private var selectedWorkflowType: WorkflowType = .videoEditor
     @State private var selectedFolderStructure: FolderStructurePreset = .standard
+    @State private var selectedNLEs: Set<String> = ["premiere", "resolve"]
+    @State private var safariInstallError: String?
+    @State private var safariInstallOpened = false
+    @State private var isOpeningSafariApp = false
 
     // Custom folder template state
     @State private var templateFolderPath: String = ""
@@ -45,15 +49,16 @@ struct OnboardingView: View {
         case language = 1
         case musicClassify = 2
         case sfxSubfolders = 3
-        case premierePlugin = 4
-        case resolveSetup = 5
-        case chromeExtension = 6
-        case finderExtension = 7
-        case projectSetup = 8
-        case workflow = 9
-        case autoStart = 10
-        case terms = 11
-        case complete = 12
+        case softwareSelection = 4
+        case premierePlugin = 5
+        case resolveSetup = 6
+        case chromeExtension = 7
+        case finderExtension = 8
+        case projectSetup = 9
+        case workflow = 10
+        case autoStart = 11
+        case terms = 12
+        case complete = 13
 
         var titleKey: String.LocalizationValue {
             switch self {
@@ -61,6 +66,7 @@ struct OnboardingView: View {
             case .language: return "onboarding.language.title"
             case .musicClassify: return "onboarding.music.title"
             case .sfxSubfolders: return "onboarding.sfx.title"
+            case .softwareSelection: return "onboarding.software.title"
             case .premierePlugin: return "onboarding.premiere.title"
             case .resolveSetup: return "onboarding.resolve.title"
             case .chromeExtension: return "onboarding.chrome.title"
@@ -83,6 +89,7 @@ struct OnboardingView: View {
             case .language: return "globe"
             case .musicClassify: return "music.note.list"
             case .sfxSubfolders: return "speaker.wave.3.fill"
+            case .softwareSelection: return "desktopcomputer"
             case .premierePlugin: return "film.fill"
             case .resolveSetup: return "film.stack.fill"
             case .chromeExtension: return "globe"
@@ -142,27 +149,41 @@ struct OnboardingView: View {
             musicMode = appState.config.musicClassification
             sfxSubfoldersEnabled = appState.config.useSfxSubfolders
             autoStartEnabled = appState.config.startAtLogin
+            selectedNLEs = Set(appState.config.selectedNLEs)
+            AnalyticsService.shared.track(.onboardingStarted())
         }
     }
 
     // MARK: - Progress Indicator
 
     private var progressIndicator: some View {
-        HStack(spacing: 6) {
-            ForEach(OnboardingStep.allCases, id: \.rawValue) { step in
-                if step != .complete {
-                    Circle()
-                        .fill(step.rawValue <= currentStep.rawValue ? Color.accentColor : Color.secondary.opacity(0.3))
-                        .frame(width: 8, height: 8)
+        let visibleSteps = OnboardingStep.allCases.filter { step in
+            step != .complete && !shouldSkipStep(step)
+        }
+        return HStack(spacing: 6) {
+            ForEach(visibleSteps, id: \.rawValue) { step in
+                Circle()
+                    .fill(step.rawValue <= currentStep.rawValue ? Color.accentColor : Color.secondary.opacity(0.3))
+                    .frame(width: 8, height: 8)
 
-                    if step.rawValue < OnboardingStep.allCases.count - 2 {
-                        Rectangle()
-                            .fill(step.rawValue < currentStep.rawValue ? Color.accentColor : Color.secondary.opacity(0.3))
-                            .frame(height: 2)
-                            .frame(maxWidth: 24)
-                    }
+                if step != visibleSteps.last {
+                    Rectangle()
+                        .fill(step.rawValue < currentStep.rawValue ? Color.accentColor : Color.secondary.opacity(0.3))
+                        .frame(height: 2)
+                        .frame(maxWidth: 24)
                 }
             }
+        }
+    }
+
+    private func shouldSkipStep(_ step: OnboardingStep) -> Bool {
+        switch step {
+        case .premierePlugin:
+            return !selectedNLEs.contains("premiere")
+        case .resolveSetup:
+            return !selectedNLEs.contains("resolve")
+        default:
+            return false
         }
     }
 
@@ -179,6 +200,8 @@ struct OnboardingView: View {
             musicClassifyContent
         case .sfxSubfolders:
             sfxSubfoldersContent
+        case .softwareSelection:
+            softwareSelectionContent
         case .premierePlugin:
             premierePluginContent
         case .resolveSetup:
@@ -386,6 +409,86 @@ struct OnboardingView: View {
             .frame(maxWidth: 400)
             .animation(.easeInOut(duration: 0.3), value: sfxSubfoldersEnabled)
         }
+    }
+
+    // MARK: - Software Selection Step
+
+    private var softwareSelectionContent: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "desktopcomputer")
+                .font(.system(size: 60))
+                .foregroundColor(.brandSkyBlue)
+
+            Text(String(localized: "onboarding.software.title"))
+                .font(.system(size: 24, weight: .bold))
+
+            Text(String(localized: "onboarding.software.subtitle"))
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 400)
+
+            VStack(spacing: 12) {
+                nleChoiceButton(
+                    nle: "premiere",
+                    icon: "film.fill",
+                    label: "Adobe Premiere Pro",
+                    description: String(localized: "onboarding.software.premiere_desc")
+                )
+                nleChoiceButton(
+                    nle: "resolve",
+                    icon: "film.stack.fill",
+                    label: "DaVinci Resolve",
+                    description: String(localized: "onboarding.software.resolve_desc")
+                )
+            }
+            .frame(maxWidth: 400)
+
+            Text(String(localized: "onboarding.software.both_hint"))
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+    }
+
+    private func nleChoiceButton(nle: String, icon: String, label: String, description: String) -> some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                if selectedNLEs.contains(nle) {
+                    if selectedNLEs.count > 1 {
+                        selectedNLEs.remove(nle)
+                    }
+                } else {
+                    selectedNLEs.insert(nle)
+                }
+            }
+        }) {
+            HStack(spacing: 12) {
+                Image(systemName: selectedNLEs.contains(nle) ? "checkmark.circle.fill" : "circle")
+                    .foregroundColor(selectedNLEs.contains(nle) ? .accentColor : .secondary)
+                    .font(.system(size: 20))
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .foregroundColor(.primary)
+                VStack(alignment: .leading) {
+                    Text(label)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.primary)
+                    Text(description)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            .padding(12)
+            .background(selectedNLEs.contains(nle) ? Color.accentColor.opacity(0.1) : Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(selectedNLEs.contains(nle) ? Color.accentColor : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Premiere Plugin Step
@@ -643,22 +746,79 @@ struct OnboardingView: View {
     private var safariInstructions: some View {
         VStack(spacing: 16) {
             Button(action: {
-                SetupManager.shared.openSafariExtensionApp()
+                safariInstallError = nil
+                isOpeningSafariApp = true
+                SetupManager.shared.openSafariExtensionApp { result in
+                    isOpeningSafariApp = false
+                    switch result {
+                    case .success:
+                        safariInstallOpened = true
+                    case .failure(let error):
+                        safariInstallError = error.localizedDescription
+                    }
+                }
             }) {
                 HStack(spacing: 8) {
-                    Image(systemName: "safari")
+                    if isOpeningSafariApp {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "safari")
+                    }
                     Text(String(localized: "onboarding.safari.install_button"))
                 }
                 .frame(minWidth: 200)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .disabled(isOpeningSafariApp)
 
-            Text(String(localized: "onboarding.safari.install_hint"))
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
+            if let error = safariInstallError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.red)
+                    Text(error)
+                        .font(.system(size: 12))
+                        .foregroundColor(.red)
+                }
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 400)
+            }
+
+            if safariInstallOpened {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                    Text(String(localized: "onboarding.safari.app_opened"))
+                        .font(.system(size: 13))
+                        .foregroundColor(.green)
+                }
+                .padding(.vertical, 4)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                InstructionStep(number: 1, text: String(localized: "onboarding.safari.step1"))
+                InstructionStep(number: 2, text: String(localized: "onboarding.safari.step2"))
+                InstructionStep(number: 3, text: String(localized: "onboarding.safari.step3"))
+            }
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
+            .frame(maxWidth: 450)
+
+            if safariInstallOpened {
+                Button(action: {
+                    withAnimation {
+                        extensionMarkedInstalled = true
+                    }
+                }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle")
+                        Text(String(localized: "onboarding.safari.confirm_enabled"))
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
         }
         .transition(.opacity)
     }
@@ -1270,10 +1430,18 @@ struct OnboardingView: View {
                 .frame(maxWidth: 400)
 
             VStack(alignment: .leading, spacing: 12) {
-                CompletionCheckItem(
-                    isCompleted: SetupManager.shared.isPremierePluginInstalled,
-                    text: String(localized: "onboarding.complete.premiere_check")
-                )
+                if selectedNLEs.contains("premiere") {
+                    CompletionCheckItem(
+                        isCompleted: SetupManager.shared.isPremierePluginInstalled,
+                        text: String(localized: "onboarding.complete.premiere_check")
+                    )
+                }
+                if selectedNLEs.contains("resolve") {
+                    CompletionCheckItem(
+                        isCompleted: SetupManager.shared.isResolveScriptingAvailable,
+                        text: String(localized: "onboarding.complete.resolve_check")
+                    )
+                }
                 CompletionCheckItem(
                     isCompleted: SetupManager.shared.installedChromeExtensionVersion != nil,
                     text: String(localized: "onboarding.complete.chrome_check")
@@ -1291,7 +1459,7 @@ struct OnboardingView: View {
             .background(Color(NSColor.controlBackgroundColor))
             .cornerRadius(8)
 
-            Text(String(localized: "onboarding.complete.restart_premiere"))
+            Text(String(localized: "onboarding.complete.restart_software"))
                 .font(.system(size: 13))
                 .foregroundColor(.orange)
                 .padding(.top, 8)
@@ -1335,8 +1503,17 @@ struct OnboardingView: View {
             if currentStep != .welcome {
                 Button(String(localized: "common.previous")) {
                     withAnimation(.easeInOut(duration: 0.3)) {
-                        if let previous = OnboardingStep(rawValue: currentStep.rawValue - 1) {
-                            currentStep = previous
+                        var prevRaw = currentStep.rawValue - 1
+                        while prevRaw >= 0 {
+                            if let candidate = OnboardingStep(rawValue: prevRaw) {
+                                if shouldSkipStep(candidate) {
+                                    prevRaw -= 1
+                                    continue
+                                }
+                                currentStep = candidate
+                                break
+                            }
+                            prevRaw -= 1
                         }
                     }
                 }
@@ -1416,6 +1593,10 @@ struct OnboardingView: View {
             appState.config.useSfxSubfolders = sfxSubfoldersEnabled
             appState.saveConfig()
 
+        case .softwareSelection:
+            appState.config.selectedNLEs = Array(selectedNLEs)
+            appState.saveConfig()
+
         case .projectSetup:
             // Project root wordt al toegevoegd in selectProjectRoot()
             break
@@ -1457,12 +1638,31 @@ struct OnboardingView: View {
             // zodat een herstart de wizard niet heropent
             SetupManager.shared.completeOnboarding()
 
+            // Analytics: wizard voltooid
+            AnalyticsService.shared.track(.wizardCompleted(
+                languageChosen: selectedLanguage,
+                musicClassify: musicClassifyEnabled,
+                sfxSubfolders: sfxSubfoldersEnabled,
+                autoStart: autoStartEnabled,
+                analyticsOptIn: analyticsOptIn
+            ))
+
         default:
             break
         }
 
-        if let next = OnboardingStep(rawValue: currentStep.rawValue + 1) {
-            currentStep = next
+        var nextRaw = currentStep.rawValue + 1
+        while let candidate = OnboardingStep(rawValue: nextRaw) {
+            if shouldSkipStep(candidate) {
+                nextRaw += 1
+                continue
+            }
+            currentStep = candidate
+            AnalyticsService.shared.track(.onboardingStep(
+                step: "\(candidate)",
+                stepIndex: candidate.rawValue
+            ))
+            break
         }
     }
 

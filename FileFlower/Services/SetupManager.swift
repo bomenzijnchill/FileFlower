@@ -270,7 +270,7 @@ class SetupManager {
         }
     }
     
-    /// Open de Chrome extensie map in Finder
+    /// Open de Chrome extensie map in Finder — kopieer naar toegankelijke locatie
     func openChromeExtensionFolder() {
         guard let extensionURL = bundledChromeExtensionURL,
               FileManager.default.fileExists(atPath: extensionURL.path) else {
@@ -279,8 +279,29 @@ class SetupManager {
             #endif
             return
         }
-        
-        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: extensionURL.path)
+
+        // Kopieer extensie naar ~/Documents/FileFlower Chrome Extension/
+        // zodat Chrome's file picker er bij kan
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let targetURL = documentsURL.appendingPathComponent("FileFlower Chrome Extension")
+
+        do {
+            if FileManager.default.fileExists(atPath: targetURL.path) {
+                try FileManager.default.removeItem(at: targetURL)
+            }
+            try FileManager.default.copyItem(at: extensionURL, to: targetURL)
+            // Open enclosing folder en selecteer de extensie map
+            NSWorkspace.shared.activateFileViewerSelecting([targetURL])
+            #if DEBUG
+            print("SetupManager: Chrome extensie gekopieerd naar \(targetURL.path)")
+            #endif
+        } catch {
+            #if DEBUG
+            print("SetupManager: Kon Chrome extensie niet kopiëren: \(error)")
+            #endif
+            // Fallback: open originele locatie
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: extensionURL.path)
+        }
     }
     
     /// Markeer de Chrome extensie als geïnstalleerd met huidige versie
@@ -307,16 +328,26 @@ class SetupManager {
     }
 
     /// Open de Safari extensie container app, die de extensie registreert en Safari preferences opent
-    func openSafariExtensionApp() {
+    func openSafariExtensionApp(completion: @escaping (Result<Void, SetupError>) -> Void) {
         guard let appURL = safariExtensionAppURL,
               FileManager.default.fileExists(atPath: appURL.path) else {
             #if DEBUG
             print("SetupManager: Safari extensie app niet gevonden in bundle")
             #endif
+            completion(.failure(.safariExtensionNotFound))
             return
         }
 
-        NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
+        let config = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    completion(.failure(.safariExtensionOpenFailed(error)))
+                } else {
+                    completion(.success(()))
+                }
+            }
+        }
     }
 
     // MARK: - Finder Extension
@@ -532,7 +563,9 @@ enum SetupError: LocalizedError {
     case cannotRemoveExisting(Error)
     case copyFailed(Error)
     case permissionDenied
-    
+    case safariExtensionNotFound
+    case safariExtensionOpenFailed(Error)
+
     var errorDescription: String? {
         switch self {
         case .pluginNotBundled:
@@ -545,6 +578,10 @@ enum SetupError: LocalizedError {
             return "Kan plugin niet kopiëren: \(error.localizedDescription)"
         case .permissionDenied:
             return "Geen toegang tot de doellocatie"
+        case .safariExtensionNotFound:
+            return String(localized: "setup.error.safari_not_found")
+        case .safariExtensionOpenFailed(let error):
+            return String(localized: "setup.error.safari_open_failed \(error.localizedDescription)")
         }
     }
 }

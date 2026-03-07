@@ -3,8 +3,8 @@ import Foundation
 /// Simpele HTTP client voor Supabase REST API
 /// Stuurt analytics events als JSON naar de analytics_events tabel
 class SupabaseClient {
-    private let supabaseURL = "https://YOUR_PROJECT.supabase.co"
-    private let supabaseAnonKey = "YOUR_ANON_KEY"
+    private let supabaseURL = "https://ygslhzyrdtdhiherunbj.supabase.co"
+    private let supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlnc2xoenlyZHRkaGloZXJ1bmJqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4NzM3MDMsImV4cCI6MjA4ODQ0OTcwM30.-B5cJT6XcpRPWWKnUTfWKs_fbpOcVKmDsGfMnVuBKpk"
     private let tableName = "analytics_events"
 
     private let session: URLSession

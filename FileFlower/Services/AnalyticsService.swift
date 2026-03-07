@@ -84,6 +84,16 @@ class AnalyticsService {
         sessionErrorsCount = 0
 
         track(.appLaunched())
+
+        // Settings snapshot per sessie
+        let config = AppState.shared.config
+        track(.settingsSnapshot(
+            selectedNLEs: config.selectedNLEs.joined(separator: ","),
+            folderPreset: config.folderStructurePreset.rawValue,
+            musicClassify: config.useGenreMoodDetection,
+            sfxSubfolders: config.useSfxSubfolders,
+            autoStart: config.startAtLogin
+        ))
     }
 
     /// Eindig de huidige sessie en stuur samenvatting
@@ -98,8 +108,55 @@ class AnalyticsService {
             errorsCount: sessionErrorsCount
         ))
 
-        // Stuur alle events direct bij afsluiten
-        flush()
+        // Stuur alle events synchroon bij afsluiten (blokkeert tot netwerk klaar is)
+        flushSync()
+    }
+
+    /// Synchrone flush — blokkeert de huidige thread tot events verstuurd zijn.
+    /// Gebruik alleen bij app-afsluiting om te voorkomen dat events verloren gaan.
+    private func flushSync() {
+        // Haal events direct op (niet via async queue, want de app sluit af)
+        var eventsToSend: [AnalyticsEvent] = []
+        queue.sync {
+            eventsToSend = self.eventQueue
+            self.eventQueue.removeAll()
+            self.saveQueueToDisk()
+        }
+
+        guard !eventsToSend.isEmpty else { return }
+
+        let semaphore = DispatchSemaphore(value: 0)
+
+        supabaseClient.sendEvents(eventsToSend, anonymousId: self.anonymousId) { success in
+            if !success {
+                // Events terug opslaan zodat ze bij volgende launch verstuurd worden
+                self.queue.sync {
+                    self.eventQueue.insert(contentsOf: eventsToSend, at: 0)
+                    self.saveQueueToDisk()
+                }
+                #if DEBUG
+                print("AnalyticsService: Sync flush mislukt, \(eventsToSend.count) events opgeslagen voor volgende launch")
+                #endif
+            } else {
+                #if DEBUG
+                print("AnalyticsService: Sync flush geslaagd — \(eventsToSend.count) events verstuurd")
+                #endif
+            }
+            semaphore.signal()
+        }
+
+        // Wacht maximaal 10 seconden op het netwerk verzoek
+        let result = semaphore.wait(timeout: .now() + 10)
+        if result == .timedOut {
+            #if DEBUG
+            print("AnalyticsService: Sync flush timeout — events worden bij volgende launch verstuurd")
+            #endif
+            // Events zijn al van disk verwijderd, zet ze terug
+            queue.sync {
+                self.eventQueue.insert(contentsOf: eventsToSend, at: 0)
+                self.saveQueueToDisk()
+            }
+        }
     }
 
     /// Increment session counters

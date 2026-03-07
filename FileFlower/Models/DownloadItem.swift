@@ -21,6 +21,7 @@ struct DownloadItem: Identifiable, Codable {
     var isCloudDownload: Bool            // Of het bestand van cloud storage komt (Dropbox, Google Drive)
     var needsManualClassification: Bool  // Of de gebruiker handmatig een map moet kiezen
     var childFiles: [String]?            // Bestanden binnen een map-item (uit ZIP extractie)
+    var failureReason: String?           // Reden waarom verwerking is mislukt
 
     /// Of dit item een map is (bijv. uitgepakte ZIP)
     var isFolder: Bool {
@@ -48,7 +49,8 @@ struct DownloadItem: Identifiable, Codable {
         originalPrediction: AssetType? = nil,
         isCloudDownload: Bool = false,
         needsManualClassification: Bool = false,
-        childFiles: [String]? = nil
+        childFiles: [String]? = nil,
+        failureReason: String? = nil
     ) {
         self.id = id
         self.path = path
@@ -70,6 +72,7 @@ struct DownloadItem: Identifiable, Codable {
         self.isCloudDownload = isCloudDownload
         self.needsManualClassification = needsManualClassification
         self.childFiles = childFiles
+        self.failureReason = failureReason
     }
 }
 

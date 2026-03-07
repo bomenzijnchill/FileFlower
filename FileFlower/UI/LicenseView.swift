@@ -142,6 +142,7 @@ struct LicenseView: View {
     }
     
     private func openPurchasePage() {
+        AnalyticsService.shared.track(.purchaseInitiated())
         // Pas deze URL aan naar je Gumroad product pagina
         if let url = URL(string: "https://koendijkstra.gumroad.com/l/Fileflower") {
             NSWorkspace.shared.open(url)
@@ -380,6 +381,7 @@ struct InlineLicenseActivationView: View {
             // Buttons
             HStack(spacing: 12) {
                 Button(String(localized: "license.buy_license")) {
+                    AnalyticsService.shared.track(.purchaseInitiated())
                     if let url = URL(string: "https://koendijkstra.gumroad.com/l/Fileflower") {
                         NSWorkspace.shared.open(url)
                     }

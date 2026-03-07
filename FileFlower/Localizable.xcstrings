@@ -2620,6 +2620,40 @@
         }
       }
     },
+    "license.error.max_devices" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maximale Anzahl an Geräten erreicht (2). Bitte deaktiviere die Lizenz auf einem anderen Gerät."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maximum number of devices reached (2). Please deactivate the license on another device first."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Número máximo de dispositivos alcanzado (2). Por favor, desactiva la licencia en otro dispositivo primero."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nombre maximum d'appareils atteint (2). Veuillez désactiver la licence sur un autre appareil."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maximum aantal apparaten bereikt (2). Deactiveer de licentie eerst op een ander apparaat."
+          }
+        }
+      }
+    },
     "license.key_label" : {
       "localizations" : {
         "de" : {
@@ -3962,31 +3996,31 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dies öffnet den Ordner im Finder, damit du weißt, welchen Ordner du auswählen musst."
+            "value" : "Die Erweiterung wird in deinen Dokumente-Ordner kopiert, damit Chrome darauf zugreifen kann."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "This opens the folder in Finder so you can see which folder to select."
+            "value" : "The extension is copied to your Documents folder so Chrome can access it."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Esto abre la carpeta en Finder para que veas cuál carpeta seleccionar."
+            "value" : "La extensión se copia a tu carpeta Documentos para que Chrome pueda acceder a ella."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ceci ouvre le dossier dans le Finder pour vous montrer quel dossier sélectionner."
+            "value" : "L'extension est copiée dans votre dossier Documents pour que Chrome puisse y accéder."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dit opent de map in Finder zodat je kunt zien welke map je moet selecteren."
+            "value" : "De extensie wordt gekopieerd naar je Documenten-map zodat Chrome erbij kan."
           }
         }
       }
@@ -4467,36 +4501,70 @@
         }
       }
     },
-    "onboarding.complete.restart_premiere" : {
+    "onboarding.complete.resolve_check" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Starte Premiere Pro neu, um das Plugin zu aktivieren."
+            "value" : "DaVinci Resolve Plugin installiert"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Restart Premiere Pro to activate the plugin."
+            "value" : "DaVinci Resolve plugin installed"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reinicia Premiere Pro para activar el plugin."
+            "value" : "Plugin de DaVinci Resolve instalado"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Redémarrez Premiere Pro pour activer le plugin."
+            "value" : "Plugin DaVinci Resolve installé"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Herstart Premiere Pro om de plugin te activeren."
+            "value" : "DaVinci Resolve plugin geïnstalleerd"
+          }
+        }
+      }
+    },
+    "onboarding.complete.restart_software" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starte deine Bearbeitungssoftware neu, um das Plugin zu aktivieren."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restart your editing software to activate the plugin."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reinicia tu software de edición para activar el plugin."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redémarrez votre logiciel de montage pour activer le plugin."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Herstart je bewerkingssoftware om de plugin te activeren."
           }
         }
       }
@@ -5458,31 +5526,31 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Füge einen Ordner hinzu, in dem sich deine Premiere Pro Projekte befinden. FileFlower sucht hier nach aktuellen Projekten."
+            "value" : "Füge einen Ordner hinzu, in dem sich deine Projekte befinden. FileFlower sucht hier nach aktuellen Projekten."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Add a folder where your Premiere Pro projects are located. FileFlower will search here for recent projects."
+            "value" : "Add a folder where your projects are located. FileFlower will search here for recent projects."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Añade una carpeta donde estén tus proyectos de Premiere Pro. FileFlower buscará aquí los proyectos recientes."
+            "value" : "Añade una carpeta donde estén tus proyectos. FileFlower buscará aquí los proyectos recientes."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Ajoutez un dossier où se trouvent vos projets Premiere Pro. FileFlower y cherchera les projets récents."
+            "value" : "Ajoutez un dossier où se trouvent vos projets. FileFlower y cherchera les projets récents."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Voeg een map toe waar je Premiere Pro projecten staan. FileFlower zal hier zoeken naar recente projecten."
+            "value" : "Voeg een map toe waar je projecten staan. FileFlower zal hier zoeken naar recente projecten."
           }
         }
       }
@@ -5759,6 +5827,74 @@
         }
       }
     },
+    "onboarding.safari.app_opened" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Safari-Erweiterungs-App geöffnet. Aktiviere die Erweiterung in Safari."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Safari extension app opened. Enable the extension in Safari."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App de extensión de Safari abierta. Activa la extensión en Safari."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "App d'extension Safari ouverte. Activez l'extension dans Safari."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Safari extensie-app geopend. Activeer de extensie in Safari."
+          }
+        }
+      }
+    },
+    "onboarding.safari.confirm_enabled" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ich habe die Erweiterung aktiviert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I've enabled the extension"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "He activado la extensión"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "J'ai activé l'extension"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ik heb de extensie geactiveerd"
+          }
+        }
+      }
+    },
     "onboarding.safari.install_button" : {
       "localizations" : {
         "de" : {
@@ -5794,6 +5930,7 @@
       }
     },
     "onboarding.safari.install_hint" : {
+      "extractionState" : "stale",
       "localizations" : {
         "de" : {
           "stringUnit" : {
@@ -5823,6 +5960,108 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "De FileFlower Safari app wordt geopend. Schakel daarna de extensie in via Safari > Instellingen > Extensies."
+          }
+        }
+      }
+    },
+    "onboarding.safari.step1" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klicke oben auf die Schaltfläche, um die FileFlower Safari App zu öffnen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Click the button above to open the FileFlower Safari app"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Haz clic en el botón de arriba para abrir la app FileFlower Safari"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cliquez sur le bouton ci-dessus pour ouvrir l'app FileFlower Safari"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klik op de knop hierboven om de FileFlower Safari app te openen"
+          }
+        }
+      }
+    },
+    "onboarding.safari.step2" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klicke in der Safari App auf 'Safari-Erweiterungseinstellungen öffnen'"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In the Safari app, click 'Quit and Open Safari Extensions Preferences'"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En la app Safari, haz clic en 'Abrir preferencias de extensiones de Safari'"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dans l'app Safari, cliquez sur 'Ouvrir les préférences des extensions Safari'"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klik in de Safari app op 'Safari Extensie-instellingen openen'"
+          }
+        }
+      }
+    },
+    "onboarding.safari.step3" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiviere die FileFlower-Erweiterung, indem du das Häkchen setzt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable the FileFlower extension by checking its checkbox"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activa la extensión FileFlower marcando su casilla"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activez l'extension FileFlower en cochant sa case"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schakel de FileFlower-extensie in door het vakje aan te vinken"
           }
         }
       }
@@ -5925,6 +6164,176 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Geluidseffecten Organisatie"
+          }
+        }
+      }
+    },
+    "onboarding.software.both_hint" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle beide aus, wenn du beide Editoren verwendest. Du kannst dies später in den Einstellungen ändern."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select both if you use both editors. You can change this later in Settings."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selecciona ambos si usas ambos editores. Puedes cambiar esto más tarde en Configuración."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sélectionnez les deux si vous utilisez les deux éditeurs. Vous pourrez modifier cela dans les Réglages."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selecteer beide als je beide editors gebruikt. Je kunt dit later wijzigen in Instellingen."
+          }
+        }
+      }
+    },
+    "onboarding.software.premiere_desc" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatischer Import in Premiere Pro Bins"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic import into Premiere Pro bins"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importación automática en los bins de Premiere Pro"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import automatique dans les chutiers Premiere Pro"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatisch importeren in Premiere Pro bins"
+          }
+        }
+      }
+    },
+    "onboarding.software.resolve_desc" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatischer Import in den Resolve Media Pool"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic import into Resolve Media Pool"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importación automática en el Media Pool de Resolve"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import automatique dans le Media Pool de Resolve"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatisch importeren in Resolve Media Pool"
+          }
+        }
+      }
+    },
+    "onboarding.software.subtitle" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Welche Videobearbeitungssoftware verwendest du? FileFlower konfiguriert die Integration für deine Auswahl."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Which video editing software do you use? FileFlower will configure integration for your selection."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Qué software de edición de vídeo usas? FileFlower configurará la integración según tu selección."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quel logiciel de montage vidéo utilisez-vous ? FileFlower configurera l'intégration selon votre choix."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Welke videobewerkingssoftware gebruik je? FileFlower configureert de integratie voor jouw keuze."
+          }
+        }
+      }
+    },
+    "onboarding.software.title" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bearbeitungssoftware"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Editing Software"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Software de edición"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logiciel de montage"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bewerkingssoftware"
           }
         }
       }
@@ -7685,6 +8094,74 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld bestanden"
+          }
+        }
+      }
+    },
+    "queue.fix.retry" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erneut versuchen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reintentar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réessayer"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opnieuw proberen"
+          }
+        }
+      }
+    },
+    "queue.fix.select_project" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Projekt wählen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select Project"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seleccionar proyecto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sélectionner un projet"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Project kiezen"
           }
         }
       }
@@ -12139,6 +12616,74 @@
       "comment" : "A section header in the \"Settings\" view, indicating settings related to the setup process.",
       "isCommentAutoGenerated" : true
     },
+    "setup.error.safari_not_found" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Safari-Erweiterung wurde nicht in der App gefunden. Bitte installiere FileFlower erneut."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Safari extension app not found. Please reinstall FileFlower."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se encontró la app de extensión de Safari. Por favor, reinstala FileFlower."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L'app de l'extension Safari est introuvable. Veuillez réinstaller FileFlower."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Safari-extensie app niet gevonden. Installeer FileFlower opnieuw."
+          }
+        }
+      }
+    },
+    "setup.error.safari_open_failed %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Safari-Erweiterung konnte nicht geöffnet werden: %@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not open the Safari extension: %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo abrir la extensión de Safari: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible d'ouvrir l'extension Safari : %@"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kon de Safari-extensie niet openen: %@"
+          }
+        }
+      }
+    },
     "start_fileflower" : {
       "localizations" : {
         "de" : {
@@ -12271,6 +12816,142 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Mislukt"
+          }
+        }
+      }
+    },
+    "status.failed.missing_target" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziel fehlt – kein Projekt oder Dateipfad festgelegt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Target missing – no project or file path set"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Destino faltante – no se ha establecido proyecto ni ruta de archivo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cible manquante – aucun projet ou chemin de fichier défini"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Doel ontbreekt – geen project of bestandspad ingesteld"
+          }
+        }
+      }
+    },
+    "status.failed.move_failed" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Datei konnte nicht verschoben werden – prüfe die Berechtigungen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File could not be moved – check folder permissions"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo mover el archivo – verifica los permisos de la carpeta"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le fichier n'a pas pu être déplacé – vérifiez les autorisations du dossier"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bestand kon niet worden verplaatst – controleer de mapmachtigingen"
+          }
+        }
+      }
+    },
+    "status.failed.no_project" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kein Projekt gefunden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No project found"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se encontró ningún proyecto"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun projet trouvé"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Geen project gevonden"
+          }
+        }
+      }
+    },
+    "status.failed.path_error" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zielpfad konnte nicht aufgelöst werden"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not resolve target path"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo resolver la ruta de destino"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible de résoudre le chemin cible"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Doelpad kon niet worden bepaald"
           }
         }
       }

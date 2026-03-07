@@ -417,13 +417,22 @@ private struct SettingsChangeHandlersA: ViewModifier {
             .onChange(of: musicMode) { _, _ in saveConfig() }
             .onChange(of: customStockWebsites) { _, _ in saveConfig() }
             .onChange(of: blacklistedWebsites) { _, _ in saveConfig() }
-            .onChange(of: showPopupAfterDownload) { _, _ in saveConfig() }
+            .onChange(of: showPopupAfterDownload) { _, newValue in
+                saveConfig()
+                AnalyticsService.shared.track(.featureToggled(featureName: "show_popup", enabled: newValue))
+            }
             .onChange(of: bringPremiereToFront) { _, _ in saveConfig() }
             .onChange(of: bringResolveToFront) { _, _ in saveConfig() }
-            .onChange(of: resolveAutoImport) { _, _ in saveConfig() }
+            .onChange(of: resolveAutoImport) { _, newValue in
+                saveConfig()
+                AnalyticsService.shared.track(.featureToggled(featureName: "resolve_auto_import", enabled: newValue))
+            }
             .onChange(of: showPetalAnimation) { _, _ in saveConfig() }
             .onChange(of: autoOpenBridgePanel) { _, _ in saveConfig() }
-            .onChange(of: startAtLogin) { _, newValue in handleStartAtLoginChange(newValue) }
+            .onChange(of: startAtLogin) { _, newValue in
+                handleStartAtLoginChange(newValue)
+                AnalyticsService.shared.track(.featureToggled(featureName: "start_at_login", enabled: newValue))
+            }
     }
 }
 
@@ -444,10 +453,22 @@ private struct SettingsChangeHandlersB: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onChange(of: useClaudeClassification) { _, _ in saveConfig() }
-            .onChange(of: useWebScraping) { _, _ in saveConfig() }
-            .onChange(of: useGenreMoodDetection) { _, _ in saveConfig() }
-            .onChange(of: useSfxSubfolders) { _, _ in saveConfig() }
+            .onChange(of: useClaudeClassification) { _, newValue in
+                saveConfig()
+                AnalyticsService.shared.track(.featureToggled(featureName: "claude_classification", enabled: newValue))
+            }
+            .onChange(of: useWebScraping) { _, newValue in
+                saveConfig()
+                AnalyticsService.shared.track(.featureToggled(featureName: "web_scraping", enabled: newValue))
+            }
+            .onChange(of: useGenreMoodDetection) { _, newValue in
+                saveConfig()
+                AnalyticsService.shared.track(.featureToggled(featureName: "genre_mood_detection", enabled: newValue))
+            }
+            .onChange(of: useSfxSubfolders) { _, newValue in
+                saveConfig()
+                AnalyticsService.shared.track(.featureToggled(featureName: "sfx_subfolders", enabled: newValue))
+            }
             .onChange(of: filterServerProjectsToLocal) { _, _ in saveConfig() }
             .onChange(of: autoAddActiveProjectRoot) { _, _ in saveConfig() }
             .onChange(of: appLanguage) { oldValue, newValue in

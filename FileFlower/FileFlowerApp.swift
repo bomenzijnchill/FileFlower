@@ -32,6 +32,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start analytics sessie
         AnalyticsService.shared.startSession()
 
+        // Detecteer app update
+        let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        let lastVersion = UserDefaults.standard.string(forKey: "lastAppVersion") ?? ""
+        if !lastVersion.isEmpty && lastVersion != currentVersion {
+            AnalyticsService.shared.track(.appUpdated(fromVersion: lastVersion, toVersion: currentVersion))
+        }
+        UserDefaults.standard.set(currentVersion, forKey: "lastAppVersion")
+
         // Registreer FinderSync extensie direct bij launch, zodat deze al zichtbaar is
         // in Systeeminstellingen tijdens de onboarding wizard
         SetupManager.shared.registerFinderExtension()

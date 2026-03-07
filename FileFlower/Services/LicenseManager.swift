@@ -106,6 +106,7 @@ class LicenseManager: ObservableObject {
             saveTrialStartDate(now)
             UserDefaults.standard.set(true, forKey: trialInitializedKey)
             saveTrialIntegrityHash(now)
+            AnalyticsService.shared.track(.trialStarted())
             return true
         }
     }
@@ -123,103 +124,87 @@ class LicenseManager: ObservableObject {
     
     /// Check of de app mag worden gebruikt (licensed of in trial)
     var canUseApp: Bool {
-        return isLicensed || isInTrial
+        let licensed = isLicensed
+        let inTrial = isInTrial
+
+        // Track trial_expired eenmalig
+        if !licensed && !inTrial && UserDefaults.standard.bool(forKey: trialInitializedKey) {
+            let trialExpiredTrackedKey = "trial_expired_tracked"
+            if !UserDefaults.standard.bool(forKey: trialExpiredTrackedKey) {
+                UserDefaults.standard.set(true, forKey: trialExpiredTrackedKey)
+                AnalyticsService.shared.track(.trialExpired(daysUsed: trialDays))
+            }
+        }
+
+        return licensed || inTrial
     }
     
     // MARK: - License Validation
     
-    /// Valideer en activeer een license key
+    /// Maximum aantal apparaten per license
+    private let maxDevices = 2
+
+    /// Valideer en activeer een license key (incrementeert uses count)
     func activateLicense(key: String) async -> Result<LicenseInfo, LicenseError> {
         await MainActor.run {
             isValidating = true
             licenseError = nil
         }
-        
+
         defer {
             Task { @MainActor in
                 isValidating = false
             }
         }
-        
-        // Validate via Gumroad API
-        guard let url = URL(string: gumroadAPIURL) else {
-            return .failure(.invalidURL)
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        
-        let bodyString = "product_id=\(productId)&license_key=\(key)"
-        request.httpBody = bodyString.data(using: .utf8)
-        
-        do {
-            let (data, _) = try await URLSession.shared.data(for: request)
-            
-            // Parse response
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return .failure(.parseError)
+
+        let result = await verifyLicenseKey(key: key, incrementUses: true)
+
+        switch result {
+        case .success(let info):
+            // Check of max apparaten bereikt is
+            if info.uses > maxDevices {
+                // Te veel apparaten — decrement weer om activatie terug te draaien
+                await decrementUsesCount(key: key)
+                return .failure(.maxDevicesReached)
             }
-            
-            let success = json["success"] as? Bool ?? false
-            
-            if success {
-                // Extract license info
-                let purchase = json["purchase"] as? [String: Any] ?? [:]
-                let email = purchase["email"] as? String ?? ""
-                let createdAt = purchase["created_at"] as? String ?? ""
-                let refunded = purchase["refunded"] as? Bool ?? false
-                let disputed = purchase["disputed"] as? Bool ?? false
-                let chargebacked = purchase["chargebacked"] as? Bool ?? false
-                let uses = json["uses"] as? Int ?? 0
-                
-                // Check if license is still valid (not refunded/disputed)
-                if refunded || disputed || chargebacked {
-                    return .failure(.licenseRevoked)
-                }
-                
-                let info = LicenseInfo(
-                    licenseKey: key,
-                    email: email,
-                    purchaseDate: createdAt,
-                    uses: uses,
-                    validatedAt: Date()
-                )
-                
-                // Store license
-                await MainActor.run {
-                    self.storedLicenseKey = key
-                    self.licenseInfo = info
-                    self.isLicensed = true
-                    self.saveLicenseInfo(info)
-                }
-                
-                #if DEBUG
-                print("LicenseManager: License geactiveerd")
-                #endif
-                return .success(info)
-                
-            } else {
-                let message = json["message"] as? String ?? "Ongeldige license key"
-                return .failure(.invalidKey(message))
+
+            // Store license
+            await MainActor.run {
+                self.storedLicenseKey = key
+                self.licenseInfo = info
+                self.isLicensed = true
+                self.saveLicenseInfo(info)
             }
-            
-        } catch {
-            return .failure(.networkError(error.localizedDescription))
+
+            #if DEBUG
+            print("LicenseManager: License geactiveerd (uses: \(info.uses)/\(maxDevices))")
+            #endif
+            AnalyticsService.shared.track(.licenseActivated(success: true, error: nil))
+            return .success(info)
+
+        case .failure(let error):
+            AnalyticsService.shared.track(.licenseActivated(success: false, error: error.localizedDescription))
+            return .failure(error)
         }
     }
-    
-    /// Deactiveer de huidige license
+
+    /// Deactiveer de huidige license (decrementeert uses count op server)
     func deactivateLicense() {
+        if let key = storedLicenseKey {
+            Task {
+                await decrementUsesCount(key: key)
+            }
+        }
         storedLicenseKey = nil
         licenseInfo = nil
         isLicensed = false
         KeychainHelper.delete(key: licenseInfoStorageKey)
         UserDefaults.standard.removeObject(forKey: licenseInfoStorageKey)
         UserDefaults.standard.removeObject(forKey: lastValidationKey)
+        AnalyticsService.shared.track(.licenseDeactivated())
     }
-    
-    /// Hervalideer de opgeslagen license (bij app start)
+
+    /// Hervalideer de opgeslagen license (bij app start, zonder uses te verhogen)
     func revalidateStoredLicense() async {
         guard let key = storedLicenseKey else {
             await MainActor.run {
@@ -227,7 +212,7 @@ class LicenseManager: ObservableObject {
             }
             return
         }
-        
+
         // Check of we recent hebben gevalideerd (binnen 24 uur)
         if let lastValidation = UserDefaults.standard.object(forKey: lastValidationKey) as? Date {
             let hoursSinceValidation = Date().timeIntervalSince(lastValidation) / 3600
@@ -242,12 +227,18 @@ class LicenseManager: ObservableObject {
                 }
             }
         }
-        
-        // Valideer opnieuw
-        let result = await activateLicense(key: key)
-        
+
+        // Valideer opnieuw zonder uses te verhogen
+        let result = await verifyLicenseKey(key: key, incrementUses: false)
+
         switch result {
-        case .success:
+        case .success(let info):
+            await MainActor.run {
+                self.storedLicenseKey = key
+                self.licenseInfo = info
+                self.isLicensed = true
+                self.saveLicenseInfo(info)
+            }
             UserDefaults.standard.set(Date(), forKey: lastValidationKey)
         case .failure(let error):
             await MainActor.run {
@@ -260,9 +251,91 @@ class LicenseManager: ObservableObject {
                     }
                 } else {
                     // License is ongeldig geworden
-                    self.deactivateLicense()
+                    self.storedLicenseKey = nil
+                    self.licenseInfo = nil
+                    self.isLicensed = false
+                    KeychainHelper.delete(key: self.licenseInfoStorageKey)
+                    UserDefaults.standard.removeObject(forKey: self.licenseInfoStorageKey)
+                    UserDefaults.standard.removeObject(forKey: self.lastValidationKey)
                 }
             }
+        }
+    }
+
+    // MARK: - Private API Methods
+
+    /// Verifieer een license key via Gumroad API
+    private func verifyLicenseKey(key: String, incrementUses: Bool) async -> Result<LicenseInfo, LicenseError> {
+        guard let url = URL(string: gumroadAPIURL) else {
+            return .failure(.invalidURL)
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+
+        let bodyString = "product_id=\(productId)&license_key=\(key)&increment_uses_count=\(incrementUses)"
+        request.httpBody = bodyString.data(using: .utf8)
+
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return .failure(.parseError)
+            }
+
+            let success = json["success"] as? Bool ?? false
+
+            if success {
+                let purchase = json["purchase"] as? [String: Any] ?? [:]
+                let email = purchase["email"] as? String ?? ""
+                let createdAt = purchase["created_at"] as? String ?? ""
+                let refunded = purchase["refunded"] as? Bool ?? false
+                let disputed = purchase["disputed"] as? Bool ?? false
+                let chargebacked = purchase["chargebacked"] as? Bool ?? false
+                let uses = json["uses"] as? Int ?? 0
+
+                if refunded || disputed || chargebacked {
+                    return .failure(.licenseRevoked)
+                }
+
+                let info = LicenseInfo(
+                    licenseKey: key,
+                    email: email,
+                    purchaseDate: createdAt,
+                    uses: uses,
+                    validatedAt: Date()
+                )
+                return .success(info)
+            } else {
+                let message = json["message"] as? String ?? "Ongeldige license key"
+                return .failure(.invalidKey(message))
+            }
+        } catch {
+            return .failure(.networkError(error.localizedDescription))
+        }
+    }
+
+    /// Verlaag de uses count bij deactivatie (maakt een apparaat-slot vrij)
+    private func decrementUsesCount(key: String) async {
+        guard let url = URL(string: "https://api.gumroad.com/v2/licenses/decrement_uses_count") else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+
+        let bodyString = "product_id=\(productId)&license_key=\(key)"
+        request.httpBody = bodyString.data(using: .utf8)
+
+        do {
+            let _ = try await URLSession.shared.data(for: request)
+            #if DEBUG
+            print("LicenseManager: Uses count decremented voor deactivatie")
+            #endif
+        } catch {
+            #if DEBUG
+            print("LicenseManager: Kon uses count niet decrementen: \(error)")
+            #endif
         }
     }
     
@@ -402,7 +475,8 @@ enum LicenseError: LocalizedError {
     case parseError
     case invalidKey(String)
     case licenseRevoked
-    
+    case maxDevicesReached
+
     var errorDescription: String? {
         switch self {
         case .invalidURL:
@@ -415,6 +489,8 @@ enum LicenseError: LocalizedError {
             return message
         case .licenseRevoked:
             return "Deze license is geannuleerd of terugbetaald"
+        case .maxDevicesReached:
+            return String(localized: "license.error.max_devices")
         }
     }
 }

@@ -239,8 +239,17 @@ class FileProcessor {
     }
 }
 
-enum FileProcessorError: Error {
+enum FileProcessorError: LocalizedError {
     case missingTarget
     case moveFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .missingTarget:
+            return String(localized: "status.failed.missing_target")
+        case .moveFailed:
+            return String(localized: "status.failed.move_failed")
+        }
+    }
 }
 

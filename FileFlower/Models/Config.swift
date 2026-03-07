@@ -39,6 +39,7 @@ struct Config: Codable {
     var bringResolveToFront: Bool              // Breng DaVinci Resolve naar voren na import
     var resolveAutoImport: Bool                // Automatisch importeren in Resolve Media Pool
     var showPetalAnimation: Bool              // Toon bloemblaadjes-animatie na succesvolle verwerking
+    var selectedNLEs: [String]               // Gekozen NLEs: ["premiere"], ["resolve"], of ["premiere", "resolve"]
 
     static let defaultCloudStorageWebsites = [
         "drive.google.com", "googleusercontent.com",
@@ -106,7 +107,8 @@ struct Config: Codable {
         loadFolderPresets: [],
         bringResolveToFront: true,
         resolveAutoImport: true,
-        showPetalAnimation: true
+        showPetalAnimation: true,
+        selectedNLEs: ["premiere", "resolve"]
     )
 
     // Default init
@@ -148,7 +150,8 @@ struct Config: Codable {
         loadFolderPresets: [LoadFolderPreset] = [],
         bringResolveToFront: Bool = true,
         resolveAutoImport: Bool = true,
-        showPetalAnimation: Bool = true
+        showPetalAnimation: Bool = true,
+        selectedNLEs: [String] = ["premiere", "resolve"]
     ) {
         self.projectRoots = projectRoots
         self.musicClassification = musicClassification
@@ -188,6 +191,7 @@ struct Config: Codable {
         self.bringResolveToFront = bringResolveToFront
         self.resolveAutoImport = resolveAutoImport
         self.showPetalAnimation = showPetalAnimation
+        self.selectedNLEs = selectedNLEs
     }
 
     // Custom decoder voor migratie van oude configs
@@ -240,6 +244,7 @@ struct Config: Codable {
         bringResolveToFront = try container.decodeIfPresent(Bool.self, forKey: .bringResolveToFront) ?? true
         resolveAutoImport = try container.decodeIfPresent(Bool.self, forKey: .resolveAutoImport) ?? true
         showPetalAnimation = try container.decodeIfPresent(Bool.self, forKey: .showPetalAnimation) ?? true
+        selectedNLEs = try container.decodeIfPresent([String].self, forKey: .selectedNLEs) ?? ["premiere", "resolve"]
     }
     
     // Custom encoder
@@ -283,6 +288,7 @@ struct Config: Codable {
         try container.encode(bringResolveToFront, forKey: .bringResolveToFront)
         try container.encode(resolveAutoImport, forKey: .resolveAutoImport)
         try container.encode(showPetalAnimation, forKey: .showPetalAnimation)
+        try container.encode(selectedNLEs, forKey: .selectedNLEs)
     }
     
     enum CodingKeys: String, CodingKey {
@@ -324,6 +330,7 @@ struct Config: Codable {
         case bringResolveToFront
         case resolveAutoImport
         case showPetalAnimation
+        case selectedNLEs
     }
     
     // Helper om alleen custom toegevoegde websites te krijgen (exclusief standaard)

@@ -107,7 +107,7 @@ struct QueueView: View {
                             QueueItemRow(
                                 item: item,
                                 isSelected: selectedItems.contains(item.id),
-                                onSelect: { 
+                                onSelect: {
                                     if selectedItems.contains(item.id) {
                                         selectedItems.remove(item.id)
                                     } else {
@@ -118,7 +118,8 @@ struct QueueView: View {
                                     selectedItemForPicker = item
                                 },
                                 onProcess: { processItem(item) },
-                                onOpenInFinder: { openInFinder(for: item) }
+                                onOpenInFinder: { openInFinder(for: item) },
+                                onRetry: { retryItem(item) }
                             )
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
@@ -132,7 +133,7 @@ struct QueueView: View {
                         QueueItemRow(
                             item: item,
                             isSelected: selectedItems.contains(item.id),
-                            onSelect: { 
+                            onSelect: {
                                 if selectedItems.contains(item.id) {
                                     selectedItems.remove(item.id)
                                 } else {
@@ -143,7 +144,8 @@ struct QueueView: View {
                                 selectedItemForPicker = item
                             },
                             onProcess: { processItem(item) },
-                            onOpenInFinder: { openInFinder(for: item) }
+                            onOpenInFinder: { openInFinder(for: item) },
+                            onRetry: { retryItem(item) }
                         )
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
@@ -228,6 +230,15 @@ struct QueueView: View {
         processItems(appState.queuedItems)
     }
     
+    private func retryItem(_ item: DownloadItem) {
+        if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
+            appState.queuedItems[index].status = .queued
+            appState.queuedItems[index].failureReason = nil
+            appState.queuedItems[index].targetPath = nil
+            AnalyticsService.shared.track(.queueItemRetried())
+        }
+    }
+
     private func processItem(_ item: DownloadItem) {
         processItems([item])
     }
@@ -303,6 +314,10 @@ struct QueueView: View {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .skipped
                     ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
+                    AnalyticsService.shared.track(.fileSkipped(
+                        assetType: appState.queuedItems[index].predictedType.rawValue,
+                        reason: "conflict_skip"
+                    ))
                 }
             }
             pendingConflictItem = nil
@@ -347,6 +362,24 @@ struct QueueView: View {
                     appState.queuedItems[index].status = .completed
                     ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
 
+                    // Analytics: file imported
+                    let completedItem = appState.queuedItems[index]
+                    AnalyticsService.shared.track(.fileImported(
+                        assetType: completedItem.predictedType.rawValue,
+                        sourceWebsite: completedItem.originUrl ?? "unknown",
+                        hadSubfolder: completedItem.targetSubfolder != nil,
+                        targetFolderType: completedItem.targetProject?.name ?? "unknown"
+                    ))
+                    AnalyticsService.shared.incrementImports()
+
+                    // First import ever?
+                    if !UserDefaults.standard.bool(forKey: "firstImportCompleted") {
+                        UserDefaults.standard.set(true, forKey: "firstImportCompleted")
+                        AnalyticsService.shared.track(.firstImportCompleted(
+                            destination: completedItem.targetProject?.name ?? "unknown"
+                        ))
+                    }
+
                     if appState.config.showPetalAnimation {
                         PetalAnimationWindow.play()
                     }
@@ -367,7 +400,22 @@ struct QueueView: View {
             await MainActor.run {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .failed
+                    appState.queuedItems[index].failureReason = error.localizedDescription
                     ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
+
+                    // Analytics: import failed
+                    let fileSize = (try? FileManager.default.attributesOfItem(atPath: item.path)[.size] as? Int) ?? 0
+                    AnalyticsService.shared.track(.importFailed(
+                        fileType: URL(fileURLWithPath: item.path).pathExtension,
+                        fileSizeMB: fileSize / (1024 * 1024),
+                        destination: item.targetProject?.name ?? "unknown",
+                        error: error.localizedDescription
+                    ))
+                    AnalyticsService.shared.track(.errorOccurred(
+                        errorType: String(describing: type(of: error)),
+                        context: "file_processing_resolved"
+                    ))
+                    AnalyticsService.shared.incrementErrors()
                 }
             }
         }
@@ -381,6 +429,9 @@ struct QueueView: View {
                 await MainActor.run {
                     if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                         appState.queuedItems[index].status = .failed
+                        appState.queuedItems[index].failureReason = String(localized: "status.failed.no_project")
+                        AnalyticsService.shared.track(.errorOccurred(errorType: "no_project", context: "file_processing"))
+                        AnalyticsService.shared.incrementErrors()
                     }
                 }
                 return
@@ -437,6 +488,12 @@ struct QueueView: View {
                 await MainActor.run {
                     if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                         appState.queuedItems[index].status = .failed
+                        appState.queuedItems[index].failureReason = String(localized: "status.failed.path_error")
+                        AnalyticsService.shared.track(.errorOccurred(
+                            errorType: "path_resolve_failed",
+                            context: "file_processing"
+                        ))
+                        AnalyticsService.shared.incrementErrors()
                     }
                 }
                 return
@@ -479,6 +536,24 @@ struct QueueView: View {
                     appState.queuedItems[index].status = .completed
                     ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
 
+                    // Analytics: file imported
+                    let completedItem = appState.queuedItems[index]
+                    AnalyticsService.shared.track(.fileImported(
+                        assetType: completedItem.predictedType.rawValue,
+                        sourceWebsite: completedItem.originUrl ?? "unknown",
+                        hadSubfolder: completedItem.targetSubfolder != nil,
+                        targetFolderType: completedItem.targetProject?.name ?? "unknown"
+                    ))
+                    AnalyticsService.shared.incrementImports()
+
+                    // First import ever?
+                    if !UserDefaults.standard.bool(forKey: "firstImportCompleted") {
+                        UserDefaults.standard.set(true, forKey: "firstImportCompleted")
+                        AnalyticsService.shared.track(.firstImportCompleted(
+                            destination: completedItem.targetProject?.name ?? "unknown"
+                        ))
+                    }
+
                     // Haal de actieve NLE naar voren als dit is ingeschakeld
                     if appState.config.bringPremiereToFront {
                         if let nleType = NLEType.from(projectPath: item.targetProject?.projectPath ?? "") {
@@ -495,7 +570,22 @@ struct QueueView: View {
             await MainActor.run {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .failed
+                    appState.queuedItems[index].failureReason = error.localizedDescription
                     ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
+
+                    // Analytics: import failed
+                    let fileSize = (try? FileManager.default.attributesOfItem(atPath: item.path)[.size] as? Int) ?? 0
+                    AnalyticsService.shared.track(.importFailed(
+                        fileType: URL(fileURLWithPath: item.path).pathExtension,
+                        fileSizeMB: fileSize / (1024 * 1024),
+                        destination: item.targetProject?.name ?? "unknown",
+                        error: error.localizedDescription
+                    ))
+                    AnalyticsService.shared.track(.errorOccurred(
+                        errorType: String(describing: type(of: error)),
+                        context: "file_processing"
+                    ))
+                    AnalyticsService.shared.incrementErrors()
                 }
             }
         }
@@ -549,6 +639,10 @@ struct QueueView: View {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                     appState.queuedItems[index].status = .skipped
                     ProcessingHistoryManager.shared.record(item: appState.queuedItems[index])
+                    AnalyticsService.shared.track(.fileSkipped(
+                        assetType: appState.queuedItems[index].predictedType.rawValue,
+                        reason: "unknown_root_cancel"
+                    ))
                 }
             }
         }
@@ -562,6 +656,7 @@ struct QueueItemRow: View {
     let onChangeLocation: () -> Void
     let onProcess: () -> Void
     let onOpenInFinder: () -> Void
+    let onRetry: () -> Void
     
     @ObservedObject private var appState = AppState.shared
     @State private var isHovered = false
@@ -754,7 +849,37 @@ struct QueueItemRow: View {
                     }
                 }
                 
-                StatusBadge(status: item.status)
+                StatusBadge(status: item.status, failureReason: item.failureReason)
+
+                // Quick-fix acties voor mislukte items
+                if item.status == .failed {
+                    HStack(spacing: 6) {
+                        if let reason = item.failureReason {
+                            Text(reason)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        if item.targetProject == nil {
+                            Button(action: {
+                                onRetry()
+                                onChangeLocation()
+                            }) {
+                                Label(String(localized: "queue.fix.select_project"), systemImage: "folder.badge.plus")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                            .tint(.blue)
+                        } else {
+                            Button(action: onRetry) {
+                                Label(String(localized: "queue.fix.retry"), systemImage: "arrow.counterclockwise")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                        }
+                    }
+                }
 
                 // Manuele classificatie prompt voor cloud downloads met onbekend type
                 if item.needsManualClassification {
@@ -882,7 +1007,8 @@ struct QueueItemRow: View {
 
 struct StatusBadge: View {
     let status: ItemStatus
-    
+    var failureReason: String? = nil
+
     var body: some View {
         Text(status.displayName)
             .font(.caption2)
@@ -891,6 +1017,7 @@ struct StatusBadge: View {
             .background(status.color.opacity(0.2))
             .foregroundColor(status.color)
             .clipShape(Capsule())
+            .help(status == .failed && failureReason != nil ? failureReason! : "")
     }
 }
 
