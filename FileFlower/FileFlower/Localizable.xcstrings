@@ -6066,6 +6066,142 @@
         }
       }
     },
+    "onboarding.safari.toolbar_tip" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tipp: Du kannst das FileFlower-Symbol aus der Safari-Symbolleiste entfernen per Rechtsklick → 'Symbolleiste anpassen'"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tip: you can remove the FileFlower icon from the Safari toolbar by right-clicking → 'Customize Toolbar'"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Consejo: puedes quitar el icono de FileFlower de la barra de Safari haciendo clic derecho → 'Personalizar barra'"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Astuce : vous pouvez supprimer l'icône FileFlower de la barre d'outils Safari par clic droit → 'Personnaliser la barre d'outils'"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tip: je kunt het FileFlower-icoon uit de Safari-toolbar verwijderen via rechtermuisknop → 'Pas toolbar aan'"
+          }
+        }
+      }
+    },
+    "onboarding.extension.checking_connection" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbindung wird geprüft..."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Checking connection..."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verificando conexión..."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérification de la connexion..."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbinding controleren..."
+          }
+        }
+      }
+    },
+    "onboarding.extension.connection_failed" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keine Verbindung zur Erweiterung möglich"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not connect to the extension"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo conectar con la extensión"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible de se connecter à l'extension"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kan geen verbinding maken met de extensie"
+          }
+        }
+      }
+    },
+    "onboarding.extension.connection_failed_hint" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stelle sicher, dass die Erweiterung in deinem Browser aktiviert ist. Klicke 'Skip' um trotzdem fortzufahren."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Make sure the extension is enabled in your browser. Click 'Skip' to continue anyway."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Asegúrate de que la extensión esté habilitada en tu navegador. Haz clic en 'Omitir' para continuar de todos modos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Assurez-vous que l'extension est activée dans votre navigateur. Cliquez 'Passer' pour continuer quand même."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zorg dat de extensie is ingeschakeld in je browser. Klik 'Skip' om toch door te gaan."
+          }
+        }
+      }
+    },
     "onboarding.sfx.auto_sort" : {
       "localizations" : {
         "de" : {

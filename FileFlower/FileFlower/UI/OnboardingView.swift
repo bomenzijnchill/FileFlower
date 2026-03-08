@@ -33,6 +33,8 @@ struct OnboardingView: View {
     @State private var safariInstallError: String?
     @State private var safariInstallOpened = false
     @State private var isOpeningSafariApp = false
+    @State private var extensionCheckFailed = false
+    @State private var isCheckingExtensionConnection = false
 
     // Custom folder template state
     @State private var templateFolderPath: String = ""
@@ -807,17 +809,16 @@ struct OnboardingView: View {
             .frame(maxWidth: 450)
 
             if safariInstallOpened {
-                Button(action: {
-                    withAnimation {
-                        extensionMarkedInstalled = true
-                    }
-                }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle")
-                        Text(String(localized: "onboarding.safari.confirm_enabled"))
-                    }
+                HStack(spacing: 6) {
+                    Image(systemName: "lightbulb.fill")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 11))
+                    Text(String(localized: "onboarding.safari.toolbar_tip"))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
                 }
-                .buttonStyle(.bordered)
+                .frame(maxWidth: 400)
+                .multilineTextAlignment(.center)
             }
         }
         .transition(.opacity)
@@ -825,36 +826,32 @@ struct OnboardingView: View {
 
     private var extensionStatusIndicator: some View {
         Group {
-            if isValidatingExtension {
+            if isCheckingExtensionConnection {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(String(localized: "onboarding.chrome.checking"))
+                    Text(String(localized: "onboarding.extension.checking_connection"))
                         .font(.system(size: 13))
                         .foregroundColor(.secondary)
                 }
                 .padding(.top, 8)
-            } else if extensionMarkedInstalled {
-                HStack(spacing: 8) {
-                    Image(systemName: extensionServerRunning ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                        .foregroundColor(extensionServerRunning ? .green : .orange)
-                    Text(extensionServerRunning
-                         ? String(localized: "onboarding.chrome.marked_installed")
-                         : String(localized: "onboarding.chrome.marked_no_server"))
-                        .font(.system(size: 13))
-                        .foregroundColor(extensionServerRunning ? .green : .orange)
+            } else if extensionCheckFailed {
+                VStack(spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                        Text(String(localized: "onboarding.extension.connection_failed"))
+                            .font(.system(size: 13))
+                            .foregroundColor(.orange)
+                    }
+                    Text(String(localized: "onboarding.extension.connection_failed_hint"))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 400)
                 }
                 .padding(.top, 8)
                 .transition(.opacity.combined(with: .scale))
-            } else {
-                Button(action: validateAndMarkExtensionInstalled) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle")
-                        Text(String(localized: "onboarding.chrome.confirm_installed"))
-                    }
-                }
-                .buttonStyle(.bordered)
-                .padding(.top, 8)
             }
         }
     }
@@ -1549,7 +1546,9 @@ struct OnboardingView: View {
         case .resolveSetup:
             return String(localized: "common.next")
         case .chromeExtension:
-            return String(localized: "common.next")
+            return extensionCheckFailed
+                ? String(localized: "common.skip")
+                : String(localized: "common.next")
         case .finderExtension:
             return String(localized: "common.next")
         case .projectSetup:
@@ -1565,6 +1564,8 @@ struct OnboardingView: View {
         switch currentStep {
         case .premierePlugin:
             return !isInstalling
+        case .chromeExtension:
+            return !isCheckingExtensionConnection
         case .terms:
             return termsAccepted
         default:
@@ -1596,6 +1597,33 @@ struct OnboardingView: View {
         case .softwareSelection:
             appState.config.selectedNLEs = Array(selectedNLEs)
             appState.saveConfig()
+
+        case .chromeExtension:
+            SetupManager.shared.selectedBrowser = selectedBrowser
+            if extensionCheckFailed {
+                // Skip: gebruiker heeft al een mislukte check gehad, ga door
+                SetupManager.shared.markChromeExtensionInstalled()
+            } else {
+                // Start connectie-check, navigeer niet direct door
+                isCheckingExtensionConnection = true
+                extensionCheckFailed = false
+                Task {
+                    let connected = await checkExtensionServerConnection()
+                    await MainActor.run {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            isCheckingExtensionConnection = false
+                            if connected {
+                                extensionServerRunning = true
+                                SetupManager.shared.markChromeExtensionInstalled()
+                                proceedToNextStep()
+                            } else {
+                                extensionCheckFailed = true
+                            }
+                        }
+                    }
+                }
+                return // Niet direct doorgaan — wacht op async check
+            }
 
         case .projectSetup:
             // Project root wordt al toegevoegd in selectProjectRoot()
@@ -1651,13 +1679,20 @@ struct OnboardingView: View {
             break
         }
 
+        proceedToNextStep()
+    }
+
+    /// Navigeer naar de volgende stap in de wizard
+    private func proceedToNextStep() {
         var nextRaw = currentStep.rawValue + 1
         while let candidate = OnboardingStep(rawValue: nextRaw) {
             if shouldSkipStep(candidate) {
                 nextRaw += 1
                 continue
             }
-            currentStep = candidate
+            withAnimation(.easeInOut(duration: 0.3)) {
+                currentStep = candidate
+            }
             AnalyticsService.shared.track(.onboardingStep(
                 step: "\(candidate)",
                 stepIndex: candidate.rawValue
@@ -1666,20 +1701,14 @@ struct OnboardingView: View {
         }
     }
 
-    private func validateAndMarkExtensionInstalled() {
-        isValidatingExtension = true
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            let serverRunning = JobServer.shared.isServerRunning
-
-            withAnimation(.easeInOut(duration: 0.3)) {
-                isValidatingExtension = false
-                extensionServerRunning = serverRunning
-                extensionMarkedInstalled = true
-            }
-
-            SetupManager.shared.selectedBrowser = selectedBrowser
-            SetupManager.shared.markChromeExtensionInstalled()
+    /// Check of de extensie server (JobServer) bereikbaar is via HTTP health check
+    private func checkExtensionServerConnection() async -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:17890/health") else { return false }
+        do {
+            let (_, response) = try await URLSession.shared.data(from: url)
+            return (response as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            return false
         }
     }
 
