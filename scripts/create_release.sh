@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 DIST_DIR="$PROJECT_ROOT/dist"
 PBXPROJ="$PROJECT_ROOT/FileFlower/FileFlower.xcodeproj/project.pbxproj"
-APPCAST_FILE="$PROJECT_ROOT/FileFlower/appcast.xml"
+APPCAST_FILE="$PROJECT_ROOT/appcast.xml"
 
 # Kleuren
 RED='\033[0;31m'
