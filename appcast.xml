@@ -9,6 +9,28 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 2.0.7</title>
+            <sparkle:version>26</sparkle:version>
+            <sparkle:shortVersionString>2.0.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>FileFlower 2.0.7</h2>
+                <ul>
+                    <li><strong>Extensie iconen</strong> — FileFlower icoon voor Safari en Chrome extensie (was paars placeholder)</li>
+                    <li><strong>Onboarding connectie-check</strong> — Automatische check bij Next knop, met skip optie bij mislukking</li>
+                    <li><strong>Safari toolbar tip</strong> — Tip om extensie-icoon uit toolbar te verwijderen</li>
+                </ul>
+            ]]></description>
+            <pubDate>Sat, 08 Mar 2026 15:30:00 +0100</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v2.0.7/FileFlower.dmg"
+                sparkle:edSignature="anNDOO1Pq3FkTeKPOG1mAPOfV20hPhoDRwHDQrFVZoA13IQTq44mzb6DtR3Uz9FVqZR23UAfHUZUNk1Ivy5ZDQ=="
+                length="5631705"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 2.0.6</title>
             <sparkle:version>25</sparkle:version>
             <sparkle:shortVersionString>2.0.6</sparkle:shortVersionString>
