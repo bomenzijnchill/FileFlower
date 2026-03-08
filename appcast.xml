@@ -9,6 +9,28 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 2.0.6</title>
+            <sparkle:version>25</sparkle:version>
+            <sparkle:shortVersionString>2.0.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>FileFlower 2.0.6</h2>
+                <ul>
+                    <li><strong>Safari extensie fix</strong> — Quarantine attributen worden gestript na installatie, voorkomt App Translocation</li>
+                    <li><strong>Launch Services registratie</strong> — Safari extensie wordt direct ontdekt na installatie</li>
+                    <li><strong>Extensie verificatie</strong> — Controle of .appex correct aanwezig is vóór openen</li>
+                </ul>
+            ]]></description>
+            <pubDate>Sat, 08 Mar 2026 14:00:00 +0100</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v2.0.6/FileFlower.dmg"
+                sparkle:edSignature="HuYMgHXumbu1n6V15CHeAH9mB5wi493Bdnbn0YDQ1vAhx3hxb7o3S1YjJkjyMZDLAmdORs/bKFtl/zS1zX04AA=="
+                length="5579216"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 2.0.5</title>
             <sparkle:version>24</sparkle:version>
             <sparkle:shortVersionString>2.0.5</sparkle:shortVersionString>
