@@ -1,0 +1,617 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5B27E74D2F4DDA7C008D601D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B27E74C2F4DDA7C008D601D /* AppDelegate.swift */; };
+		5B27E7512F4DDA7C008D601D /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 5B27E74F2F4DDA7C008D601D /* Main.html */; };
+		5B27E7532F4DDA7C008D601D /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 5B27E7522F4DDA7C008D601D /* Icon.png */; };
+		5B27E7552F4DDA7C008D601D /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 5B27E7542F4DDA7C008D601D /* Style.css */; };
+		5B27E7572F4DDA7C008D601D /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 5B27E7562F4DDA7C008D601D /* Script.js */; };
+		5B27E7592F4DDA7C008D601D /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B27E7582F4DDA7C008D601D /* ViewController.swift */; };
+		5B27E75C2F4DDA7C008D601D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 5B27E75A2F4DDA7C008D601D /* Main.storyboard */; };
+		5B27E75E2F4DDA7D008D601D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5B27E75D2F4DDA7D008D601D /* Assets.xcassets */; };
+		5B27E7652F4DDA7D008D601D /* FileFlower Safari Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5B27E7642F4DDA7D008D601D /* FileFlower Safari Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		5B27E76A2F4DDA7D008D601D /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B27E7692F4DDA7D008D601D /* SafariWebExtensionHandler.swift */; };
+		5B27E77E2F4DDA7D008D601D /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 5B27E7772F4DDA7D008D601D /* background.js */; };
+		5B27E7812F4DDA7D008D601D /* icons in Resources */ = {isa = PBXBuildFile; fileRef = 5B27E77A2F4DDA7D008D601D /* icons */; };
+		5B27E7822F4DDA7D008D601D /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 5B27E77B2F4DDA7D008D601D /* manifest.json */; };
+		5B27E7832F4DDA7D008D601D /* contentScript.js in Resources */ = {isa = PBXBuildFile; fileRef = 5B27E77C2F4DDA7D008D601D /* contentScript.js */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5B27E7662F4DDA7D008D601D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5B27E7412F4DDA7C008D601D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5B27E7632F4DDA7D008D601D;
+			remoteInfo = "FileFlower Safari Extension";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		5B27E7712F4DDA7D008D601D /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				5B27E7652F4DDA7D008D601D /* FileFlower Safari Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		5B27E7492F4DDA7C008D601D /* FileFlower Safari.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "FileFlower Safari.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5B27E74C2F4DDA7C008D601D /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		5B27E7502F4DDA7C008D601D /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
+		5B27E7522F4DDA7C008D601D /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
+		5B27E7542F4DDA7C008D601D /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
+		5B27E7562F4DDA7C008D601D /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
+		5B27E7582F4DDA7C008D601D /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		5B27E75B2F4DDA7C008D601D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		5B27E75D2F4DDA7D008D601D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		5B27E75F2F4DDA7D008D601D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		5B27E7642F4DDA7D008D601D /* FileFlower Safari Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "FileFlower Safari Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		5B27E7692F4DDA7D008D601D /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		5B27E76B2F4DDA7D008D601D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		5B27E7772F4DDA7D008D601D /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = background.js; sourceTree = "<group>"; };
+		5B27E77A2F4DDA7D008D601D /* icons */ = {isa = PBXFileReference; lastKnownFileType = folder; path = icons; sourceTree = "<group>"; };
+		5B27E77B2F4DDA7D008D601D /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = manifest.json; sourceTree = "<group>"; };
+		5B27E77C2F4DDA7D008D601D /* contentScript.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = contentScript.js; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5B27E7462F4DDA7C008D601D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5B27E7612F4DDA7D008D601D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5B27E7402F4DDA7C008D601D = {
+			isa = PBXGroup;
+			children = (
+				5B27E74B2F4DDA7C008D601D /* FileFlower Safari */,
+				5B27E7682F4DDA7D008D601D /* FileFlower Safari Extension */,
+				5B27E74A2F4DDA7C008D601D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5B27E74A2F4DDA7C008D601D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5B27E7492F4DDA7C008D601D /* FileFlower Safari.app */,
+				5B27E7642F4DDA7D008D601D /* FileFlower Safari Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		5B27E74B2F4DDA7C008D601D /* FileFlower Safari */ = {
+			isa = PBXGroup;
+			children = (
+				5B27E74C2F4DDA7C008D601D /* AppDelegate.swift */,
+				5B27E7582F4DDA7C008D601D /* ViewController.swift */,
+				5B27E75A2F4DDA7C008D601D /* Main.storyboard */,
+				5B27E75D2F4DDA7D008D601D /* Assets.xcassets */,
+				5B27E75F2F4DDA7D008D601D /* Info.plist */,
+				5B27E74E2F4DDA7C008D601D /* Resources */,
+			);
+			path = "FileFlower Safari";
+			sourceTree = "<group>";
+		};
+		5B27E74E2F4DDA7C008D601D /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				5B27E74F2F4DDA7C008D601D /* Main.html */,
+				5B27E7522F4DDA7C008D601D /* Icon.png */,
+				5B27E7542F4DDA7C008D601D /* Style.css */,
+				5B27E7562F4DDA7C008D601D /* Script.js */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		5B27E7682F4DDA7D008D601D /* FileFlower Safari Extension */ = {
+			isa = PBXGroup;
+			children = (
+				5B27E7752F4DDA7D008D601D /* Resources */,
+				5B27E7692F4DDA7D008D601D /* SafariWebExtensionHandler.swift */,
+				5B27E76B2F4DDA7D008D601D /* Info.plist */,
+			);
+			path = "FileFlower Safari Extension";
+			sourceTree = "<group>";
+		};
+		5B27E7752F4DDA7D008D601D /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				5B27E77B2F4DDA7D008D601D /* manifest.json */,
+				5B27E7772F4DDA7D008D601D /* background.js */,
+				5B27E77C2F4DDA7D008D601D /* contentScript.js */,
+				5B27E77A2F4DDA7D008D601D /* icons */,
+			);
+			name = Resources;
+			path = "FileFlower Safari Extension";
+			sourceTree = SOURCE_ROOT;
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5B27E7482F4DDA7C008D601D /* FileFlower Safari */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5B27E7722F4DDA7D008D601D /* Build configuration list for PBXNativeTarget "FileFlower Safari" */;
+			buildPhases = (
+				5B27E7452F4DDA7C008D601D /* Sources */,
+				5B27E7462F4DDA7C008D601D /* Frameworks */,
+				5B27E7472F4DDA7C008D601D /* Resources */,
+				5B27E7712F4DDA7D008D601D /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5B27E7672F4DDA7D008D601D /* PBXTargetDependency */,
+			);
+			name = "FileFlower Safari";
+			packageProductDependencies = (
+			);
+			productName = "FileFlower Safari";
+			productReference = 5B27E7492F4DDA7C008D601D /* FileFlower Safari.app */;
+			productType = "com.apple.product-type.application";
+		};
+		5B27E7632F4DDA7D008D601D /* FileFlower Safari Extension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5B27E76E2F4DDA7D008D601D /* Build configuration list for PBXNativeTarget "FileFlower Safari Extension" */;
+			buildPhases = (
+				5B27E7602F4DDA7D008D601D /* Sources */,
+				5B27E7612F4DDA7D008D601D /* Frameworks */,
+				5B27E7622F4DDA7D008D601D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "FileFlower Safari Extension";
+			packageProductDependencies = (
+			);
+			productName = "FileFlower Safari Extension";
+			productReference = 5B27E7642F4DDA7D008D601D /* FileFlower Safari Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5B27E7412F4DDA7C008D601D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2620;
+				LastUpgradeCheck = 2620;
+				TargetAttributes = {
+					5B27E7482F4DDA7C008D601D = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					5B27E7632F4DDA7D008D601D = {
+						CreatedOnToolsVersion = 26.2;
+					};
+				};
+			};
+			buildConfigurationList = 5B27E7442F4DDA7C008D601D /* Build configuration list for PBXProject "FileFlower Safari" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 5B27E7402F4DDA7C008D601D;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5B27E74A2F4DDA7C008D601D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5B27E7482F4DDA7C008D601D /* FileFlower Safari */,
+				5B27E7632F4DDA7D008D601D /* FileFlower Safari Extension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5B27E7472F4DDA7C008D601D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5B27E7532F4DDA7C008D601D /* Icon.png in Resources */,
+				5B27E75C2F4DDA7C008D601D /* Main.storyboard in Resources */,
+				5B27E7572F4DDA7C008D601D /* Script.js in Resources */,
+				5B27E7512F4DDA7C008D601D /* Main.html in Resources */,
+				5B27E75E2F4DDA7D008D601D /* Assets.xcassets in Resources */,
+				5B27E7552F4DDA7C008D601D /* Style.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5B27E7622F4DDA7D008D601D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5B27E77E2F4DDA7D008D601D /* background.js in Resources */,
+				5B27E7832F4DDA7D008D601D /* contentScript.js in Resources */,
+				5B27E7812F4DDA7D008D601D /* icons in Resources */,
+				5B27E7822F4DDA7D008D601D /* manifest.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5B27E7452F4DDA7C008D601D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5B27E7592F4DDA7C008D601D /* ViewController.swift in Sources */,
+				5B27E74D2F4DDA7C008D601D /* AppDelegate.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5B27E7602F4DDA7D008D601D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5B27E76A2F4DDA7D008D601D /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5B27E7672F4DDA7D008D601D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5B27E7632F4DDA7D008D601D /* FileFlower Safari Extension */;
+			targetProxy = 5B27E7662F4DDA7D008D601D /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		5B27E74F2F4DDA7C008D601D /* Main.html */ = {
+			isa = PBXVariantGroup;
+			children = (
+				5B27E7502F4DDA7C008D601D /* Base */,
+			);
+			name = Main.html;
+			sourceTree = "<group>";
+		};
+		5B27E75A2F4DDA7C008D601D /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				5B27E75B2F4DDA7C008D601D /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		5B27E76C2F4DDA7D008D601D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		5B27E76D2F4DDA7D008D601D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		5B27E76F2F4DDA7D008D601D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JWD857B8TF;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "FileFlower Safari Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "FileFlower Safari Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 2.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.fileflower.safari.Extension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		5B27E7702F4DDA7D008D601D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JWD857B8TF;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "FileFlower Safari Extension/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "FileFlower Safari Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 2.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.fileflower.safari.Extension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		5B27E7732F4DDA7D008D601D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JWD857B8TF;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "FileFlower Safari/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "FileFlower Safari";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 2.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.fileflower.safari;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		5B27E7742F4DDA7D008D601D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JWD857B8TF;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "FileFlower Safari/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "FileFlower Safari";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 2.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.fileflower.safari;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5B27E7442F4DDA7C008D601D /* Build configuration list for PBXProject "FileFlower Safari" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5B27E76C2F4DDA7D008D601D /* Debug */,
+				5B27E76D2F4DDA7D008D601D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5B27E76E2F4DDA7D008D601D /* Build configuration list for PBXNativeTarget "FileFlower Safari Extension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5B27E76F2F4DDA7D008D601D /* Debug */,
+				5B27E7702F4DDA7D008D601D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5B27E7722F4DDA7D008D601D /* Build configuration list for PBXNativeTarget "FileFlower Safari" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5B27E7732F4DDA7D008D601D /* Debug */,
+				5B27E7742F4DDA7D008D601D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 5B27E7412F4DDA7C008D601D /* Project object */;
+}

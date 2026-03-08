@@ -1,0 +1,33 @@
+{
+  "id": "com.fileflower.bridge",
+  "name": "FileFlower",
+  "version": "1.0.0",
+  "main": "index.html",
+  "manifestVersion": 6,
+  "host": [
+    {
+      "app": "PPRO",
+      "minVersion": "23.0.0"
+    }
+  ],
+  "uiAccess": {
+    "type": "panel",
+    "geometry": {
+      "size": {
+        "width": 300,
+        "height": 200
+      }
+    }
+  },
+  "requiredPermissions": [
+    "network"
+  ],
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "main",
+      "main": "index.html"
+    }
+  ]
+}
+

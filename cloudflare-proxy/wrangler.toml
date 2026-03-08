@@ -1,0 +1,11 @@
+name = "fileflower-proxy"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+ALLOWED_ORIGIN = "*"
+
+# Secrets worden toegevoegd via wrangler secret put:
+# wrangler secret put ANTHROPIC_API_KEY
+# wrangler secret put RESEND_API_KEY
+# (worden NIET in dit bestand opgeslagen)

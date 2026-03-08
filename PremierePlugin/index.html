@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>FileFlower</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 16px;
+            margin: 0;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        .status {
+            padding: 8px;
+            background: #2d2d2d;
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+        .status.connected {
+            background: #0e4d1e;
+        }
+        .status.error {
+            background: #4d0e0e;
+        }
+    </style>
+</head>
+<body>
+    <h3>FileFlower</h3>
+    <div id="status" class="status">Initialiseren...</div>
+    <div id="log"></div>
+    
+    <script src="lib/CSInterface.js"></script>
+    <script src="index.js"></script>
+</body>
+</html>
+

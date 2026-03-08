@@ -1,0 +1,40 @@
+╔══════════════════════════════════════════════════════════════════╗
+║                    FileFlower Installatie                       ║
+╚══════════════════════════════════════════════════════════════════╝
+
+BELANGRIJK: Volg deze stappen om de app te installeren!
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STAP 1: Sleep FileFlower.app naar de Applications map
+
+STAP 2: Open Terminal (Programma's → Hulpprogramma's → Terminal)
+
+STAP 3: Kopieer en plak dit commando in Terminal en druk Enter:
+
+        xattr -cr /Applications/FileFlower.app
+
+STAP 4: Open de app via Launchpad of de Applications map
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ALTERNATIEF (als bovenstaande niet werkt):
+
+1. Rechts-klik op FileFlower.app
+2. Kies "Open" uit het menu
+3. Klik op "Open" in de popup die verschijnt
+4. Herhaal dit eventueel nog een keer
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+WAAROM IS DIT NODIG?
+
+macOS beschermt je computer tegen onbekende software. Omdat deze
+app niet door Apple is "genotariseerd", moet je handmatig toestemming
+geven om de app te openen. Dit is eenmalig.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Vragen? Mail naar: [jouw email]
+
+
