@@ -171,6 +171,8 @@ echo ""
 echo "🔏 App opnieuw signen na plugin bundeling..."
 ENTITLEMENTS="$PROJECT_ROOT/FileFlower/FileFlower/FileFlower.entitlements"
 FINDER_SYNC_ENTITLEMENTS="$PROJECT_ROOT/FileFlower/FileFlowerFinderSync/FileFlowerFinderSync.entitlements"
+SAFARI_APP_ENTITLEMENTS="$PROJECT_ROOT/SafariExtension/FileFlower Safari/FileFlower Safari/FileFlower Safari.entitlements"
+SAFARI_EXT_ENTITLEMENTS="$PROJECT_ROOT/SafariExtension/FileFlower Safari/FileFlower Safari Extension/FileFlower Safari Extension.entitlements"
 SIGNING_IDENTITY="Developer ID Application: Koen Dijkstra (JWD857B8TF)"
 SPARKLE_FW="$APP_PATH/Contents/Frameworks/Sparkle.framework"
 APPEX="$APP_PATH/Contents/PlugIns/FileFlowerFinderSync.appex"
@@ -227,6 +229,7 @@ if [ -d "$SAFARI_APPEX" ]; then
     info "Signen van FileFlower Safari Extension.appex..."
     codesign --force --sign "$SIGNING_IDENTITY" \
         --timestamp --options runtime \
+        --entitlements "$SAFARI_EXT_ENTITLEMENTS" \
         "$SAFARI_APPEX" \
         || error_exit "Code signing gefaald voor FileFlower Safari Extension.appex"
     success "  FileFlower Safari Extension.appex gesigned"
@@ -236,6 +239,7 @@ if [ -d "$SAFARI_BUNDLED" ]; then
     info "Signen van FileFlower Safari.app..."
     codesign --force --sign "$SIGNING_IDENTITY" \
         --timestamp --options runtime \
+        --entitlements "$SAFARI_APP_ENTITLEMENTS" \
         "$SAFARI_BUNDLED" \
         || error_exit "Code signing gefaald voor FileFlower Safari.app"
     success "  FileFlower Safari.app gesigned"

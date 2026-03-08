@@ -328,7 +328,7 @@ class SetupManager {
     }
 
     /// Open de Safari extensie container app, die de extensie registreert en Safari preferences opent.
-    /// Kopieert de app eerst naar Application Support zodat macOS Launch Services de extensie correct indexeert.
+    /// Kopieert de app naar /Applications/ zodat Safari de extensie correct kan vinden en indexeren.
     func openSafariExtensionApp(completion: @escaping (Result<Void, SetupError>) -> Void) {
         guard let bundledAppURL = safariExtensionAppURL,
               FileManager.default.fileExists(atPath: bundledAppURL.path) else {
@@ -339,30 +339,41 @@ class SetupManager {
             return
         }
 
-        // Kopieer naar ~/Library/Application Support/FileFlower/ zodat Safari de extensie kan vinden
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            completion(.failure(.safariExtensionOpenFailed(NSError(domain: "SetupManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Application Support niet gevonden"]))))
-            return
-        }
+        // Safari vereist dat de container app in /Applications/ staat om de extensie te kunnen vinden
+        let installedAppURL = URL(fileURLWithPath: "/Applications/FileFlower Safari.app")
 
-        let ffDir = appSupport.appendingPathComponent("FileFlower")
-        let installedAppURL = ffDir.appendingPathComponent("FileFlower Safari.app")
-
+        // Probeer direct te kopiëren (werkt als gebruiker schrijfrechten heeft op /Applications/)
         do {
-            try FileManager.default.createDirectory(at: ffDir, withIntermediateDirectories: true)
             if FileManager.default.fileExists(atPath: installedAppURL.path) {
                 try FileManager.default.removeItem(at: installedAppURL)
             }
             try FileManager.default.copyItem(at: bundledAppURL, to: installedAppURL)
             #if DEBUG
-            print("SetupManager: Safari app gekopieerd naar \(installedAppURL.path)")
+            print("SetupManager: Safari app gekopieerd naar /Applications/")
             #endif
         } catch {
             #if DEBUG
-            print("SetupManager: Fout bij kopiëren Safari app: \(error)")
+            print("SetupManager: Directe kopie gefaald, probeer met admin rechten: \(error)")
             #endif
-            completion(.failure(.safariExtensionOpenFailed(error)))
-            return
+            // Fallback: gebruik AppleScript om met admin rechten te kopiëren
+            let escapedSource = bundledAppURL.path.replacingOccurrences(of: "'", with: "'\\''")
+            let script = """
+            do shell script "rm -rf '/Applications/FileFlower Safari.app' && cp -R '\(escapedSource)' '/Applications/FileFlower Safari.app'" with administrator privileges
+            """
+            var appleError: NSDictionary?
+            if let appleScript = NSAppleScript(source: script) {
+                appleScript.executeAndReturnError(&appleError)
+            }
+            if let appleError = appleError {
+                #if DEBUG
+                print("SetupManager: AppleScript kopie ook gefaald: \(appleError)")
+                #endif
+                completion(.failure(.safariExtensionOpenFailed(
+                    NSError(domain: "SetupManager", code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "Kan Safari extensie niet installeren in /Applications/"])
+                )))
+                return
+            }
         }
 
         let config = NSWorkspace.OpenConfiguration()
