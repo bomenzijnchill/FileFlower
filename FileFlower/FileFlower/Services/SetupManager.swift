@@ -327,6 +327,50 @@ class SetupManager {
         Bundle.main.resourceURL?.appendingPathComponent("FileFlower Safari.app")
     }
 
+    /// Verwijder quarantine extended attributes zodat App Translocation niet getriggerd wordt.
+    /// Zonder dit kan Safari de extensie niet vinden in een getransloceerde app.
+    private func removeQuarantine(at url: URL) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+        process.arguments = ["-cr", url.path]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            #if DEBUG
+            print("SetupManager: Quarantine attributen verwijderd van \(url.path) (status \(process.terminationStatus))")
+            #endif
+        } catch {
+            #if DEBUG
+            print("SetupManager: Kon quarantine attributen niet verwijderen: \(error)")
+            #endif
+        }
+    }
+
+    /// Forceer Launch Services om de app te indexeren, zodat Safari de extensie kan ontdekken.
+    private func registerWithLaunchServices(at url: URL) {
+        let lsregisterPath = "/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister"
+        guard FileManager.default.fileExists(atPath: lsregisterPath) else {
+            #if DEBUG
+            print("SetupManager: lsregister niet gevonden op \(lsregisterPath)")
+            #endif
+            return
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: lsregisterPath)
+        process.arguments = ["-f", url.path]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            #if DEBUG
+            print("SetupManager: Launch Services registratie uitgevoerd voor \(url.path) (status \(process.terminationStatus))")
+            #endif
+        } catch {
+            #if DEBUG
+            print("SetupManager: Launch Services registratie mislukt: \(error)")
+            #endif
+        }
+    }
+
     /// Open de Safari extensie container app, die de extensie registreert en Safari preferences opent.
     /// Kopieert de app naar /Applications/ zodat Safari de extensie correct kan vinden en indexeren.
     func openSafariExtensionApp(completion: @escaping (Result<Void, SetupError>) -> Void) {
@@ -351,14 +395,16 @@ class SetupManager {
             #if DEBUG
             print("SetupManager: Safari app gekopieerd naar /Applications/")
             #endif
+            // Strip quarantine attributen na directe kopie
+            removeQuarantine(at: installedAppURL)
         } catch {
             #if DEBUG
             print("SetupManager: Directe kopie gefaald, probeer met admin rechten: \(error)")
             #endif
-            // Fallback: gebruik AppleScript om met admin rechten te kopiëren
+            // Fallback: gebruik AppleScript om met admin rechten te kopiëren (inclusief quarantine removal)
             let escapedSource = bundledAppURL.path.replacingOccurrences(of: "'", with: "'\\''")
             let script = """
-            do shell script "rm -rf '/Applications/FileFlower Safari.app' && cp -R '\(escapedSource)' '/Applications/FileFlower Safari.app'" with administrator privileges
+            do shell script "rm -rf '/Applications/FileFlower Safari.app' && cp -R '\(escapedSource)' '/Applications/FileFlower Safari.app' && xattr -cr '/Applications/FileFlower Safari.app'" with administrator privileges
             """
             var appleError: NSDictionary?
             if let appleScript = NSAppleScript(source: script) {
@@ -376,13 +422,32 @@ class SetupManager {
             }
         }
 
-        let config = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.openApplication(at: installedAppURL, configuration: config) { _, error in
-            DispatchQueue.main.async {
-                if let error = error {
-                    completion(.failure(.safariExtensionOpenFailed(error)))
-                } else {
-                    completion(.success(()))
+        // Registreer bij Launch Services zodat Safari de extensie kan ontdekken
+        registerWithLaunchServices(at: installedAppURL)
+
+        // Verifieer dat de .appex daadwerkelijk aanwezig is in de gekopieerde app
+        let appexURL = installedAppURL.appendingPathComponent("Contents/PlugIns/FileFlower Safari Extension.appex")
+        guard FileManager.default.fileExists(atPath: appexURL.path) else {
+            #if DEBUG
+            print("SetupManager: Safari extensie appex niet gevonden in gekopieerde app: \(appexURL.path)")
+            #endif
+            completion(.failure(.safariExtensionOpenFailed(
+                NSError(domain: "SetupManager", code: -2,
+                        userInfo: [NSLocalizedDescriptionKey: "Safari extensie is incompleet gekopieerd. Probeer het opnieuw."])
+            )))
+            return
+        }
+
+        // Wacht even zodat Launch Services de app kan indexeren vóór we hem openen
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            let config = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.openApplication(at: installedAppURL, configuration: config) { _, error in
+                DispatchQueue.main.async {
+                    if let error = error {
+                        completion(.failure(.safariExtensionOpenFailed(error)))
+                    } else {
+                        completion(.success(()))
+                    }
                 }
             }
         }

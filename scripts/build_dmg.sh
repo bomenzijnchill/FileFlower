@@ -243,6 +243,12 @@ if [ -d "$SAFARI_BUNDLED" ]; then
         "$SAFARI_BUNDLED" \
         || error_exit "Code signing gefaald voor FileFlower Safari.app"
     success "  FileFlower Safari.app gesigned"
+
+    # Verifieer Safari extensie signing chain
+    info "Verifiëren Safari extensie signing..."
+    codesign --verify --deep --strict "$SAFARI_BUNDLED" 2>&1 \
+        || error_exit "Safari extensie signing verificatie gefaald"
+    success "  Safari extensie signing geverifieerd"
 fi
 
 # Stap 6: Sign de Finder Sync Extension (met eigen entitlements, zonder get-task-allow)
