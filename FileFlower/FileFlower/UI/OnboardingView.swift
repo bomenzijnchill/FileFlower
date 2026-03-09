@@ -26,8 +26,6 @@ struct OnboardingView: View {
     @State private var autoStartEnabled: Bool = true
     @State private var termsAccepted: Bool = false
     @State private var analyticsOptIn: Bool = false
-    @State private var savesFilesNextToProject: Bool = true
-    @State private var selectedWorkflowType: WorkflowType = .videoEditor
     @State private var selectedFolderStructure: FolderStructurePreset = .standard
     @State private var selectedNLEs: Set<String> = ["premiere", "resolve"]
     @State private var safariInstallError: String?
@@ -58,9 +56,8 @@ struct OnboardingView: View {
         case finderExtension = 8
         case projectSetup = 9
         case workflow = 10
-        case autoStart = 11
-        case terms = 12
-        case complete = 13
+        case terms = 11
+        case complete = 12
 
         var titleKey: String.LocalizationValue {
             switch self {
@@ -74,8 +71,7 @@ struct OnboardingView: View {
             case .chromeExtension: return "onboarding.chrome.title"
             case .finderExtension: return "onboarding.finder.title"
             case .projectSetup: return "onboarding.project.title"
-            case .workflow: return "onboarding.workflow.title"
-            case .autoStart: return "onboarding.autostart.title"
+            case .workflow: return "onboarding.folder.title"
             case .terms: return "onboarding.terms.title"
             case .complete: return "onboarding.complete.title"
             }
@@ -97,8 +93,7 @@ struct OnboardingView: View {
             case .chromeExtension: return "globe"
             case .finderExtension: return "folder.badge.plus"
             case .projectSetup: return "folder.fill"
-            case .workflow: return "hammer.fill"
-            case .autoStart: return "power"
+            case .workflow: return "folder.badge.gearshape"
             case .terms: return "doc.text.fill"
             case .complete: return "checkmark.circle.fill"
             }
@@ -216,8 +211,6 @@ struct OnboardingView: View {
             projectSetupContent
         case .workflow:
             workflowContent
-        case .autoStart:
-            autoStartContent
         case .terms:
             termsContent
         case .complete:
@@ -998,108 +991,131 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Workflow Step
+    // MARK: - Folder Structure Step
 
     private var workflowContent: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "hammer.fill")
+        VStack(spacing: 16) {
+            Image(systemName: "folder.badge.gearshape")
                 .font(.system(size: 60))
                 .foregroundColor(.brandSkyBlue)
 
-            Text(String(localized: "onboarding.workflow.title"))
+            Text(String(localized: "onboarding.folder.title"))
                 .font(.system(size: 24, weight: .bold))
 
-            Text(String(localized: "onboarding.workflow.subtitle"))
+            Text(String(localized: "onboarding.folder.subtitle"))
                 .font(.system(size: 14))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 400)
 
-            VStack(alignment: .leading, spacing: 16) {
-                // Vraag 1: Bestanden naast project opslaan?
-                Toggle(String(localized: "onboarding.workflow.files_next_to_project"), isOn: $savesFilesNextToProject)
-                    .toggleStyle(.switch)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .cornerRadius(8)
-
-                // Vraag 2: Wat voor werk doe je?
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(String(localized: "onboarding.workflow.type_label"))
-                        .font(.system(size: 13, weight: .medium))
-
-                    ForEach(WorkflowType.allCases, id: \.self) { type in
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedWorkflowType = type
-                            }
-                        }) {
-                            HStack(spacing: 12) {
-                                Image(systemName: type.icon)
-                                    .frame(width: 20)
-                                Text(String(localized: type.displayKey))
-                                    .font(.system(size: 14))
-                                Spacer()
-                                if selectedWorkflowType == type {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.accentColor)
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(selectedWorkflowType == type ? Color.accentColor.opacity(0.1) : Color.clear)
-                            )
+            VStack(alignment: .leading, spacing: 12) {
+                // Preset keuze knoppen
+                ForEach(FolderStructurePreset.allCases, id: \.self) { preset in
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedFolderStructure = preset
                         }
-                        .buttonStyle(.plain)
+                    }) {
+                        HStack(spacing: 12) {
+                            Image(systemName: folderPresetIcon(preset))
+                                .frame(width: 20)
+                                .foregroundColor(selectedFolderStructure == preset ? .accentColor : .secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(String(localized: preset.displayKey))
+                                    .font(.system(size: 14, weight: .medium))
+                                Text(String(localized: preset.descriptionKey))
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            if selectedFolderStructure == preset {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.accentColor)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(selectedFolderStructure == preset ? Color.accentColor.opacity(0.1) : Color.clear)
+                        )
                     }
+                    .buttonStyle(.plain)
                 }
 
-                // Vraag 3: Mappenstructuur
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(String(localized: "onboarding.workflow.folder_label"))
-                        .font(.system(size: 13, weight: .medium))
+                // Visuele folder preview
+                if selectedFolderStructure == .standard {
+                    nestedFolderPreview(rootName: "MyProject", items: [
+                        (name: "03_Audio", indent: 1, isFile: false),
+                        (name: "01_Music", indent: 2, isFile: false),
+                        (name: "02_VO", indent: 2, isFile: false),
+                        (name: "04_SFX", indent: 1, isFile: false),
+                        (name: "04_Visuals", indent: 1, isFile: false),
+                        (name: "01_Graphics", indent: 2, isFile: false),
+                        (name: "StockFootage", indent: 2, isFile: false),
+                        (name: "05_VFX", indent: 1, isFile: false)
+                    ])
+                } else if selectedFolderStructure == .flat {
+                    nestedFolderPreview(rootName: "MyProject", items: [
+                        (name: "music_track.mp3", indent: 1, isFile: true),
+                        (name: "sfx_impact.wav", indent: 1, isFile: true),
+                        (name: "stock_footage.mp4", indent: 1, isFile: true)
+                    ])
+                }
 
-                    ForEach(FolderStructurePreset.allCases, id: \.self) { preset in
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedFolderStructure = preset
-                            }
-                        }) {
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(String(localized: preset.displayKey))
-                                        .font(.system(size: 14, weight: .medium))
-                                    Text(String(localized: preset.descriptionKey))
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.secondary)
-                                }
-                                Spacer()
-                                if selectedFolderStructure == preset {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundColor(.accentColor)
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .fill(selectedFolderStructure == preset ? Color.accentColor.opacity(0.1) : Color.clear)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
+                // Custom template sectie
+                if selectedFolderStructure == .custom {
+                    customFolderTemplateSection
+                }
 
-                    // Uitklapbare custom template sectie
-                    if selectedFolderStructure == .custom {
-                        customFolderTemplateSection
-                    }
+                // Uitleg tekst
+                if selectedFolderStructure != .custom {
+                    Text(String(localized: "onboarding.folder.explainer"))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .padding(.top, 4)
                 }
             }
             .frame(maxWidth: 400)
         }
+    }
+
+    private func folderPresetIcon(_ preset: FolderStructurePreset) -> String {
+        switch preset {
+        case .standard: return "folder.fill.badge.gearshape"
+        case .flat: return "folder.fill"
+        case .custom: return "folder.fill.badge.questionmark"
+        }
+    }
+
+    /// Geneste folder preview met meerdere indent-niveaus
+    private func nestedFolderPreview(rootName: String, items: [(name: String, indent: Int, isFile: Bool)]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Image(systemName: "folder.fill")
+                    .foregroundColor(.accentColor)
+                    .font(.system(size: 13))
+                Text(rootName)
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+            }
+
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                HStack(spacing: 6) {
+                    Text(String(repeating: "  ", count: item.indent))
+                    Image(systemName: item.isFile ? "doc.fill" : "folder.fill")
+                        .foregroundColor(item.isFile ? .secondary.opacity(0.6) : .secondary)
+                        .font(.system(size: 11))
+                    Text(item.name)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundColor(item.isFile ? .secondary.opacity(0.7) : .secondary)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
     }
 
     // MARK: - Custom Folder Template
@@ -1328,42 +1344,25 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Auto Start Step
-
-    private var autoStartContent: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "power")
-                .font(.system(size: 60))
-                .foregroundColor(.brandSkyBlue)
-
-            Text(String(localized: "onboarding.autostart.title"))
-                .font(.system(size: 24, weight: .bold))
-
-            Text(String(localized: "onboarding.autostart.subtitle"))
-                .font(.system(size: 14))
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 400)
-
-            Toggle(String(localized: "onboarding.autostart.toggle"), isOn: $autoStartEnabled)
-                .toggleStyle(.switch)
-                .padding()
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(8)
-                .frame(maxWidth: 400)
-        }
-    }
-
-    // MARK: - Terms & Conditions Step
+    // MARK: - Terms, Preferences & Conditions Step
 
     private var termsContent: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Image(systemName: "doc.text.fill")
                 .font(.system(size: 50))
                 .foregroundColor(.brandSandyClay)
 
             Text(String(localized: "onboarding.terms.title"))
                 .font(.system(size: 24, weight: .bold))
+
+            // Auto-start toggle
+            Toggle(String(localized: "onboarding.autostart.toggle"), isOn: $autoStartEnabled)
+                .toggleStyle(.switch)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(8)
+                .frame(maxWidth: 480)
 
             // Scrollable terms content
             ScrollView {
@@ -1373,7 +1372,7 @@ struct OnboardingView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
             }
-            .frame(maxWidth: 480, maxHeight: 180)
+            .frame(maxWidth: 480, maxHeight: 150)
             .background(Color(NSColor.controlBackgroundColor))
             .cornerRadius(8)
             .overlay(
@@ -1630,8 +1629,6 @@ struct OnboardingView: View {
             break
 
         case .workflow:
-            appState.config.savesFilesNextToProject = savesFilesNextToProject
-            appState.config.userWorkflowType = selectedWorkflowType
             appState.config.folderStructurePreset = selectedFolderStructure
 
             // Sla custom folder template op als .custom geselecteerd en analyse voltooid
@@ -1648,16 +1645,15 @@ struct OnboardingView: View {
             }
             appState.saveConfig()
 
-        case .autoStart:
+        case .terms:
+            // Auto-start instellen
             appState.config.startAtLogin = autoStartEnabled
-            appState.saveConfig()
             if autoStartEnabled {
                 try? LaunchAgentManager.shared.enableStartAtLogin()
             } else {
                 try? LaunchAgentManager.shared.disableStartAtLogin()
             }
 
-        case .terms:
             appState.config.termsAcceptedVersion = "1.0"
             appState.config.termsAcceptedDate = Date()
             appState.config.analyticsEnabled = analyticsOptIn

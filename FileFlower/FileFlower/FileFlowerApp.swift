@@ -714,6 +714,18 @@ class AppState: ObservableObject {
                         needsManualClassification: needsManual
                     )
                     self.queuedItems[index] = updatedItem
+
+                    // Bereken preview pad na classificatie
+                    if let project = updatedItem.targetProject, updatedItem.predictedType != .unknown {
+                        let subfolder = updatedItem.targetSubfolder ?? updatedItem.predictedMood ?? updatedItem.predictedGenre
+                        self.queuedItems[index].previewPath = PathResolver.shared.previewRelativePath(
+                            project: project,
+                            assetType: updatedItem.predictedType,
+                            subfolder: subfolder,
+                            musicMode: self.config.musicClassification,
+                            sfxCategory: updatedItem.predictedSfxCategory
+                        )
+                    }
                 }
             }
         }

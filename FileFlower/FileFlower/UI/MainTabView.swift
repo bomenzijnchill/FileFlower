@@ -153,8 +153,53 @@ struct DownloadSyncContent: View {
 /// Empty state view voor DownloadSync
 struct EmptyDownloadSyncView: View {
     @State private var showHistory = false
+    private let isFirstRun = !UserDefaults.standard.bool(forKey: "firstImportCompleted")
 
     var body: some View {
+        if isFirstRun {
+            firstRunContent
+        } else {
+            returningUserContent
+        }
+    }
+
+    private var firstRunContent: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 40))
+                .foregroundColor(.green)
+
+            Text(String(localized: "empty.first_run.title"))
+                .font(.system(size: 15, weight: .semibold))
+
+            VStack(alignment: .leading, spacing: 12) {
+                firstRunStep(number: "1", text: String(localized: "empty.first_run.step1"), icon: "globe")
+                firstRunStep(number: "2", text: String(localized: "empty.first_run.step2"), icon: "arrow.down.circle")
+                firstRunStep(number: "3", text: String(localized: "empty.first_run.step3"), icon: "folder.badge.plus")
+            }
+            .padding(.horizontal, 20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func firstRunStep(number: String, text: String, icon: String) -> some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.15))
+                    .frame(width: 28, height: 28)
+                Text(number)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(.accentColor)
+            }
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.leading)
+        }
+    }
+
+    private var returningUserContent: some View {
         VStack(spacing: 12) {
             Image(systemName: "tray")
                 .font(.system(size: 40))

@@ -742,6 +742,9 @@ struct QueueItemRow: View {
                                             correctedType: type
                                         )
                                     }
+
+                                    // Herbereken preview pad
+                                    updatePreviewPath(at: index)
                                 }
                             }) {
                                 Label(type.displayName, systemImage: iconForType(type))
@@ -784,6 +787,8 @@ struct QueueItemRow: View {
                                 Button(action: {
                                     if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                                         appState.queuedItems[index].targetProject = projectOption
+                                        // Herbereken preview pad
+                                        updatePreviewPath(at: index)
                                     }
                                 }) {
                                     if let nle = NLEType.from(projectPath: projectOption.projectPath) {
@@ -831,6 +836,8 @@ struct QueueItemRow: View {
                                 Button(action: {
                                     if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                                         appState.queuedItems[index].predictedSfxCategory = category
+                                        // Herbereken preview pad
+                                        updatePreviewPath(at: index)
                                     }
                                 }) {
                                     if category == item.predictedSfxCategory {
@@ -850,6 +857,20 @@ struct QueueItemRow: View {
                 }
                 
                 StatusBadge(status: item.status, failureReason: item.failureReason)
+
+                // Preview pad: laat zien waar het bestand naartoe gaat
+                if item.status == .queued, let preview = item.previewPath, !preview.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary.opacity(0.6))
+                        Text(preview)
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
 
                 // Quick-fix acties voor mislukte items
                 if item.status == .failed {
@@ -990,6 +1011,23 @@ struct QueueItemRow: View {
         }
 
         appState.queuedItems[index] = updated
+    }
+
+    /// Herbereken het preview-pad voor een item na type/project/categorie wijziging
+    private func updatePreviewPath(at index: Int) {
+        let item = appState.queuedItems[index]
+        guard let project = item.targetProject, item.predictedType != .unknown else {
+            appState.queuedItems[index].previewPath = nil
+            return
+        }
+        let subfolder = item.targetSubfolder ?? item.predictedMood ?? item.predictedGenre
+        appState.queuedItems[index].previewPath = PathResolver.shared.previewRelativePath(
+            project: project,
+            assetType: item.predictedType,
+            subfolder: subfolder,
+            musicMode: appState.config.musicClassification,
+            sfxCategory: item.predictedSfxCategory
+        )
     }
 
     private func iconForType(_ type: AssetType) -> String {

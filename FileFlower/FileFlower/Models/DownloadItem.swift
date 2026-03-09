@@ -22,6 +22,7 @@ struct DownloadItem: Identifiable, Codable {
     var needsManualClassification: Bool  // Of de gebruiker handmatig een map moet kiezen
     var childFiles: [String]?            // Bestanden binnen een map-item (uit ZIP extractie)
     var failureReason: String?           // Reden waarom verwerking is mislukt
+    var previewPath: String?             // Leesbaar preview-pad (bijv. "Project → Audio → Music → Mood → Chill")
 
     /// Of dit item een map is (bijv. uitgepakte ZIP)
     var isFolder: Bool {
@@ -50,7 +51,8 @@ struct DownloadItem: Identifiable, Codable {
         isCloudDownload: Bool = false,
         needsManualClassification: Bool = false,
         childFiles: [String]? = nil,
-        failureReason: String? = nil
+        failureReason: String? = nil,
+        previewPath: String? = nil
     ) {
         self.id = id
         self.path = path
@@ -73,6 +75,7 @@ struct DownloadItem: Identifiable, Codable {
         self.needsManualClassification = needsManualClassification
         self.childFiles = childFiles
         self.failureReason = failureReason
+        self.previewPath = previewPath
     }
 }
 

@@ -91,6 +91,9 @@ class ProjectScanner {
 
             let ext = item.pathExtension.lowercased()
             if ext == "prproj" || ext == "drp" {
+                // Filter autosave bestanden
+                if isAutosaveFile(item) { continue }
+
                 if let attrs = try? item.resourceValues(forKeys: [.contentModificationDateKey]),
                    let modDate = attrs.contentModificationDate {
                     let project = ProjectInfo(
@@ -105,6 +108,13 @@ class ProjectScanner {
                 // Check of het een directory is en recurse
                 if let resourceValues = try? item.resourceValues(forKeys: [.isDirectoryKey]),
                    resourceValues.isDirectory == true {
+                    let dirName = item.lastPathComponent
+                    // Skip autosave en backup mappen
+                    if dirName.localizedCaseInsensitiveContains("Auto-Save") ||
+                       dirName.localizedCaseInsensitiveContains("Backup") {
+                        continue
+                    }
+
                     let subProjects = findProjectsRecursive(
                         in: item,
                         rootPath: rootPath,
@@ -117,5 +127,21 @@ class ProjectScanner {
         }
 
         return projects
+    }
+
+    /// Check of een projectbestand een autosave is
+    private func isAutosaveFile(_ url: URL) -> Bool {
+        // Check parent directory naam
+        let parentName = url.deletingLastPathComponent().lastPathComponent
+        if parentName.localizedCaseInsensitiveContains("Auto-Save") ||
+           parentName.localizedCaseInsensitiveContains("Backup") {
+            return true
+        }
+
+        // Check bestandsnaam voor Premiere autosave UUID-timestamp pattern:
+        // ProjectName--hex8-hex4-hex4-hex4-hex12-yyyy-mm-dd.prproj
+        let filename = url.deletingPathExtension().lastPathComponent
+        let pattern = #"--[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-\d{4}-\d{2}-\d{2}"#
+        return filename.range(of: pattern, options: .regularExpression) != nil
     }
 }

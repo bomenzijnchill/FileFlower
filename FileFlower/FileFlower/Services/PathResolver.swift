@@ -165,6 +165,49 @@ class PathResolver {
         return TargetFolder(url: targetFolder, relativePath: targetFolder.path)
     }
     
+    // MARK: - Preview Path (read-only, geen filesystem side-effects)
+
+    /// Berekent een leesbaar preview-pad dat laat zien waar het bestand naartoe gaat, zonder mappen aan te maken
+    func previewRelativePath(
+        project: ProjectInfo,
+        assetType: AssetType,
+        subfolder: String?,
+        musicMode: MusicMode,
+        sfxCategory: String? = nil
+    ) -> String {
+        var components: [String] = [project.name]
+
+        switch assetType {
+        case .music:
+            components.append("Audio")
+            components.append("Music")
+            if let sub = subfolder, !sub.isEmpty {
+                components.append(musicMode == .mood ? "Mood" : "Genre")
+                components.append(sub)
+            }
+        case .sfx:
+            components.append("SFX")
+            if let cat = sfxCategory, !cat.isEmpty {
+                components.append(cat)
+            } else if let sub = subfolder, !sub.isEmpty {
+                components.append(sub)
+            }
+        case .vo:
+            components.append("Audio")
+            components.append("VO")
+        case .motionGraphic, .graphic:
+            components.append("Visuals")
+            components.append("Graphics")
+        case .stockFootage:
+            components.append("Visuals")
+            components.append("StockFootage")
+        case .unknown:
+            return ""
+        }
+
+        return components.joined(separator: " → ")
+    }
+
     // MARK: - Custom Template Routing
 
     /// Resolve target folder op basis van de custom folder template mapping

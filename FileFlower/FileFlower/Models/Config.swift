@@ -29,9 +29,7 @@ struct Config: Codable {
     var termsAcceptedDate: Date?        // Wanneer de voorwaarden geaccepteerd zijn
     var filterServerProjectsToLocal: Bool  // Filter server-projecten tot alleen op deze Mac geopende
     var autoAddActiveProjectRoot: Bool     // Voeg automatisch de root toe van een open Premiere project
-    var savesFilesNextToProject: Bool      // Of gebruiker bestanden naast project opslaat
     var useClaudeClassification: Bool        // Of Claude API classificatie ingeschakeld is
-    var userWorkflowType: WorkflowType     // Type werk dat de gebruiker doet
     var folderStructurePreset: FolderStructurePreset  // Voorkeursindeling van mappen
     var customFolderTemplate: CustomFolderTemplate?   // Template mappenstructuur voor .custom preset
     var cloudStorageWebsites: [String]              // Cloud storage websites (Dropbox, Google Drive)
@@ -98,9 +96,7 @@ struct Config: Codable {
         termsAcceptedDate: nil,
         filterServerProjectsToLocal: true,
         autoAddActiveProjectRoot: true,
-        savesFilesNextToProject: true,
         useClaudeClassification: false,
-        userWorkflowType: .videoEditor,
         folderStructurePreset: .standard,
         customFolderTemplate: nil,
         cloudStorageWebsites: defaultCloudStorageWebsites,
@@ -141,9 +137,7 @@ struct Config: Codable {
         termsAcceptedDate: Date? = nil,
         filterServerProjectsToLocal: Bool = true,
         autoAddActiveProjectRoot: Bool = true,
-        savesFilesNextToProject: Bool = true,
         useClaudeClassification: Bool = false,
-        userWorkflowType: WorkflowType = .videoEditor,
         folderStructurePreset: FolderStructurePreset = .standard,
         customFolderTemplate: CustomFolderTemplate? = nil,
         cloudStorageWebsites: [String] = defaultCloudStorageWebsites,
@@ -181,9 +175,7 @@ struct Config: Codable {
         self.termsAcceptedDate = termsAcceptedDate
         self.filterServerProjectsToLocal = filterServerProjectsToLocal
         self.autoAddActiveProjectRoot = autoAddActiveProjectRoot
-        self.savesFilesNextToProject = savesFilesNextToProject
         self.useClaudeClassification = useClaudeClassification
-        self.userWorkflowType = userWorkflowType
         self.folderStructurePreset = folderStructurePreset
         self.customFolderTemplate = customFolderTemplate
         self.cloudStorageWebsites = cloudStorageWebsites
@@ -234,9 +226,7 @@ struct Config: Codable {
         termsAcceptedDate = try container.decodeIfPresent(Date.self, forKey: .termsAcceptedDate)
         filterServerProjectsToLocal = try container.decodeIfPresent(Bool.self, forKey: .filterServerProjectsToLocal) ?? true
         autoAddActiveProjectRoot = try container.decodeIfPresent(Bool.self, forKey: .autoAddActiveProjectRoot) ?? true
-        savesFilesNextToProject = try container.decodeIfPresent(Bool.self, forKey: .savesFilesNextToProject) ?? true
         useClaudeClassification = try container.decodeIfPresent(Bool.self, forKey: .useClaudeClassification) ?? false
-        userWorkflowType = try container.decodeIfPresent(WorkflowType.self, forKey: .userWorkflowType) ?? .videoEditor
         folderStructurePreset = try container.decodeIfPresent(FolderStructurePreset.self, forKey: .folderStructurePreset) ?? .standard
         customFolderTemplate = try container.decodeIfPresent(CustomFolderTemplate.self, forKey: .customFolderTemplate)
         cloudStorageWebsites = try container.decodeIfPresent([String].self, forKey: .cloudStorageWebsites) ?? Config.defaultCloudStorageWebsites
@@ -278,9 +268,7 @@ struct Config: Codable {
         try container.encodeIfPresent(termsAcceptedDate, forKey: .termsAcceptedDate)
         try container.encode(filterServerProjectsToLocal, forKey: .filterServerProjectsToLocal)
         try container.encode(autoAddActiveProjectRoot, forKey: .autoAddActiveProjectRoot)
-        try container.encode(savesFilesNextToProject, forKey: .savesFilesNextToProject)
         try container.encode(useClaudeClassification, forKey: .useClaudeClassification)
-        try container.encode(userWorkflowType, forKey: .userWorkflowType)
         try container.encode(folderStructurePreset, forKey: .folderStructurePreset)
         try container.encodeIfPresent(customFolderTemplate, forKey: .customFolderTemplate)
         try container.encode(cloudStorageWebsites, forKey: .cloudStorageWebsites)
@@ -320,9 +308,7 @@ struct Config: Codable {
         case termsAcceptedDate
         case filterServerProjectsToLocal
         case autoAddActiveProjectRoot
-        case savesFilesNextToProject
         case useClaudeClassification
-        case userWorkflowType
         case folderStructurePreset
         case customFolderTemplate
         case cloudStorageWebsites
@@ -342,34 +328,6 @@ struct Config: Codable {
 enum MusicMode: String, Codable {
     case mood = "mood"
     case genre = "genre"
-}
-
-enum WorkflowType: String, Codable, CaseIterable {
-    case videoEditor = "video_editor"
-    case graphicDesign = "graphic_design"
-    case motionGraphics = "motion_graphics"
-    case soundDesign = "sound_design"
-    case other = "other"
-
-    var displayKey: String.LocalizationValue {
-        switch self {
-        case .videoEditor: return "workflow.type.video_editor"
-        case .graphicDesign: return "workflow.type.graphic_design"
-        case .motionGraphics: return "workflow.type.motion_graphics"
-        case .soundDesign: return "workflow.type.sound_design"
-        case .other: return "workflow.type.other"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .videoEditor: return "film"
-        case .graphicDesign: return "paintbrush.fill"
-        case .motionGraphics: return "sparkles"
-        case .soundDesign: return "waveform"
-        case .other: return "ellipsis.circle"
-        }
-    }
 }
 
 // FolderStructurePreset, FolderNode, FolderTypeMapping, CustomFolderTemplate

@@ -63,7 +63,11 @@ struct ProjectPickerView: View {
                     Picker("Project", selection: $selectedProject) {
                         Text(String(localized: "picker.none_selected")).tag(ProjectInfo?.none)
                         ForEach(appState.recentProjects) { project in
-                            Text(project.name).tag(ProjectInfo?.some(project))
+                            if let nle = NLEType.from(projectPath: project.projectPath) {
+                                Label(project.name, systemImage: nle.icon).tag(ProjectInfo?.some(project))
+                            } else {
+                                Label(project.name, systemImage: "doc.fill").tag(ProjectInfo?.some(project))
+                            }
                         }
                     }
                     .pickerStyle(.menu)
@@ -223,6 +227,15 @@ struct ProjectPickerView: View {
                 if selectedType == .sfx {
                     appState.queuedItems[index].predictedSfxCategory = selectedSfxCategory.isEmpty ? nil : selectedSfxCategory
                 }
+                // Herbereken preview pad
+                let subfolder = selectedSubfolder.isEmpty ? nil : selectedSubfolder
+                appState.queuedItems[index].previewPath = PathResolver.shared.previewRelativePath(
+                    project: project,
+                    assetType: selectedType,
+                    subfolder: subfolder,
+                    musicMode: appState.config.musicClassification,
+                    sfxCategory: selectedType == .sfx ? (selectedSfxCategory.isEmpty ? nil : selectedSfxCategory) : nil
+                )
             }
         }
         
