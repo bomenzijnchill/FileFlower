@@ -9,6 +9,29 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 2.0.9</title>
+            <sparkle:version>28</sparkle:version>
+            <sparkle:shortVersionString>2.0.9</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>FileFlower 2.0.9</h2>
+                <ul>
+                    <li><strong>Premiere Plugin fix</strong> — CEP PlayerDebugMode wordt nu automatisch ingesteld, zodat de Premiere plugin direct werkt</li>
+                    <li><strong>Geschiedenis verplaatsen</strong> — Verplaats eerder verwerkte bestanden naar een ander project/type, met automatische Premiere re-import</li>
+                    <li><strong>VO detectie</strong> — "Nieuwe opname" / "New Recording" / Adobe Podcast patronen worden nu als VO herkend</li>
+                    <li><strong>Navigatie reset</strong> — App opent weer op het hoofdscherm na sluiten vanuit Instellingen</li>
+                </ul>
+            ]]></description>
+            <pubDate>Mon, 10 Mar 2026 16:00:00 +0100</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v2.0.9/FileFlower.dmg"
+                sparkle:edSignature="Ne7+A/oHC/q0d57zeRRjaP3b84g8efxaVUTPyg7c0D/T52Lx6A1ECAWXhONF1s+aJEJJlTeE9qkMr8EPc1OMCw=="
+                length="5667153"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 2.0.8</title>
             <sparkle:version>27</sparkle:version>
             <sparkle:shortVersionString>2.0.8</sparkle:shortVersionString>
