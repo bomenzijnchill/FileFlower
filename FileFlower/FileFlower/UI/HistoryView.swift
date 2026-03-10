@@ -55,7 +55,13 @@ struct HistoryView: View {
 /// Rij voor een enkel history item
 struct HistoryItemRow: View {
     let record: HistoryItem
+    @StateObject private var appState = AppState.shared
     @State private var isHovered = false
+    @State private var showingMovePicker = false
+    @State private var selectedProject: ProjectInfo?
+    @State private var selectedType: AssetType = .music
+    @State private var moveError: String?
+    @State private var moveSuccess = false
 
     private var timeString: String {
         let formatter = DateFormatter()
@@ -64,83 +70,166 @@ struct HistoryItemRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            // Icon
-            Image(systemName: iconForType(record.assetType))
-                .font(.system(size: 16))
-                .foregroundColor(.accentColor.opacity(0.7))
-                .frame(width: 24)
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                // Icon
+                Image(systemName: iconForType(record.assetType))
+                    .font(.system(size: 16))
+                    .foregroundColor(.accentColor.opacity(0.7))
+                    .frame(width: 24)
 
-            // Info
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    if record.isFolder {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                    }
+                // Info
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        if record.isFolder {
+                            Image(systemName: "folder.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
 
-                    Text(record.filename)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                }
-
-                HStack(spacing: 6) {
-                    Text(record.assetType.displayName)
-                        .font(.system(size: 10))
-                        .foregroundColor(.accentColor)
-
-                    if let project = record.targetProject {
-                        Text("•")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary.opacity(0.5))
-
-                        Text(project)
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
+                        Text(record.filename)
+                            .font(.system(size: 12, weight: .medium))
                             .lineLimit(1)
                     }
 
-                    if record.isFolder && record.fileCount > 1 {
-                        Text("•")
+                    HStack(spacing: 6) {
+                        Text(record.assetType.displayName)
                             .font(.system(size: 10))
-                            .foregroundColor(.secondary.opacity(0.5))
+                            .foregroundColor(.accentColor)
 
-                        Text(String(localized: "history.file_count \(record.fileCount)"))
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
+                        if let project = record.targetProject {
+                            Text("•")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary.opacity(0.5))
+
+                            Text(project)
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        if record.isFolder && record.fileCount > 1 {
+                            Text("•")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary.opacity(0.5))
+
+                            Text(String(localized: "history.file_count \(record.fileCount)"))
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
-            }
 
-            Spacer()
+                Spacer()
 
-            // Open in Finder knop (verschijnt alleen bij hover op voltooide items)
-            if isHovered, record.status == .completed, record.destinationPath != nil {
-                Button(action: openInFinder) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 11))
+                // Hover knoppen (Open in Finder + Verplaats)
+                if isHovered, record.status == .completed, record.destinationPath != nil {
+                    Button(action: { showingMovePicker.toggle() }) {
+                        Image(systemName: "arrow.right.doc.on.clipboard")
+                            .font(.system(size: 11))
+                            .foregroundColor(showingMovePicker ? .accentColor : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(String(localized: "history.move"))
+
+                    Button(action: openInFinder) {
+                        Image(systemName: "folder")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(String(localized: "history.open_in_finder"))
+                }
+
+                // Status + tijd
+                VStack(alignment: .trailing, spacing: 3) {
+                    if moveSuccess {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.green)
+                    } else {
+                        HistoryStatusBadge(status: record.status)
+                    }
+
+                    Text(timeString)
+                        .font(.system(size: 10))
                         .foregroundColor(.secondary)
                 }
-                .buttonStyle(.plain)
-                .help(String(localized: "history.open_in_finder"))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(isHovered ? Color.accentColor.opacity(0.05) : Color.clear)
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                isHovered = hovering
+                if !hovering && !showingMovePicker {
+                    moveError = nil
+                    moveSuccess = false
+                }
             }
 
-            // Status + tijd
-            VStack(alignment: .trailing, spacing: 3) {
-                HistoryStatusBadge(status: record.status)
+            // Inline move picker
+            if showingMovePicker {
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        // Project picker
+                        Picker("", selection: $selectedProject) {
+                            Text(String(localized: "history.move.select_project"))
+                                .tag(ProjectInfo?.none)
+                            ForEach(appState.recentProjects) { project in
+                                Text(project.name).tag(ProjectInfo?.some(project))
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(maxWidth: .infinity)
 
-                Text(timeString)
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
+                        // Type picker
+                        Picker("", selection: $selectedType) {
+                            ForEach(AssetType.allCases.filter { $0 != .unknown }, id: \.self) { type in
+                                Text(type.displayName).tag(type)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 100)
+
+                        // Verplaats knop
+                        Button(action: performMove) {
+                            Image(systemName: "arrow.right")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(selectedProject == nil)
+                    }
+
+                    if let error = moveError {
+                        Text(error)
+                            .font(.system(size: 10))
+                            .foregroundColor(.red)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(isHovered ? Color.accentColor.opacity(0.05) : Color.clear)
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            isHovered = hovering
+        .animation(.easeInOut(duration: 0.15), value: showingMovePicker)
+    }
+
+    private func performMove() {
+        guard let project = selectedProject else { return }
+
+        do {
+            _ = try FileProcessor.shared.moveExistingFile(
+                record: record,
+                to: project,
+                assetType: selectedType
+            )
+            moveSuccess = true
+            showingMovePicker = false
+            moveError = nil
+        } catch {
+            moveError = error.localizedDescription
         }
     }
 

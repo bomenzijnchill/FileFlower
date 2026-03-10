@@ -194,6 +194,9 @@ class SetupManager {
             installedPremierePluginVersion = version
         }
 
+        // Zet CEP debug mode aan zodat Premiere de unsigned extensie laadt
+        enableCEPDebugMode()
+
         #if DEBUG
         print("SetupManager: Premiere plugin succesvol geïnstalleerd naar \(premierePluginDestination.path)")
         #endif
@@ -232,6 +235,8 @@ class SetupManager {
                 if let version = bundledPremierePluginVersion {
                     installedPremierePluginVersion = version
                 }
+                // Zet CEP debug mode aan zodat Premiere de unsigned extensie laadt
+                enableCEPDebugMode()
                 #if DEBUG
                 print("SetupManager: Premiere plugin geïnstalleerd met admin rechten naar \(destPath)")
                 #endif
@@ -561,6 +566,29 @@ class SetupManager {
         return FileManager.default.fileExists(atPath: modulesPath)
     }
 
+    // MARK: - CEP Debug Mode
+
+    /// Zet CEP PlayerDebugMode aan zodat Premiere Pro unsigned extensies laadt.
+    /// Zonder deze flag weigert Premiere de FileFlower CEP plugin volledig.
+    func enableCEPDebugMode() {
+        for version in 10...12 {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+            process.arguments = ["write", "com.adobe.CSXS.\(version)", "PlayerDebugMode", "1"]
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                #if DEBUG
+                print("SetupManager: Kon PlayerDebugMode niet instellen voor CSXS.\(version): \(error)")
+                #endif
+            }
+        }
+        #if DEBUG
+        print("SetupManager: CEP PlayerDebugMode ingesteld voor CSXS 10-12")
+        #endif
+    }
+
     // MARK: - Startup Checks
 
     /// Voer alle benodigde startup checks uit
@@ -569,6 +597,9 @@ class SetupManager {
 
         // Check en update Premiere plugin indien nodig
         if isPremierePluginInstalled {
+            // Zorg dat CEP debug mode aan staat (vereist voor unsigned extensies)
+            enableCEPDebugMode()
+
             let result = updatePremierePluginIfNeeded()
             switch result {
             case .success(let updated):

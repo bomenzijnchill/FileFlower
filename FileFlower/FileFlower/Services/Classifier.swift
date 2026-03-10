@@ -227,7 +227,21 @@ class DirectClassifier {
             #endif
             return DirectClassificationResult(assetType: .music, confidence: .high, reason: "STEMS keyword in filename")
         }
-        
+
+        // 1.5 "New Recording" / "Nieuwe opname" / Adobe Podcast pattern → VO
+        // Bestanden als "Nieuwe opname 81-esv2-38p-bg-m-music-m_2" bevatten "music" in het suffix
+        // maar zijn eigenlijk VO/opnames. Daarom checken we dit VOOR de generieke keyword checks.
+        let recordingPatterns = [
+            "new recording", "nieuwe opname", "neue aufnahme",
+            "nouvel enregistrement", "nueva grabación"
+        ]
+        if recordingPatterns.contains(where: { lower.contains($0) }) {
+            #if DEBUG
+            print("DirectClassifier: Recording/opname pattern gevonden - VO")
+            #endif
+            return DirectClassificationResult(assetType: .vo, confidence: .high, reason: "Recording/opname pattern in filename (likely VO/Adobe Podcast)")
+        }
+
         // 2. VO check - specifieke VO indicators
         if voKeywords.contains(where: { lower.contains($0) }) {
             #if DEBUG

@@ -237,6 +237,114 @@ class FileProcessor {
         }
         return prprojParent.deletingLastPathComponent()
     }
+
+    /// Verplaats een bestaand (eerder verwerkt) bestand naar een nieuw project/type.
+    /// Maakt de nieuwe doelmap aan, verplaatst het bestand, logt de move,
+    /// en maakt een NLE import job aan.
+    func moveExistingFile(
+        record: HistoryItem,
+        to project: ProjectInfo,
+        assetType: AssetType,
+        subfolder: String? = nil,
+        musicMode: MusicMode? = nil,
+        sfxCategory: String? = nil
+    ) throws -> String {
+        let effectiveMusicMode = musicMode ?? .mood
+        guard let currentPath = record.destinationPath else {
+            throw FileProcessorError.missingTarget
+        }
+
+        let sourceURL = URL(fileURLWithPath: currentPath)
+        guard FileManager.default.fileExists(atPath: currentPath) else {
+            throw FileProcessorError.missingTarget
+        }
+
+        // Bereken nieuw pad via PathResolver
+        let targetFolder = try PathResolver.shared.resolveTarget(
+            project: project,
+            assetType: assetType,
+            subfolder: subfolder ?? sfxCategory,
+            musicMode: effectiveMusicMode
+        )
+        let targetDir = targetFolder.url
+
+        try FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
+
+        let filename = sourceURL.lastPathComponent
+        let targetURL = targetDir.appendingPathComponent(filename)
+
+        // Conflict handling: voeg suffix toe als bestand al bestaat
+        var finalTarget = targetURL
+        if FileManager.default.fileExists(atPath: finalTarget.path) {
+            let name = targetURL.deletingPathExtension().lastPathComponent
+            let ext = targetURL.pathExtension
+            var counter = 2
+            while FileManager.default.fileExists(atPath: finalTarget.path) {
+                let newName = ext.isEmpty ? "\(name)_\(counter)" : "\(name)_\(counter).\(ext)"
+                finalTarget = targetDir.appendingPathComponent(newName)
+                counter += 1
+            }
+        }
+
+        // Verplaats
+        try FileManager.default.moveItem(at: sourceURL, to: finalTarget)
+        try? Quarantine.removeQuarantineAttribute(from: finalTarget)
+
+        // Log
+        Logger.shared.logMove(from: currentPath, to: finalTarget.path, itemId: record.id)
+
+        // NLE job aanmaken
+        let nleType = NLEType.from(projectPath: project.projectPath) ?? .premiere
+        let premiereBinPath: String
+        if let mapping = getPremiereBinMapping(project: project, finderPath: targetDir.path) {
+            premiereBinPath = mapping
+        } else {
+            let projectMainFolder = findProjectMainFolder(from: targetDir, projectPath: project.projectPath)
+            let relativePath: String
+            if targetDir.path == projectMainFolder.path {
+                relativePath = targetDir.lastPathComponent
+            } else {
+                var path = targetDir.path.replacingOccurrences(of: projectMainFolder.path, with: "")
+                if path.hasPrefix("/") { path.removeFirst() }
+                relativePath = path
+            }
+            var components = relativePath.split(separator: "/").filter { !$0.isEmpty }.map { String($0) }
+            if !components.isEmpty {
+                if let matchedFolder = BinMatcher.shared.findMatchingFolder(for: assetType, in: projectMainFolder) {
+                    let normalizedFirst = BinMatcher.shared.normalizeName(components[0])
+                    let normalizedMatch = BinMatcher.shared.normalizeName(matchedFolder)
+                    if normalizedFirst != normalizedMatch {
+                        components[0] = matchedFolder
+                    }
+                }
+            }
+            premiereBinPath = components.isEmpty ? targetDir.lastPathComponent : components.joined(separator: "/")
+        }
+
+        let job = JobRequest(
+            projectPath: project.projectPath,
+            finderTargetDir: targetDir.path,
+            premiereBinPath: premiereBinPath,
+            files: [finalTarget.path],
+            assetType: assetType.rawValue,
+            nleType: nleType
+        )
+        JobServer.shared.addJob(job)
+
+        // Update history record
+        ProcessingHistoryManager.shared.updateRecord(
+            record.id,
+            newDestinationPath: finalTarget.path,
+            newTargetProject: project.name,
+            newAssetType: assetType
+        )
+
+        #if DEBUG
+        print("FileProcessor: Bestand verplaatst van \(currentPath) naar \(finalTarget.path)")
+        #endif
+
+        return finalTarget.path
+    }
 }
 
 enum FileProcessorError: LocalizedError {

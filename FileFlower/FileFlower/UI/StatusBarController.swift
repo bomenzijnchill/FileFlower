@@ -1,6 +1,10 @@
 import SwiftUI
 import AppKit
 
+extension Notification.Name {
+    static let popoverDidClose = Notification.Name("popoverDidClose")
+}
+
 /// Beheert het menubar icoon en de popover die verschijnt bij klik of nieuwe downloads
 class StatusBarController: NSObject, NSPopoverDelegate {
     static let shared = StatusBarController()
@@ -44,6 +48,8 @@ class StatusBarController: NSObject, NSPopoverDelegate {
         DispatchQueue.main.async {
             AppState.shared.clearFinishedItems()
         }
+        // Reset navigatie state zodat de popover bij heropenen op het hoofdscherm start
+        NotificationCenter.default.post(name: .popoverDidClose, object: nil)
     }
 
     @objc private func togglePopover(_ sender: AnyObject?) {

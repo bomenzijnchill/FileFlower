@@ -198,6 +198,11 @@ struct MenuBarView: View {
                 appState.shouldOpenWindow = false
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .popoverDidClose)) { _ in
+            // Reset navigatie zodat de popover bij heropenen op het hoofdscherm start
+            showingSettings = false
+            selectedItemForPicker = nil
+        }
     }
 }
 

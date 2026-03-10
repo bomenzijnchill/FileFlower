@@ -124,6 +124,28 @@ class ProcessingHistoryManager {
         }
     }
 
+    /// Update het bestemmingspad en project van een bestaand record (na verplaatsing)
+    func updateRecord(_ id: UUID, newDestinationPath: String, newTargetProject: String, newAssetType: AssetType) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        let old = records[index]
+        records[index] = HistoryItem(
+            id: old.id,
+            filename: old.filename,
+            assetType: newAssetType,
+            sourcePath: old.sourcePath,
+            destinationPath: newDestinationPath,
+            targetProject: newTargetProject,
+            timestamp: old.timestamp,
+            status: old.status,
+            isFolder: old.isFolder,
+            fileCount: old.fileCount
+        )
+        saveToDisk()
+        #if DEBUG
+        print("ProcessingHistory: Record bijgewerkt - \(old.filename) → \(newTargetProject)")
+        #endif
+    }
+
     /// Alle records ophalen
     func allRecords() -> [HistoryItem] {
         return records
