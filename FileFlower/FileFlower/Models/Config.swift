@@ -38,6 +38,7 @@ struct Config: Codable {
     var resolveAutoImport: Bool                // Automatisch importeren in Resolve Media Pool
     var showPetalAnimation: Bool              // Toon bloemblaadjes-animatie na succesvolle verwerking
     var selectedNLEs: [String]               // Gekozen NLEs: ["premiere"], ["resolve"], of ["premiere", "resolve"]
+    var fileSafeConfigs: [String: FileSafeShootConfig]  // FileSafe shoot configs per projectpad
 
     static let defaultCloudStorageWebsites = [
         "drive.google.com", "googleusercontent.com",
@@ -104,7 +105,8 @@ struct Config: Codable {
         bringResolveToFront: true,
         resolveAutoImport: true,
         showPetalAnimation: true,
-        selectedNLEs: ["premiere", "resolve"]
+        selectedNLEs: ["premiere", "resolve"],
+        fileSafeConfigs: [:]
     )
 
     // Default init
@@ -145,7 +147,8 @@ struct Config: Codable {
         bringResolveToFront: Bool = true,
         resolveAutoImport: Bool = true,
         showPetalAnimation: Bool = true,
-        selectedNLEs: [String] = ["premiere", "resolve"]
+        selectedNLEs: [String] = ["premiere", "resolve"],
+        fileSafeConfigs: [String: FileSafeShootConfig] = [:]
     ) {
         self.projectRoots = projectRoots
         self.musicClassification = musicClassification
@@ -184,6 +187,7 @@ struct Config: Codable {
         self.resolveAutoImport = resolveAutoImport
         self.showPetalAnimation = showPetalAnimation
         self.selectedNLEs = selectedNLEs
+        self.fileSafeConfigs = fileSafeConfigs
     }
 
     // Custom decoder voor migratie van oude configs
@@ -235,6 +239,7 @@ struct Config: Codable {
         resolveAutoImport = try container.decodeIfPresent(Bool.self, forKey: .resolveAutoImport) ?? true
         showPetalAnimation = try container.decodeIfPresent(Bool.self, forKey: .showPetalAnimation) ?? true
         selectedNLEs = try container.decodeIfPresent([String].self, forKey: .selectedNLEs) ?? ["premiere", "resolve"]
+        fileSafeConfigs = try container.decodeIfPresent([String: FileSafeShootConfig].self, forKey: .fileSafeConfigs) ?? [:]
     }
     
     // Custom encoder
@@ -277,6 +282,7 @@ struct Config: Codable {
         try container.encode(resolveAutoImport, forKey: .resolveAutoImport)
         try container.encode(showPetalAnimation, forKey: .showPetalAnimation)
         try container.encode(selectedNLEs, forKey: .selectedNLEs)
+        try container.encode(fileSafeConfigs, forKey: .fileSafeConfigs)
     }
     
     enum CodingKeys: String, CodingKey {
@@ -317,6 +323,7 @@ struct Config: Codable {
         case resolveAutoImport
         case showPetalAnimation
         case selectedNLEs
+        case fileSafeConfigs
     }
     
     // Helper om alleen custom toegevoegde websites te krijgen (exclusief standaard)

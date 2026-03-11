@@ -12,12 +12,14 @@ struct MainTabView: View {
         case downloadSync = "DownloadSync"
         case folderSync = "FolderSync"
         case loadFolder = "LoadFolder"
+        case fileSafe = "FileSafe"
 
         var icon: String {
             switch self {
             case .downloadSync: return "arrow.down.circle"
             case .folderSync: return "folder.badge.gearshape"
             case .loadFolder: return "folder.badge.plus"
+            case .fileSafe: return "externaldrive.badge.checkmark"
             }
         }
     }
@@ -59,6 +61,8 @@ struct MainTabView: View {
                     FolderSyncView(isShowingForm: $isShowingFolderSyncForm)
                 case .loadFolder:
                     LoadFolderView()
+                case .fileSafe:
+                    FileSafeView()
                 }
             }
             .transition(.opacity)
@@ -73,6 +77,8 @@ struct MainTabView: View {
             return appState.config.folderSyncs.filter { $0.isEnabled }.count
         case .loadFolder:
             return appState.config.loadFolderPresets.count
+        case .fileSafe:
+            return 0
         }
     }
 }
@@ -111,7 +117,7 @@ struct TabButton: View {
                         .clipShape(Capsule())
                 }
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 8)
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 8)
