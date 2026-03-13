@@ -264,6 +264,53 @@ extension AnalyticsEvent {
             "auto_start": .bool(autoStart)
         ])
     }
+
+    // MARK: - FileSafe Events
+
+    static func fileSafeScanStarted(volumeName: String) -> AnalyticsEvent {
+        AnalyticsEvent(eventType: "filesafe_scan_started", eventData: [
+            "volume_name": .string(volumeName)
+        ])
+    }
+
+    static func fileSafeScanCompleted(videoCount: Int, audioCount: Int, photoCount: Int, totalSizeMB: Int) -> AnalyticsEvent {
+        AnalyticsEvent(eventType: "filesafe_scan_completed", eventData: [
+            "video_count": .int(videoCount),
+            "audio_count": .int(audioCount),
+            "photo_count": .int(photoCount),
+            "total_size_mb": .int(totalSizeMB)
+        ])
+    }
+
+    static func fileSafeCopyStarted(fileCount: Int, totalSizeMB: Int) -> AnalyticsEvent {
+        AnalyticsEvent(eventType: "filesafe_copy_started", eventData: [
+            "file_count": .int(fileCount),
+            "total_size_mb": .int(totalSizeMB)
+        ])
+    }
+
+    static func fileSafeCopyCompleted(successCount: Int, failCount: Int, durationMinutes: Int, totalSizeMB: Int) -> AnalyticsEvent {
+        AnalyticsEvent(eventType: "filesafe_copy_completed", eventData: [
+            "success_count": .int(successCount),
+            "fail_count": .int(failCount),
+            "duration_minutes": .int(durationMinutes),
+            "total_size_mb": .int(totalSizeMB)
+        ])
+    }
+
+    static func fileSafeCopyFailed(error: String, fileCount: Int) -> AnalyticsEvent {
+        AnalyticsEvent(eventType: "filesafe_copy_failed", eventData: [
+            "error": .string(error),
+            "file_count": .int(fileCount)
+        ])
+    }
+
+    static func fileSafeChecksumMismatch(fileName: String, retryCount: Int) -> AnalyticsEvent {
+        AnalyticsEvent(eventType: "filesafe_checksum_mismatch", eventData: [
+            "file_name": .string(fileName),
+            "retry_count": .int(retryCount)
+        ])
+    }
 }
 
 // MARK: - AnyCodableValue voor flexibele event data

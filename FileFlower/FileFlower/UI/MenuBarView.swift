@@ -203,6 +203,13 @@ struct MenuBarView: View {
             showingSettings = false
             selectedItemForPicker = nil
         }
+        .onReceive(VolumeDetector.shared.newVolumeDidMount) { _ in
+            // Auto-popup bij aansluiten externe schijf
+            if !StatusBarController.shared.isShown {
+                StatusBarController.shared.showPopover()
+            }
+            appState.shouldSwitchToFileSafeTab = true
+        }
     }
 }
 

@@ -47,6 +47,8 @@ struct FolderTypeMapping: Codable {
     var graphicsPath: String?
     var motionGraphicsPath: String?
     var stockFootagePath: String?
+    var rawFootagePath: String?
+    var photoPath: String?
     var description: String?
     var analyzedAt: Date?
 
@@ -59,6 +61,8 @@ struct FolderTypeMapping: Codable {
         case "Graphic": return graphicsPath
         case "MotionGraphic": return motionGraphicsPath
         case "StockFootage": return stockFootagePath
+        case "RawFootage": return rawFootagePath
+        case "Photo": return photoPath
         default: return nil
         }
     }
