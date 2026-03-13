@@ -183,6 +183,8 @@ class FolderTemplateService {
             graphicsPath: mapping["Graphic"],
             motionGraphicsPath: mapping["MotionGraphic"],
             stockFootagePath: mapping["StockFootage"],
+            rawFootagePath: mapping["RawFootage"],
+            photoPath: mapping["Photo"],
             description: description,
             analyzedAt: Date()
         )

@@ -125,6 +125,7 @@ class AppState: ObservableObject {
     @Published var config: Config = Config.default
     @Published var recentProjects: [ProjectInfo] = []
     @Published var shouldOpenWindow = false
+    @Published var shouldSwitchToFileSafeTab = false
     @Published var isPaused = false
     
     // FolderSync state

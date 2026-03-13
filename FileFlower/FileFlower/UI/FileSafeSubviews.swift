@@ -1,10 +1,48 @@
 import SwiftUI
+import Quartz
+
+// MARK: - QuickLook Coordinator (macOS QLPreviewPanel)
+
+class FileSafeQuickLookCoordinator: NSObject, QLPreviewPanelDataSource {
+    static let shared = FileSafeQuickLookCoordinator()
+
+    private var currentURL: URL?
+
+    /// Toggle QuickLook panel: open als dicht, sluit als open (of wissel bestand)
+    func toggle(url: URL) {
+        guard let panel = QLPreviewPanel.shared() else { return }
+
+        if panel.isVisible {
+            if currentURL == url {
+                panel.orderOut(nil)
+                return
+            }
+            // Ander bestand → update
+            currentURL = url
+            panel.reloadData()
+        } else {
+            currentURL = url
+            panel.dataSource = self
+            panel.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    // MARK: - QLPreviewPanelDataSource
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        currentURL != nil ? 1 : 0
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
+        currentURL as? QLPreviewItem
+    }
+}
 
 // MARK: - Step Indicator
 
 struct FileSafeStepIndicator: View {
     let currentStep: FileSafeStep
-    private let visibleSteps: [FileSafeStep] = [.volumeSelect, .projectSelect, .shootWizard, .structurePreview, .copying, .report]
+    private let visibleSteps: [FileSafeStep] = [.volumeSelect, .projectSelect, .projectConfig, .cardConfig, .structurePreview, .copying, .report]
 
     var body: some View {
         HStack(spacing: 6) {
@@ -44,11 +82,10 @@ struct FileSafeEmptyStateView: View {
 struct FileSafeVolumeSelectView: View {
     @ObservedObject var volumeDetector: VolumeDetector
     let onSelect: (ExternalVolume) -> Void
-    let onBack: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            FileSafeNavBar(title: String(localized: "filesafe.volume.title"), onBack: onBack)
+            FileSafeNavBar(title: String(localized: "filesafe.volume.title"))
 
             if volumeDetector.externalVolumes.isEmpty {
                 VStack(spacing: 12) {
@@ -96,7 +133,7 @@ struct VolumeRow: View {
 
                 Spacer()
 
-                // Capaciteit indicator
+                // Capacity indicator
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(Color.secondary.opacity(0.2))
@@ -128,6 +165,7 @@ struct FileSafeProjectSelectView: View {
     @Binding var isNewProject: Bool
     @Binding var newProjectName: String
     @Binding var selectedProjectPath: String?
+    @Binding var selectedProjectRootPath: String?
     let onConfirm: () -> Void
     let onBack: () -> Void
 
@@ -137,12 +175,23 @@ struct FileSafeProjectSelectView: View {
 
             ScrollView {
                 VStack(spacing: 12) {
-                    // Toggle
-                    Picker("", selection: $isNewProject) {
-                        Text(String(localized: "filesafe.project.new")).tag(true)
-                        Text(String(localized: "filesafe.project.existing")).tag(false)
+                    // New / Existing selection
+                    HStack(spacing: 10) {
+                        FileSafeSelectButton(
+                            title: String(localized: "filesafe.project.new"),
+                            icon: "folder.badge.plus",
+                            isSelected: isNewProject
+                        ) {
+                            isNewProject = true
+                        }
+                        FileSafeSelectButton(
+                            title: String(localized: "filesafe.project.existing"),
+                            icon: "folder",
+                            isSelected: !isNewProject
+                        ) {
+                            isNewProject = false
+                        }
                     }
-                    .pickerStyle(.segmented)
 
                     if isNewProject {
                         newProjectContent
@@ -153,23 +202,22 @@ struct FileSafeProjectSelectView: View {
                 .padding(12)
             }
 
-            // Confirm knop
-            if canConfirm {
-                Button(action: onConfirm) {
-                    Text(String(localized: "filesafe.project.confirm"))
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-                .padding(12)
+            // Confirm button
+            Button(action: onConfirm) {
+                Text(String(localized: "filesafe.project.confirm"))
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .disabled(!canConfirm)
+            .padding(12)
         }
     }
 
     private var canConfirm: Bool {
         if isNewProject {
-            return !newProjectName.trimmingCharacters(in: .whitespaces).isEmpty && selectedProjectPath != nil
+            return !newProjectName.trimmingCharacters(in: .whitespaces).isEmpty && selectedProjectRootPath != nil
         } else {
             return selectedProjectPath != nil
         }
@@ -192,14 +240,21 @@ struct FileSafeProjectSelectView: View {
                     .padding(.top, 4)
 
                 ForEach(appState.config.projectRoots, id: \.self) { root in
-                    Button(action: { selectedProjectPath = root }) {
+                    Button(action: { selectedProjectRootPath = root }) {
                         HStack {
                             Image(systemName: "folder.fill")
                                 .font(.system(size: 12))
-                            Text(URL(fileURLWithPath: root).lastPathComponent)
-                                .font(.system(size: 12))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(URL(fileURLWithPath: root).lastPathComponent)
+                                    .font(.system(size: 12))
+                                Text(root)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
                             Spacer()
-                            if selectedProjectPath == root {
+                            if selectedProjectRootPath == root {
                                 Image(systemName: "checkmark")
                                     .font(.system(size: 11))
                                     .foregroundColor(.accentColor)
@@ -208,14 +263,14 @@ struct FileSafeProjectSelectView: View {
                         .padding(8)
                         .background(
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(selectedProjectPath == root ? Color.accentColor.opacity(0.1) : Color(.controlBackgroundColor))
+                                .fill(selectedProjectRootPath == root ? Color.accentColor.opacity(0.1) : Color(.controlBackgroundColor))
                         )
                     }
                     .buttonStyle(.plain)
                 }
             }
 
-            Button(action: pickFolder) {
+            Button(action: pickNewProjectFolder) {
                 Label(String(localized: "filesafe.project.browse"), systemImage: "folder.badge.plus")
                     .font(.system(size: 12))
             }
@@ -223,6 +278,9 @@ struct FileSafeProjectSelectView: View {
             .controlSize(.small)
         }
     }
+
+    @State private var searchText: String = ""
+    @State private var sortMode: ProjectSortMode = .name
 
     private var existingProjectContent: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -231,42 +289,92 @@ struct FileSafeProjectSelectView: View {
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             } else {
-                ForEach(appState.config.projectRoots, id: \.self) { root in
-                    let subfolders = listSubfolders(at: root)
-                    if !subfolders.isEmpty {
-                        Text(URL(fileURLWithPath: root).lastPathComponent)
-                            .font(.system(size: 11, weight: .medium))
+                // Zoek + sorteer toolbar
+                HStack(spacing: 8) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11))
                             .foregroundColor(.secondary)
-                            .padding(.top, 4)
+                        TextField(String(localized: "filesafe.project.search.placeholder"), text: $searchText)
+                            .font(.system(size: 12))
+                            .textFieldStyle(.plain)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(.controlBackgroundColor))
+                    )
 
-                        ForEach(subfolders, id: \.self) { folder in
-                            Button(action: { selectedProjectPath = folder }) {
-                                HStack {
-                                    Image(systemName: "folder.fill")
+                    Menu {
+                        ForEach(ProjectSortMode.allCases, id: \.self) { mode in
+                            Button(action: { sortMode = mode }) {
+                                Label(mode.displayName, systemImage: sortMode == mode ? "checkmark" : mode.icon)
+                            }
+                        }
+                    } label: {
+                        Label(sortMode.displayName, systemImage: "arrow.up.arrow.down")
+                            .font(.system(size: 11))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
+
+                // Gefilterde en gesorteerde projectlijst
+                let projects = loadAndFilterProjects()
+                if projects.isEmpty {
+                    Text(String(localized: "filesafe.project.no_results"))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .padding(.vertical, 8)
+                } else {
+                    ForEach(projects) { project in
+                        Button(action: { selectedProjectPath = project.path }) {
+                            HStack(spacing: 8) {
+                                // Star toggle
+                                Button(action: { toggleStar(for: project.path) }) {
+                                    Image(systemName: project.isStarred ? "star.fill" : "star")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(project.isStarred ? .yellow : .secondary.opacity(0.4))
+                                }
+                                .buttonStyle(.plain)
+
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.accentColor)
+
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(project.name)
                                         .font(.system(size: 12))
-                                        .foregroundColor(.accentColor)
-                                    Text(URL(fileURLWithPath: folder).lastPathComponent)
-                                        .font(.system(size: 12))
-                                    Spacer()
-                                    if selectedProjectPath == folder {
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.accentColor)
+                                        .lineLimit(1)
+
+                                    if let date = project.modificationDate {
+                                        Text(date, style: .relative)
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.secondary)
                                     }
                                 }
-                                .padding(8)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(selectedProjectPath == folder ? Color.accentColor.opacity(0.1) : Color(.controlBackgroundColor))
-                                )
+
+                                Spacer()
+
+                                if selectedProjectPath == project.path {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.accentColor)
+                                }
                             }
-                            .buttonStyle(.plain)
+                            .padding(8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(selectedProjectPath == project.path ? Color.accentColor.opacity(0.1) : Color(.controlBackgroundColor))
+                            )
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
 
-            Button(action: pickFolder) {
+            Button(action: pickExistingProjectFolder) {
                 Label(String(localized: "filesafe.project.browse"), systemImage: "folder.badge.plus")
                     .font(.system(size: 12))
             }
@@ -275,7 +383,88 @@ struct FileSafeProjectSelectView: View {
         }
     }
 
-    private func pickFolder() {
+    // MARK: - Project List Helpers
+
+    struct ProjectListItem: Identifiable {
+        let id: String
+        let path: String
+        let name: String
+        let modificationDate: Date?
+        let isStarred: Bool
+    }
+
+    private func loadAndFilterProjects() -> [ProjectListItem] {
+        var allProjects: [ProjectListItem] = []
+
+        for root in appState.config.projectRoots {
+            let subfolders = listSubfolders(at: root)
+            for folder in subfolders {
+                let name = URL(fileURLWithPath: folder).lastPathComponent
+                let modDate = modificationDate(for: folder)
+                let isStarred = appState.config.starredProjects.contains(folder)
+                allProjects.append(ProjectListItem(
+                    id: folder,
+                    path: folder,
+                    name: name,
+                    modificationDate: modDate,
+                    isStarred: isStarred
+                ))
+            }
+        }
+
+        // Filter
+        let filtered: [ProjectListItem]
+        if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
+            filtered = allProjects
+        } else {
+            let query = searchText.lowercased()
+            filtered = allProjects.filter { $0.name.lowercased().contains(query) }
+        }
+
+        // Splits starred/unstarred
+        let starred = filtered.filter { $0.isStarred }
+        let unstarred = filtered.filter { !$0.isStarred }
+
+        // Sorteer
+        let sortFn: (ProjectListItem, ProjectListItem) -> Bool
+        switch sortMode {
+        case .name:
+            sortFn = { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .dateNewest:
+            sortFn = { ($0.modificationDate ?? .distantPast) > ($1.modificationDate ?? .distantPast) }
+        case .dateOldest:
+            sortFn = { ($0.modificationDate ?? .distantPast) < ($1.modificationDate ?? .distantPast) }
+        }
+
+        return starred.sorted(by: sortFn) + unstarred.sorted(by: sortFn)
+    }
+
+    private func modificationDate(for path: String) -> Date? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let date = attrs[.modificationDate] as? Date else { return nil }
+        return date
+    }
+
+    private func toggleStar(for path: String) {
+        if let index = appState.config.starredProjects.firstIndex(of: path) {
+            appState.config.starredProjects.remove(at: index)
+        } else {
+            appState.config.starredProjects.append(path)
+        }
+        AppState.shared.saveConfig()
+    }
+
+    private func pickNewProjectFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            selectedProjectRootPath = url.path
+        }
+    }
+
+    private func pickExistingProjectFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -370,34 +559,51 @@ struct ScanCountBadge: View {
     }
 }
 
-// MARK: - Shoot Wizard
+// MARK: - Project Config View
 
-struct FileSafeShootWizardView: View {
-    @Binding var config: FileSafeShootConfig
+struct FileSafeProjectConfigView: View {
+    @Binding var config: FileSafeProjectConfig
     let scanResult: FileSafeScanResult
-    let onPreview: () -> Void
+    let onContinue: () -> Void
     let onBack: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            FileSafeNavBar(title: String(localized: "filesafe.wizard.title"), onBack: onBack)
+            FileSafeNavBar(title: String(localized: "filesafe.projectconfig.title"), onBack: onBack)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Algemeen
+                    // Detected camera brand badge
+                    if scanResult.detectedBrand != .unknown {
+                        HStack(spacing: 6) {
+                            Image(systemName: scanResult.detectedBrand.icon)
+                                .font(.system(size: 11))
+                            Text(scanResult.detectedBrand.rawValue)
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            Capsule()
+                                .fill(Color.accentColor.opacity(0.15))
+                        )
+                        .foregroundColor(.accentColor)
+                    }
+
+                    // General section
                     generalSection
 
-                    // Video
+                    // Video section
                     if scanResult.hasVideo {
                         videoSection
                     }
 
-                    // Audio
+                    // Audio section
                     if scanResult.hasAudio {
                         audioSection
                     }
 
-                    // Foto
+                    // Photo section
                     if scanResult.hasPhoto {
                         photoSection
                     }
@@ -405,9 +611,9 @@ struct FileSafeShootWizardView: View {
                 .padding(12)
             }
 
-            // Preview knop
-            Button(action: onPreview) {
-                Text(String(localized: "filesafe.wizard.preview"))
+            // Continue button
+            Button(action: onContinue) {
+                Text(String(localized: "filesafe.projectconfig.continue"))
                     .font(.system(size: 13, weight: .medium))
                     .frame(maxWidth: .infinity)
             }
@@ -417,112 +623,120 @@ struct FileSafeShootWizardView: View {
         }
     }
 
-    // MARK: - Secties
+    // MARK: - Sections
 
     private var generalSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(title: String(localized: "filesafe.wizard.general"), icon: "calendar")
+            SectionHeader(title: String(localized: "filesafe.projectconfig.general"), icon: "gearshape")
 
-            // Aantal filmdagen
-            HStack {
-                Text(String(localized: "filesafe.wizard.days"))
-                    .font(.system(size: 12))
-                Spacer()
-                Stepper(
-                    "\(config.shootDays.count)",
-                    onIncrement: {
-                        let newDay = FileSafeShootDay(dayNumber: config.shootDays.count + 1)
-                        config.shootDays.append(newDay)
-                    },
-                    onDecrement: {
-                        if config.shootDays.count > 1 {
-                            config.shootDays.removeLast()
+            // Multi-day toggle
+            Toggle(String(localized: "filesafe.projectconfig.multiday"), isOn: $config.isMultiDayShoot)
+                .font(.system(size: 12))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+            // Date source picker (alleen bij multi-day)
+            if config.isMultiDayShoot {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(String(localized: "filesafe.projectconfig.datesource"))
+                        .font(.system(size: 12))
+                    Picker("", selection: $config.dateSource) {
+                        ForEach(FileSafeDateSource.allCases, id: \.rawValue) { source in
+                            Text(source.displayName).tag(source)
                         }
                     }
-                )
-                .font(.system(size: 12))
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
             }
 
-            // Optionele locatie
-            HStack {
-                Text(String(localized: "filesafe.wizard.location"))
-                    .font(.system(size: 12))
-                Spacer()
-                TextField(String(localized: "filesafe.wizard.location.placeholder"), text: Binding(
-                    get: { config.location ?? "" },
-                    set: { config.location = $0.isEmpty ? nil : $0 }
-                ))
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11))
-                .frame(maxWidth: 150)
-            }
         }
     }
 
     private var videoSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             SectionHeader(
-                title: String(localized: "filesafe.wizard.video"),
+                title: String(localized: "filesafe.projectconfig.video"),
                 icon: "film",
                 badge: "\(scanResult.videoCount)"
             )
 
-            TagInputView(
-                title: String(localized: "filesafe.wizard.cameras"),
-                placeholder: String(localized: "filesafe.wizard.cameras.placeholder"),
-                tags: $config.cameraAngles
-            )
-
-            Toggle(String(localized: "filesafe.wizard.timestamp"), isOn: $config.useTimestampAssignment)
+            // Multiple cameras toggle
+            Toggle(String(localized: "filesafe.projectconfig.multicam"), isOn: $config.hasMultipleCameras)
                 .font(.system(size: 12))
                 .toggleStyle(.switch)
                 .controlSize(.small)
+
+            if !config.hasMultipleCameras {
+                Text(String(localized: "filesafe.projectconfig.multicam.hint"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+
+            if config.hasMultipleCameras {
+                // Camera split mode picker
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(String(localized: "filesafe.projectconfig.splitmode"))
+                        .font(.system(size: 12))
+                    Picker("", selection: $config.cameraSplitMode) {
+                        Text(FileSafeCameraSplitMode.byType.displayName).tag(FileSafeCameraSplitMode.byType)
+                        Text(FileSafeCameraSplitMode.byAngle.displayName).tag(FileSafeCameraSplitMode.byAngle)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                }
+
+                // Camera labels
+                Text(config.cameraSplitMode == .byAngle
+                    ? String(localized: "filesafe.projectconfig.camera_angles.placeholder")
+                    : String(localized: "filesafe.projectconfig.camera_names.placeholder"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
         }
     }
 
     private var audioSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             SectionHeader(
-                title: String(localized: "filesafe.wizard.audio"),
+                title: String(localized: "filesafe.projectconfig.audio"),
                 icon: "waveform",
                 badge: "\(scanResult.audioCount)"
             )
 
             TagInputView(
-                title: String(localized: "filesafe.wizard.persons"),
-                placeholder: String(localized: "filesafe.wizard.persons.placeholder"),
+                title: String(localized: "filesafe.projectconfig.persons"),
+                placeholder: String(localized: "filesafe.projectconfig.persons.placeholder"),
                 tags: $config.audioPersons
             )
 
-            Toggle(String(localized: "filesafe.wizard.wildtrack"), isOn: $config.hasWildtrack)
+            Toggle(String(localized: "filesafe.projectconfig.wildtrack"), isOn: $config.hasWildtrack)
                 .font(.system(size: 12))
                 .toggleStyle(.switch)
                 .controlSize(.small)
 
-            if config.shootDays.count > 1 {
-                Toggle(String(localized: "filesafe.wizard.audio_per_day"), isOn: $config.linkAudioToDayStructure)
-                    .font(.system(size: 12))
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-            }
+            Toggle(String(localized: "filesafe.projectconfig.audio_per_day"), isOn: $config.linkAudioToDayStructure)
+                .font(.system(size: 12))
+                .toggleStyle(.switch)
+                .controlSize(.small)
         }
     }
 
     private var photoSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             SectionHeader(
-                title: String(localized: "filesafe.wizard.photos"),
+                title: String(localized: "filesafe.projectconfig.photos"),
                 icon: "photo",
                 badge: "\(scanResult.photoCount)"
             )
 
             TagInputView(
-                title: String(localized: "filesafe.wizard.categories"),
-                placeholder: String(localized: "filesafe.wizard.categories.placeholder"),
+                title: String(localized: "filesafe.projectconfig.categories"),
+                placeholder: String(localized: "filesafe.projectconfig.categories.placeholder"),
                 tags: $config.photoCategories
             )
 
-            Toggle(String(localized: "filesafe.wizard.split_raw"), isOn: $config.splitRawJpeg)
+            Toggle(String(localized: "filesafe.projectconfig.split_raw"), isOn: $config.splitRawJpeg)
                 .font(.system(size: 12))
                 .toggleStyle(.switch)
                 .controlSize(.small)
@@ -530,28 +744,945 @@ struct FileSafeShootWizardView: View {
     }
 }
 
-struct SectionHeader: View {
-    let title: String
-    let icon: String
-    var badge: String? = nil
+// MARK: - Card Config View
+
+struct FileSafeCardConfigView: View {
+    @Binding var cardConfig: FileSafeCardConfig
+    let projectConfig: FileSafeProjectConfig
+    let scanResult: FileSafeScanResult
+    let folderPreset: FolderStructurePreset
+    let customTemplate: CustomFolderTemplate?
+    let onPreview: () -> Void
+    let onBack: () -> Void
+
+    private var dateFormatter: DateFormatter {
+        let f = DateFormatter()
+        f.dateFormat = "dd-MM-yyyy"
+        return f
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            FileSafeNavBar(title: String(localized: "filesafe.cardconfig.title"), onBack: onBack)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    // Detected info banner
+                    detectedInfoBanner
+
+                    // Day configuration (read-only)
+                    if projectConfig.isMultiDayShoot {
+                        multiDaySection
+                    } else {
+                        singleDaySection
+                    }
+
+                    // Video bins + bestandsbrowser
+                    if scanResult.hasVideo {
+                        FileSafeCategoryBinEditor(
+                            category: .video,
+                            files: scanResult.videoFiles,
+                            shootDays: cardConfig.shootDays,
+                            isMultiDay: projectConfig.isMultiDayShoot,
+                            useTimestamp: projectConfig.useTimestampAssignment,
+                            bins: $cardConfig.videoBins,
+                            fileSubfolderMap: $cardConfig.fileSubfolderMap
+                        )
+                    }
+
+                    // Foto bins + bestandsbrowser
+                    if scanResult.hasPhoto {
+                        FileSafeCategoryBinEditor(
+                            category: .photo,
+                            files: scanResult.photoFiles,
+                            shootDays: cardConfig.shootDays,
+                            isMultiDay: projectConfig.isMultiDayShoot,
+                            useTimestamp: projectConfig.useTimestampAssignment,
+                            bins: $cardConfig.photoBins,
+                            fileSubfolderMap: $cardConfig.fileSubfolderMap
+                        )
+                    }
+
+                    // Live path preview
+                    FileSafePathPreview(
+                        projectConfig: projectConfig,
+                        cardConfig: cardConfig,
+                        scanResult: scanResult,
+                        folderPreset: folderPreset,
+                        customTemplate: customTemplate
+                    )
+                }
+                .padding(12)
+            }
+
+            // Preview button
+            Button(action: onPreview) {
+                Text(String(localized: "filesafe.cardconfig.preview"))
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .padding(12)
+        }
+    }
+
+    private var detectedInfoBanner: some View {
+        HStack(spacing: 8) {
+            if scanResult.detectedBrand != .unknown {
+                HStack(spacing: 4) {
+                    Image(systemName: scanResult.detectedBrand.icon)
+                        .font(.system(size: 11))
+                    Text(scanResult.detectedBrand.rawValue)
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundColor(.accentColor)
+            }
+
+            if let earliest = scanResult.earliestDate {
+                HStack(spacing: 4) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 11))
+                    Text(String(localized: "filesafe.cardconfig.material_from \(dateFormatter.string(from: earliest))"))
+                        .font(.system(size: 11))
+                }
+                .foregroundColor(.secondary)
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(.controlBackgroundColor))
+        )
+    }
+
+    private var multiDaySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeader(title: String(localized: "filesafe.cardconfig.days"), icon: "calendar")
+
+            ForEach(cardConfig.shootDays.indices, id: \.self) { index in
+                HStack {
+                    Text(String(localized: "filesafe.cardconfig.day \(index + 1)"))
+                        .font(.system(size: 12))
+                    Spacer()
+                    if let date = cardConfig.shootDays[index].date {
+                        Text(dateFormatter.string(from: date))
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+            }
+        }
+    }
+
+    private var singleDaySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeader(title: String(localized: "filesafe.cardconfig.date"), icon: "calendar")
+
+            if let day = cardConfig.shootDays.first, let date = day.date {
+                HStack {
+                    Text(String(localized: "filesafe.cardconfig.detected_date"))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Text(dateFormatter.string(from: date))
+                        .font(.system(size: 12, weight: .medium))
+                }
+            }
+        }
+    }
+
+    private var videoSubfoldersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if projectConfig.hasMultipleCameras {
+                SectionHeader(
+                    title: projectConfig.cameraSplitMode == .byAngle
+                        ? String(localized: "filesafe.projectconfig.camera_angles")
+                        : String(localized: "filesafe.projectconfig.camera_names"),
+                    icon: "video",
+                    badge: "\(scanResult.videoCount)"
+                )
+
+                SubfolderListEditor(
+                    subfolders: $cardConfig.videoSubfolders,
+                    placeholder: projectConfig.cameraSplitMode == .byAngle
+                        ? String(localized: "filesafe.cardconfig.camera_angle.placeholder")
+                        : String(localized: "filesafe.cardconfig.camera_label.placeholder"),
+                    minCount: 1
+                )
+            } else {
+                SectionHeader(
+                    title: String(localized: "filesafe.cardconfig.video_subfolders"),
+                    icon: "video",
+                    badge: "\(scanResult.videoCount)"
+                )
+
+                SubfolderListEditor(
+                    subfolders: $cardConfig.videoSubfolders,
+                    placeholder: String(localized: "filesafe.cardconfig.video_subfolder.placeholder")
+                )
+            }
+        }
+    }
+
+    private var photoSubfoldersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeader(
+                title: String(localized: "filesafe.cardconfig.photo_subfolders"),
+                icon: "photo",
+                badge: "\(scanResult.photoCount)"
+            )
+
+            SubfolderListEditor(
+                subfolders: $cardConfig.photoSubfolders,
+                placeholder: String(localized: "filesafe.cardconfig.photo_subfolder.placeholder")
+            )
+        }
+    }
+}
+
+// MARK: - Path Preview
+
+// MARK: - Subfolder List Editor
+
+struct SubfolderListEditor: View {
+    @Binding var subfolders: [String]
+    let placeholder: String
+    var minCount: Int = 0  // Minimum aantal velden (bijv. 1 voor camera label)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(subfolders.enumerated()), id: \.offset) { index, _ in
+                HStack(spacing: 6) {
+                    if subfolders.count > 1 {
+                        Text("\(index + 1).")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .frame(width: 16)
+                    }
+
+                    TextField(placeholder, text: safeBinding(at: index))
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12))
+
+                    if subfolders.count > minCount {
+                        Button(action: { removeItem(at: index) }) {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            Button(action: {
+                withAnimation { subfolders.append("") }
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 12))
+                    Text(String(localized: "filesafe.cardconfig.add_subfolder"))
+                        .font(.system(size: 11))
+                }
+                .foregroundColor(.accentColor)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func safeBinding(at index: Int) -> Binding<String> {
+        Binding(
+            get: { index < subfolders.count ? subfolders[index] : "" },
+            set: { newValue in if index < subfolders.count { subfolders[index] = newValue } }
+        )
+    }
+
+    private func removeItem(at index: Int) {
+        guard index < subfolders.count, subfolders.count > minCount else { return }
+        withAnimation { let _ = subfolders.remove(at: index) }
+    }
+}
+
+// MARK: - Category Bin Editor (vervangt SubfolderListEditor in Card Config)
+
+struct FileSafeCategoryBinEditor: View {
+    let category: FileSafeFileCategory
+    let files: [FileSafeSourceFile]
+    let shootDays: [FileSafeShootDay]
+    let isMultiDay: Bool
+    let useTimestamp: Bool
+    @Binding var bins: [FileSafeSubfolderBin]
+    @Binding var fileSubfolderMap: [UUID: String]
+
+    @State private var newBinName: String = ""
+    @State private var selectedFileIDs: Set<UUID> = []
+    @State private var lastClickedFileID: UUID?
+    @State private var isFileBrowserExpanded: Bool = false
+
+    private var filesByDay: [UUID: [FileSafeSourceFile]] {
+        FileSafeStructureBuilder.shared.assignFilesToDays(
+            files: files,
+            shootDays: shootDays,
+            useTimestamp: useTimestamp
+        )
+    }
+
+    /// Flat ordered list of all files (for shift-select range calculation)
+    private var allFilesFlat: [FileSafeSourceFile] {
+        if isMultiDay && shootDays.count > 1 {
+            return shootDays.flatMap { day in filesByDay[day.id] ?? [] }
+        } else {
+            return files
+        }
+    }
+
+    private var binNames: [String] {
+        bins.map { $0.name.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    private var totalSize: Int64 {
+        files.reduce(0) { $0 + $1.fileSize }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Section header
+            SectionHeader(
+                title: category == .video
+                    ? String(localized: "filesafe.cardconfig.video_subfolders")
+                    : String(localized: "filesafe.cardconfig.photo_subfolders"),
+                icon: category == .video ? "video" : "photo",
+                badge: "\(files.count)"
+            )
+
+            // Bins lijst
+            if !bins.isEmpty {
+                VStack(spacing: 4) {
+                    ForEach(bins) { bin in
+                        FileSafeBinRow(
+                            bin: bindingForBin(bin.id),
+                            fileCount: fileSubfolderMap.values.filter { $0 == bin.name }.count,
+                            onRemove: { removeBin(bin) }
+                        )
+                    }
+                }
+            }
+
+            // Nieuwe bin toevoegen
+            HStack(spacing: 6) {
+                TextField(String(localized: "filesafe.cardconfig.bins.name_placeholder"), text: $newBinName)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                    .onSubmit { addBin() }
+
+                Button(action: addBin) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(newBinName.trimmingCharacters(in: .whitespaces).isEmpty ? .secondary : .accentColor)
+                }
+                .buttonStyle(.plain)
+                .disabled(newBinName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
+            // Uitklapbare bestandslijst
+            DisclosureGroup(
+                isExpanded: $isFileBrowserExpanded,
+                content: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        if isMultiDay && shootDays.count > 1 {
+                            // Multi-day: per dag
+                            ForEach(shootDays) { day in
+                                let dayFiles = filesByDay[day.id] ?? []
+                                if !dayFiles.isEmpty {
+                                    FileSafeDayFileSection(
+                                        day: day,
+                                        files: dayFiles,
+                                        binNames: binNames,
+                                        fileSubfolderMap: $fileSubfolderMap,
+                                        selectedFileIDs: $selectedFileIDs,
+                                        onFileClick: { file, modifiers in
+                                            handleFileClick(file: file, modifiers: modifiers)
+                                        }
+                                    )
+                                }
+                            }
+                        } else {
+                            // Single-day: bestanden direct
+                            LazyVStack(alignment: .leading, spacing: 1) {
+                                ForEach(files) { file in
+                                    FileSafeFileRow(
+                                        file: file,
+                                        binNames: binNames,
+                                        fileSubfolderMap: $fileSubfolderMap,
+                                        isSelected: selectedFileIDs.contains(file.id),
+                                        onFileClick: { modifiers in
+                                            handleFileClick(file: file, modifiers: modifiers)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    .padding(.top, 4)
+                    .onKeyPress(.space) {
+                        openQuickLook()
+                        return .handled
+                    }
+                },
+                label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "internaldrive")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                        Text(String(localized: "filesafe.cardconfig.files_on_card"))
+                            .font(.system(size: 12, weight: .medium))
+                        Spacer()
+                        Text("\(files.count)")
+                            .font(.system(size: 10, weight: .medium))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.secondary.opacity(0.15))
+                            .clipShape(Capsule())
+                            .foregroundColor(.secondary)
+                        Text(ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file))
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            )
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(.controlBackgroundColor))
+            )
+            .focusable()
+
+            // Batch action bar (alleen zichtbaar als bestanden geselecteerd)
+            if !selectedFileIDs.isEmpty && !binNames.isEmpty {
+                HStack(spacing: 8) {
+                    Text(String(localized: "filesafe.cardconfig.selected_count \(selectedFileIDs.count)"))
+                        .font(.system(size: 11, weight: .medium))
+
+                    Spacer()
+
+                    Text(String(localized: "filesafe.cardconfig.assign_to"))
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+
+                    Menu {
+                        Button(String(localized: "filesafe.cardconfig.unassigned")) {
+                            batchAssign(to: nil)
+                        }
+                        Divider()
+                        ForEach(binNames, id: \.self) { name in
+                            Button(name) {
+                                batchAssign(to: name)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(String(localized: "filesafe.cardconfig.assign_to"))
+                                .font(.system(size: 11, weight: .medium))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 9))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 5).fill(Color.accentColor))
+                        .foregroundColor(.white)
+                    }
+                }
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.accentColor.opacity(0.1))
+                )
+            }
+        }
+    }
+
+    // MARK: - File Selection (Finder-style)
+
+    private func handleFileClick(file: FileSafeSourceFile, modifiers: EventModifiers) {
+        let flatFiles = allFilesFlat
+
+        if modifiers.contains(.shift), let lastID = lastClickedFileID {
+            // Shift+click: range selectie
+            guard let lastIndex = flatFiles.firstIndex(where: { $0.id == lastID }),
+                  let currentIndex = flatFiles.firstIndex(where: { $0.id == file.id }) else {
+                selectedFileIDs = [file.id]
+                lastClickedFileID = file.id
+                return
+            }
+            let range = min(lastIndex, currentIndex)...max(lastIndex, currentIndex)
+            let rangeIDs = Set(flatFiles[range].map(\.id))
+            if modifiers.contains(.command) {
+                // Shift+Cmd: voeg range toe aan bestaande selectie
+                selectedFileIDs.formUnion(rangeIDs)
+            } else {
+                // Shift alleen: vervang selectie met range
+                selectedFileIDs = rangeIDs
+            }
+        } else if modifiers.contains(.command) {
+            // Cmd+click: toggle individueel bestand
+            if selectedFileIDs.contains(file.id) {
+                selectedFileIDs.remove(file.id)
+            } else {
+                selectedFileIDs.insert(file.id)
+            }
+            lastClickedFileID = file.id
+        } else {
+            // Gewone click: selecteer alleen dit bestand
+            selectedFileIDs = [file.id]
+            lastClickedFileID = file.id
+        }
+    }
+
+    // MARK: - QuickLook
+
+    private func openQuickLook() {
+        // Preview het laatst geklikte bestand (of het eerste geselecteerde)
+        let targetID = lastClickedFileID ?? selectedFileIDs.first
+        guard let fileID = targetID,
+              let file = allFilesFlat.first(where: { $0.id == fileID }) else { return }
+        let url = URL(fileURLWithPath: file.relativePath)
+        FileSafeQuickLookCoordinator.shared.toggle(url: url)
+    }
+
+    // MARK: - Bin Actions
+
+    private func addBin() {
+        let name = newBinName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        guard !bins.contains(where: { $0.name == name }) else { return }
+        withAnimation { bins.append(FileSafeSubfolderBin(name: name)) }
+        newBinName = ""
+    }
+
+    private func removeBin(_ bin: FileSafeSubfolderBin) {
+        withAnimation {
+            fileSubfolderMap = fileSubfolderMap.filter { $0.value != bin.name }
+            bins.removeAll { $0.id == bin.id }
+        }
+    }
+
+    private func batchAssign(to binName: String?) {
+        withAnimation {
+            for id in selectedFileIDs {
+                if let name = binName {
+                    fileSubfolderMap[id] = name
+                } else {
+                    fileSubfolderMap.removeValue(forKey: id)
+                }
+            }
+            selectedFileIDs.removeAll()
+        }
+    }
+
+    private func bindingForBin(_ binId: UUID) -> Binding<FileSafeSubfolderBin> {
+        Binding(
+            get: { bins.first(where: { $0.id == binId }) ?? FileSafeSubfolderBin(name: "") },
+            set: { newValue in
+                if let index = bins.firstIndex(where: { $0.id == binId }) {
+                    let oldName = bins[index].name
+                    bins[index] = newValue
+                    if oldName != newValue.name && !oldName.isEmpty {
+                        for (key, value) in fileSubfolderMap where value == oldName {
+                            fileSubfolderMap[key] = newValue.name
+                        }
+                    }
+                }
+            }
+        )
+    }
+}
+
+// MARK: - Bin Row
+
+struct FileSafeBinRow: View {
+    @Binding var bin: FileSafeSubfolderBin
+    let fileCount: Int
+    let onRemove: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: icon)
-                .font(.system(size: 12))
+            Image(systemName: "folder.fill")
+                .font(.system(size: 11))
                 .foregroundColor(.accentColor)
-            Text(title)
-                .font(.system(size: 13, weight: .semibold))
-            if let badge = badge {
-                Text(badge)
-                    .font(.system(size: 10, weight: .medium))
-                    .padding(.horizontal, 5)
+
+            TextField("", text: $bin.name)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+
+            Text(String(localized: "filesafe.cardconfig.bins.files_count \(fileCount)"))
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .frame(minWidth: 50)
+
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+// MARK: - Day File Section (per dag)
+
+struct FileSafeDayFileSection: View {
+    let day: FileSafeShootDay
+    let files: [FileSafeSourceFile]
+    let binNames: [String]
+    @Binding var fileSubfolderMap: [UUID: String]
+    @Binding var selectedFileIDs: Set<UUID>
+    var onFileClick: (FileSafeSourceFile, EventModifiers) -> Void
+
+    @State private var isExpanded: Bool = false
+
+    private var dateFormatter: DateFormatter {
+        let f = DateFormatter()
+        f.dateFormat = "dd-MM-yyyy"
+        return f
+    }
+
+    var body: some View {
+        DisclosureGroup(
+            isExpanded: $isExpanded,
+            content: {
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    ForEach(files) { file in
+                        FileSafeFileRow(
+                            file: file,
+                            binNames: binNames,
+                            fileSubfolderMap: $fileSubfolderMap,
+                            isSelected: selectedFileIDs.contains(file.id),
+                            onFileClick: { modifiers in
+                                onFileClick(file, modifiers)
+                            }
+                        )
+                    }
+                }
+            },
+            label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                    Text(day.displayName)
+                        .font(.system(size: 11, weight: .medium))
+                    if let date = day.date {
+                        Text(dateFormatter.string(from: date))
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Text("\(files.count)")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+            }
+        )
+    }
+}
+
+// MARK: - File Row
+
+struct FileSafeFileRow: View {
+    let file: FileSafeSourceFile
+    let binNames: [String]
+    @Binding var fileSubfolderMap: [UUID: String]
+    let isSelected: Bool
+    var onFileClick: (EventModifiers) -> Void
+
+    private var currentAssignment: String? {
+        fileSubfolderMap[file.id]
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            // Selectie indicator
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 12))
+                .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.4))
+
+            // File icon
+            Image(systemName: file.category == .video ? "film" : "photo")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .frame(width: 14)
+
+            // Filename
+            Text(file.fileName)
+                .font(.system(size: 11, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Spacer()
+
+            // File size
+            Text(ByteCountFormatter.string(fromByteCount: file.fileSize, countStyle: .file))
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+                .frame(minWidth: 55, alignment: .trailing)
+
+            // Bin picker
+            if !binNames.isEmpty {
+                Menu {
+                    Button {
+                        fileSubfolderMap.removeValue(forKey: file.id)
+                    } label: {
+                        HStack {
+                            Text("—")
+                            if currentAssignment == nil {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                    Divider()
+                    ForEach(binNames, id: \.self) { name in
+                        Button {
+                            fileSubfolderMap[file.id] = name
+                        } label: {
+                            HStack {
+                                Text(name)
+                                if currentAssignment == name {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(currentAssignment ?? "—")
+                            .font(.system(size: 10, weight: currentAssignment != nil ? .medium : .regular))
+                            .foregroundColor(currentAssignment != nil ? .accentColor : .secondary)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 7))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(Color.accentColor.opacity(0.15))
-                    .foregroundColor(.accentColor)
-                    .clipShape(Capsule())
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(currentAssignment != nil ? Color.accentColor.opacity(0.1) : Color(.controlBackgroundColor))
+                    )
+                }
+                .frame(minWidth: 80)
             }
         }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onFileClick([])
+        }
+        .simultaneousGesture(
+            TapGesture().modifiers(.shift).onEnded {
+                onFileClick(.shift)
+            }
+        )
+        .simultaneousGesture(
+            TapGesture().modifiers(.command).onEnded {
+                onFileClick(.command)
+            }
+        )
+        .simultaneousGesture(
+            TapGesture().modifiers([.shift, .command]).onEnded {
+                onFileClick([.shift, .command])
+            }
+        )
+    }
+}
+
+// MARK: - Path Preview
+
+struct FileSafePathPreview: View {
+    let projectConfig: FileSafeProjectConfig
+    let cardConfig: FileSafeCardConfig
+    let scanResult: FileSafeScanResult
+    let folderPreset: FolderStructurePreset
+    let customTemplate: CustomFolderTemplate?
+
+    @State private var isExpanded: Bool = true
+
+    private var examplePaths: [String] {
+        var paths: [String] = []
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "ddMMyyyy"
+
+        let dayLabel: String
+        if let firstDay = cardConfig.shootDays.first, let date = firstDay.date {
+            if projectConfig.isMultiDayShoot {
+                dayLabel = "Dag 1_\(dayFormatter.string(from: date))"
+            } else {
+                dayLabel = dayFormatter.string(from: date)
+            }
+        } else {
+            dayLabel = dayFormatter.string(from: Date())
+        }
+
+        // Resolve dynamische basispaden uit template
+        let basePaths = FileSafeStructureBuilder.shared.resolveBasePaths(
+            preset: folderPreset,
+            customTemplate: customTemplate
+        )
+
+        // Bepaal video/foto base paths (zelfde logica als buildStructure)
+        let videoBase: String
+        let photoBase: String
+        if basePaths.photosInFootage && scanResult.hasVideo && scanResult.hasPhoto {
+            videoBase = "\(basePaths.footagePath)/Video"
+            photoBase = "\(basePaths.footagePath)/Photo"
+        } else {
+            videoBase = basePaths.footagePath
+            photoBase = basePaths.photoPath
+        }
+
+        // Video example paths
+        if scanResult.hasVideo {
+            let videoBinNames = cardConfig.effectiveVideoBinNames
+            if !videoBinNames.isEmpty {
+                // Bin-gebaseerd: toon 1 voorbeeld per bin + 1 unassigned
+                for binName in videoBinNames.prefix(2) {
+                    // Zoek een bestand dat aan deze bin is toegewezen
+                    if let sampleFile = scanResult.videoFiles.first(where: {
+                        cardConfig.fileSubfolderMap[$0.id] == binName
+                    }) ?? scanResult.videoFiles.first {
+                        paths.append("\(videoBase)/\(dayLabel)/\(binName)/\(sampleFile.fileName)")
+                    }
+                }
+                // Toon ook unassigned voorbeeld als er bestanden zonder bin zijn
+                let assignedBins = Set(videoBinNames)
+                if let unassigned = scanResult.videoFiles.first(where: {
+                    guard let assignment = cardConfig.fileSubfolderMap[$0.id] else { return true }
+                    return !assignedBins.contains(assignment)
+                }) {
+                    paths.append("\(videoBase)/\(dayLabel)/\(unassigned.fileName)")
+                }
+            } else if let sampleFile = scanResult.videoFiles.first {
+                var videoPath = "\(videoBase)/\(dayLabel)"
+                // Legacy: voeg geneste submappen toe
+                for subfolder in cardConfig.effectiveVideoSubfolders {
+                    videoPath += "/\(subfolder)"
+                }
+                paths.append("\(videoPath)/\(sampleFile.fileName)")
+            }
+        }
+
+        // Audio example paths
+        if scanResult.hasAudio {
+            let audioBase = basePaths.audioPath
+            if let sampleFile = scanResult.audioFiles.first {
+                if !projectConfig.audioPersons.isEmpty {
+                    let person = projectConfig.audioPersons.first ?? "Person"
+                    if projectConfig.linkAudioToDayStructure && projectConfig.isMultiDayShoot {
+                        paths.append("\(audioBase)/\(dayLabel)/\(person)/\(sampleFile.fileName)")
+                    } else {
+                        paths.append("\(audioBase)/\(person)/\(sampleFile.fileName)")
+                    }
+                } else {
+                    paths.append("\(audioBase)/\(sampleFile.fileName)")
+                }
+            }
+        }
+
+        // Photo example paths
+        if scanResult.hasPhoto {
+            let photoBinNames = cardConfig.effectivePhotoBinNames
+
+            if !photoBinNames.isEmpty {
+                // Bin-gebaseerd: toon 1 voorbeeld per bin
+                for binName in photoBinNames.prefix(2) {
+                    if let sampleFile = scanResult.photoFiles.first(where: {
+                        cardConfig.fileSubfolderMap[$0.id] == binName
+                    }) ?? scanResult.photoFiles.first {
+                        let isRaw = ["cr3", "cr2", "arw", "nef", "raf", "dng"].contains(sampleFile.fileExtension.lowercased())
+                        var photoPath = photoBase
+                        if projectConfig.isMultiDayShoot { photoPath += "/\(dayLabel)" }
+                        photoPath += "/\(binName)"
+                        if projectConfig.splitRawJpeg {
+                            photoPath += "/\(isRaw ? "RAW" : "JPEG")"
+                        }
+                        paths.append("\(photoPath)/\(sampleFile.fileName)")
+                    }
+                }
+            } else if let sampleFile = scanResult.photoFiles.first {
+                let isRaw = ["cr3", "cr2", "arw", "nef", "raf", "dng"].contains(sampleFile.fileExtension.lowercased())
+
+                // Legacy: bouw foto-pad op
+                var photoPath = photoBase
+                if projectConfig.isMultiDayShoot { photoPath += "/\(dayLabel)" }
+                for subfolder in cardConfig.effectivePhotoSubfolders {
+                    photoPath += "/\(subfolder)"
+                }
+                if projectConfig.splitRawJpeg {
+                    photoPath += "/\(isRaw ? "RAW" : "JPEG")"
+                }
+                paths.append("\(photoPath)/\(sampleFile.fileName)")
+            }
+        }
+
+        // Wildtrack example
+        if projectConfig.hasWildtrack && scanResult.hasAudio {
+            let audioBase = basePaths.audioPath
+            if projectConfig.isMultiDayShoot && projectConfig.linkAudioToDayStructure {
+                paths.append("\(audioBase)/\(dayLabel)/Wildtrack/")
+            } else {
+                paths.append("\(audioBase)/Wildtrack/")
+            }
+        }
+
+        return paths
+    }
+
+    var body: some View {
+        DisclosureGroup(
+            isExpanded: $isExpanded,
+            content: {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(examplePaths, id: \.self) { path in
+                        HStack(spacing: 6) {
+                            Image(systemName: path.hasSuffix("/") ? "folder.fill" : "doc.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(path.hasSuffix("/") ? .accentColor : .secondary)
+                            Text(path)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+
+                    if examplePaths.isEmpty {
+                        Text(String(localized: "filesafe.cardconfig.no_preview"))
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.top, 4)
+            },
+            label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "eye")
+                        .font(.system(size: 11))
+                        .foregroundColor(.accentColor)
+                    Text(String(localized: "filesafe.cardconfig.path_preview"))
+                        .font(.system(size: 12, weight: .medium))
+                }
+            }
+        )
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(.controlBackgroundColor))
+        )
     }
 }
 
@@ -561,8 +1692,19 @@ struct FileSafeStructurePreviewView: View {
     let tree: FileSafeTargetFolder
     let totalFiles: Int
     let totalSize: Int64
+    let duplicateCount: Int
+    let duplicateSize: Int64
+    @Binding var skipDuplicates: Bool
     let onStartCopy: () -> Void
     let onBack: () -> Void
+
+    private var filesToCopy: Int {
+        skipDuplicates ? totalFiles - duplicateCount : totalFiles
+    }
+
+    private var sizeToCopy: Int64 {
+        skipDuplicates ? totalSize - duplicateSize : totalSize
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -570,7 +1712,7 @@ struct FileSafeStructurePreviewView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
-                    // Samenvatting
+                    // Summary
                     HStack {
                         Text(String(localized: "filesafe.preview.summary \(totalFiles)"))
                             .font(.system(size: 12))
@@ -581,7 +1723,55 @@ struct FileSafeStructurePreviewView: View {
                     }
                     .padding(.bottom, 8)
 
-                    // Mapstructuur boom
+                    // Duplicate info blok
+                    if duplicateCount > 0 {
+                        VStack(spacing: 8) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.blue)
+
+                                Text(String(localized: "filesafe.preview.duplicates \(duplicateCount)"))
+                                    .font(.system(size: 12))
+
+                                Spacer()
+
+                                Text(ByteCountFormatter.string(fromByteCount: duplicateSize, countStyle: .file))
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Toggle(isOn: $skipDuplicates) {
+                                Text(String(localized: "filesafe.preview.skip_duplicates"))
+                                    .font(.system(size: 12))
+                            }
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+
+                            if skipDuplicates {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "doc.on.doc")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                    Text(String(localized: "filesafe.preview.files_to_copy \(filesToCopy)"))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    Text(ByteCountFormatter.string(fromByteCount: sizeToCopy, countStyle: .file))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.blue.opacity(0.08))
+                        )
+                        .padding(.bottom, 8)
+                    }
+
+                    // Folder structure tree
                     ForEach(tree.children) { child in
                         FolderTreeRow(folder: child, depth: 0)
                     }
@@ -589,11 +1779,15 @@ struct FileSafeStructurePreviewView: View {
                 .padding(12)
             }
 
-            // Start kopiëren
+            // Start copy
             Button(action: onStartCopy) {
                 HStack {
                     Image(systemName: "doc.on.doc.fill")
-                    Text(String(localized: "filesafe.preview.start_copy"))
+                    if duplicateCount > 0 && skipDuplicates {
+                        Text(String(localized: "filesafe.preview.files_to_copy \(filesToCopy)"))
+                    } else {
+                        Text(String(localized: "filesafe.preview.start_copy"))
+                    }
                 }
                 .font(.system(size: 13, weight: .medium))
                 .frame(maxWidth: .infinity)
@@ -601,6 +1795,7 @@ struct FileSafeStructurePreviewView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
             .padding(12)
+            .disabled(filesToCopy == 0)
         }
     }
 }
@@ -613,7 +1808,7 @@ struct FolderTreeRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
-                // Inspring
+                // Indentation
                 if depth > 0 {
                     ForEach(0..<depth, id: \.self) { _ in
                         Rectangle()
@@ -670,92 +1865,145 @@ struct FolderTreeRow: View {
 // MARK: - Copying View
 
 struct FileSafeCopyingView: View {
-    @ObservedObject var copyEngine: FileSafeCopyEngine
+    @ObservedObject var transfer: FileSafeTransfer
+    let onPauseResume: () -> Void
     let onCancel: () -> Void
+    var onBack: (() -> Void)? = nil
+    var onNewImport: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: 16) {
-            // Verificatie status van huidig bestand
+        VStack(spacing: 0) {
+            if let onBack = onBack {
+                FileSafeNavBar(title: String(localized: "filesafe.copy.title"), onBack: onBack)
+                Divider()
+            }
+
+            ScrollView {
+                VStack(spacing: 16) {
+                    if onBack == nil {
+                        // Title alleen als er geen nav bar is
+                        Text(String(localized: "filesafe.copy.title"))
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+
+                    // Overall progress bar
+                    ProgressView(value: transfer.progress)
+                        .progressViewStyle(.linear)
+
+                    // File counter
+                    Text("\(transfer.copiedCount) / \(transfer.totalCount)")
+                        .font(.system(size: 24, weight: .bold, design: .monospaced))
+
+                    // Current file name
+                    if !transfer.currentFile.isEmpty {
+                        VStack(spacing: 2) {
+                            Text(transfer.currentFile)
+                                .font(.system(size: 12, weight: .medium))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+
+                            if !transfer.currentDestinationPath.isEmpty {
+                                Text(transfer.currentDestinationPath)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                    }
+
+                    // Speed and ETA
+                    HStack(spacing: 16) {
+                        if !transfer.copySpeed.isEmpty {
+                            Label(transfer.copySpeed, systemImage: "gauge.with.dots.needle.33percent")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        if !transfer.estimatedTimeRemaining.isEmpty {
+                            Label(transfer.estimatedTimeRemaining, systemImage: "clock")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Divider()
+
+                    // Three verification step indicators
+                    VStack(spacing: 6) {
+                        Text(String(localized: "filesafe.copy.verification"))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+
+                        VerificationStepRow(
+                            label: String(localized: "filesafe.copy.step.size"),
+                            icon: "doc.on.doc",
+                            isComplete: transfer.currentFileSizeOK,
+                            isActive: transfer.currentPhase == .copying
+                        )
+
+                        VerificationStepRow(
+                            label: String(localized: "filesafe.copy.step.checksum"),
+                            icon: "number.circle",
+                            isComplete: transfer.currentFileChecksumOK,
+                            isActive: transfer.currentPhase == .checksum
+                        )
+
+                        VerificationStepRow(
+                            label: String(localized: "filesafe.copy.step.bytes"),
+                            icon: "01.square",
+                            isComplete: transfer.currentFileBytesOK,
+                            isActive: transfer.currentPhase == .byteCompare
+                        )
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(.controlBackgroundColor))
+                    )
+                }
+                .padding(12)
+            }
+
+            // Bottom bar with Pause/Resume and Cancel buttons
             VStack(spacing: 8) {
-                Text(String(localized: "filesafe.copy.title"))
-                    .font(.system(size: 15, weight: .semibold))
+                Divider()
 
-                // Voortgangsbalk
-                ProgressView(value: copyEngine.progress)
-                    .progressViewStyle(.linear)
-
-                // Teller
-                Text("\(copyEngine.copiedCount) / \(copyEngine.totalCount)")
-                    .font(.system(size: 24, weight: .bold, design: .monospaced))
-
-                // Huidig bestand
-                if !copyEngine.currentFile.isEmpty {
-                    Text(copyEngine.currentFile)
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-
-                // Snelheid en resterende tijd
-                HStack(spacing: 16) {
-                    if !copyEngine.copySpeed.isEmpty {
-                        Label(copyEngine.copySpeed, systemImage: "gauge.with.dots.needle.33percent")
+                HStack(spacing: 8) {
+                    Button(action: onCancel) {
+                        Label(String(localized: "filesafe.copy.cancel"), systemImage: "xmark.circle")
                             .font(.system(size: 11))
-                            .foregroundColor(.secondary)
                     }
-                    if !copyEngine.estimatedTimeRemaining.isEmpty {
-                        Label(copyEngine.estimatedTimeRemaining, systemImage: "clock")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(.red)
+
+                    Spacer()
+
+                    if let onNewImport = onNewImport {
+                        Button(action: onNewImport) {
+                            Label(String(localized: "filesafe.dashboard.new_import"), systemImage: "plus.circle.fill")
+                                .font(.system(size: 12, weight: .medium))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                     }
+
+                    Button(action: onPauseResume) {
+                        Label(
+                            transfer.isPaused
+                                ? String(localized: "filesafe.copy.resume")
+                                : String(localized: "filesafe.copy.pause"),
+                            systemImage: transfer.isPaused ? "play.fill" : "pause.fill"
+                        )
+                        .font(.system(size: 12, weight: .medium))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
             }
-
-            Divider()
-
-            // Drie verificatiestappen
-            VStack(spacing: 6) {
-                Text(String(localized: "filesafe.copy.verification"))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-
-                VerificationStepRow(
-                    label: String(localized: "filesafe.copy.step.size"),
-                    icon: "doc.on.doc",
-                    isComplete: copyEngine.currentFileSizeOK,
-                    isActive: copyEngine.currentPhase == .copying
-                )
-
-                VerificationStepRow(
-                    label: String(localized: "filesafe.copy.step.checksum"),
-                    icon: "number.circle",
-                    isComplete: copyEngine.currentFileChecksumOK,
-                    isActive: copyEngine.currentPhase == .checksum
-                )
-
-                VerificationStepRow(
-                    label: String(localized: "filesafe.copy.step.bytes"),
-                    icon: "01.square",
-                    isComplete: copyEngine.currentFileBytesOK,
-                    isActive: copyEngine.currentPhase == .byteCompare
-                )
-            }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(.controlBackgroundColor))
-            )
-
-            Button(action: onCancel) {
-                Text(String(localized: "filesafe.cancel"))
-                    .font(.system(size: 12))
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
@@ -801,20 +2049,22 @@ struct VerificationStepRow: View {
 
 struct FileSafeReportView: View {
     let report: FileSafeCopyReport
+    let projectPath: String
     let onEject: () -> Void
     let onOpenFinder: () -> Void
+    let onOpenReport: () -> Void
     let onDone: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 16) {
-                    // Shield icoon
+                    // Shield icon
                     Image(systemName: report.failCount == 0 ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
                         .font(.system(size: 44))
                         .foregroundColor(report.failCount == 0 ? .green : .orange)
 
-                    // Samenvatting
+                    // Title
                     Text(String(localized: "filesafe.report.title"))
                         .font(.system(size: 15, weight: .semibold))
 
@@ -848,6 +2098,16 @@ struct FileSafeReportView: View {
                             )
                         }
 
+                        if report.skippedCount > 0 {
+                            ReportStatRow(
+                                icon: "arrow.triangle.2.circlepath",
+                                color: .blue,
+                                label: String(localized: "filesafe.report.skipped"),
+                                value: "\(report.skippedCount)",
+                                detail: ""
+                            )
+                        }
+
                         Divider()
 
                         HStack {
@@ -874,7 +2134,40 @@ struct FileSafeReportView: View {
                             .fill(Color(.controlBackgroundColor))
                     )
 
-                    // Mislukte bestanden detail
+                    // Per-file results with three check marks
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(String(localized: "filesafe.report.file_results"))
+                            .font(.system(size: 12, weight: .medium))
+
+                        ForEach(report.results) { result in
+                            HStack(spacing: 6) {
+                                Image(systemName: result.isFullyVerified ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(result.isFullyVerified ? .green : .red)
+
+                                Text(result.sourceFile.fileName)
+                                    .font(.system(size: 11))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+
+                                Spacer()
+
+                                // Three verification check marks
+                                HStack(spacing: 4) {
+                                    VerificationCheckMark(label: String(localized: "filesafe.report.check.size"), passed: result.sizesMatch)
+                                    VerificationCheckMark(label: "SHA-256", passed: result.checksumsMatch)
+                                    VerificationCheckMark(label: "Bytes", passed: result.bytesMatch)
+                                }
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(.controlBackgroundColor))
+                    )
+
+                    // Failed files section
                     if report.failCount > 0 {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(String(localized: "filesafe.report.failed_files"))
@@ -906,7 +2199,7 @@ struct FileSafeReportView: View {
                 .padding(12)
             }
 
-            // Actieknoppen
+            // Action buttons
             VStack(spacing: 8) {
                 Divider()
 
@@ -925,6 +2218,13 @@ struct FileSafeReportView: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
 
+                    Button(action: onOpenReport) {
+                        Label(String(localized: "filesafe.report.open_report"), systemImage: "doc.text")
+                            .font(.system(size: 11))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
                     Spacer()
 
                     Button(action: onDone) {
@@ -937,6 +2237,24 @@ struct FileSafeReportView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
             }
+        }
+    }
+}
+
+// MARK: - Verification Check Mark (for report per-file results)
+
+struct VerificationCheckMark: View {
+    let label: String
+    let passed: Bool
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: passed ? "checkmark" : "xmark")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundColor(passed ? .green : .red)
+            Text(label)
+                .font(.system(size: 9))
+                .foregroundColor(.secondary)
         }
     }
 }
@@ -971,19 +2289,357 @@ struct ReportStatRow: View {
     }
 }
 
+// MARK: - Dashboard View
+
+struct FileSafeDashboardView: View {
+    @ObservedObject var transferManager: FileSafeTransferManager
+    @Binding var selectedTransferId: UUID?
+    let onNewImport: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Als een transfer geselecteerd is, toon detail view
+            if let selectedId = selectedTransferId,
+               let transfer = transferManager.transfers.first(where: { $0.id == selectedId }) {
+                if transfer.isCompleted, let report = transfer.report {
+                    // Rapport view
+                    FileSafeReportView(
+                        report: report,
+                        projectPath: transfer.projectPath,
+                        onEject: {},
+                        onOpenFinder: {
+                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: transfer.projectPath)
+                        },
+                        onOpenReport: {
+                            let reportPath = FileSafeCopyEngine.txtReportPath(
+                                projectName: transfer.projectName,
+                                projectPath: transfer.projectPath,
+                                footagePath: transfer.footagePath
+                            )
+                            NSWorkspace.shared.open(URL(fileURLWithPath: reportPath))
+                        },
+                        onDone: {
+                            transferManager.removeTransfer(id: selectedId)
+                            selectedTransferId = nil
+                        }
+                    )
+                } else {
+                    // Actieve copy view
+                    FileSafeCopyingView(
+                        transfer: transfer,
+                        onPauseResume: {
+                            if transfer.isPaused {
+                                transferManager.resumeTransfer(id: selectedId)
+                            } else {
+                                transferManager.pauseTransfer(id: selectedId)
+                            }
+                        },
+                        onCancel: {
+                            transferManager.cancelTransfer(id: selectedId)
+                            transferManager.removeTransfer(id: selectedId)
+                            selectedTransferId = nil
+                        },
+                        onBack: { selectedTransferId = nil },
+                        onNewImport: onNewImport
+                    )
+                }
+            } else {
+                // Transfer overzicht
+                dashboardList
+            }
+        }
+    }
+
+    private var dashboardList: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text(String(localized: "filesafe.dashboard.title"))
+                    .font(.system(size: 13, weight: .semibold))
+
+                Spacer()
+
+                Button(action: onNewImport) {
+                    Label(String(localized: "filesafe.dashboard.new_import"), systemImage: "plus.circle.fill")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            if transferManager.transfers.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "tray")
+                        .font(.system(size: 30))
+                        .foregroundColor(.secondary.opacity(0.4))
+                    Text(String(localized: "filesafe.dashboard.empty"))
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(transferManager.transfers) { transfer in
+                            FileSafeTransferRow(transfer: transfer) {
+                                withAnimation { selectedTransferId = transfer.id }
+                            }
+                        }
+                    }
+                    .padding(12)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Transfer Row
+
+struct FileSafeTransferRow: View {
+    @ObservedObject var transfer: FileSafeTransfer
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 6) {
+                // Top row: volume → project
+                HStack(spacing: 6) {
+                    Image(systemName: "externaldrive.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                    Text(transfer.volumeName)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.accentColor)
+                    Text(transfer.projectName)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    // Status indicator
+                    if transfer.isCompleted {
+                        Image(systemName: transfer.isFailed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(transfer.isFailed ? .orange : .green)
+                    } else if transfer.isPaused {
+                        Image(systemName: "pause.circle.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(.orange)
+                    }
+                }
+
+                // Progress bar
+                if transfer.isRunning {
+                    ProgressView(value: transfer.progress)
+                        .progressViewStyle(.linear)
+
+                    // Stats row
+                    HStack(spacing: 12) {
+                        Text("\(transfer.copiedCount)/\(transfer.totalCount)")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+
+                        if !transfer.copySpeed.isEmpty {
+                            Text(transfer.copySpeed)
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+
+                        if !transfer.estimatedTimeRemaining.isEmpty {
+                            Text(transfer.estimatedTimeRemaining)
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        if transfer.isPaused {
+                            Text(String(localized: "filesafe.transfer.paused"))
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(.orange)
+                        }
+                    }
+                } else if transfer.isCompleted {
+                    HStack {
+                        Text(String(localized: "filesafe.transfer.completed"))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.green)
+
+                        Text("\(transfer.totalCount) files")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+
+                        Spacer()
+
+                        Text(String(localized: "filesafe.transfer.view_report"))
+                            .font(.system(size: 10))
+                            .foregroundColor(.accentColor)
+                    }
+                }
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(.controlBackgroundColor))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Transfer Status Bar (persistent bottom bar)
+
+struct FileSafeTransferStatusBar: View {
+    @ObservedObject var transferManager: FileSafeTransferManager
+    let onTapTransfer: (UUID) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(transferManager.transfers) { transfer in
+                        FileSafeTransferStatusChip(transfer: transfer) {
+                            onTapTransfer(transfer.id)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+            .background(Color(.windowBackgroundColor))
+        }
+    }
+}
+
+struct FileSafeTransferStatusChip: View {
+    @ObservedObject var transfer: FileSafeTransfer
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                // Status icon
+                if transfer.isCompleted {
+                    Image(systemName: transfer.isFailed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(transfer.isFailed ? .orange : .green)
+                } else if transfer.isPaused {
+                    Image(systemName: "pause.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.orange)
+                } else {
+                    // Mini spinner for active transfer
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 12, height: 12)
+                }
+
+                // Project name
+                Text(transfer.projectName)
+                    .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
+
+                // Progress or status
+                if transfer.isRunning && !transfer.isPaused {
+                    Text("\(Int(transfer.progress * 100))%")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color(.controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color(.separatorColor), lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Project Sort Mode
+
+enum ProjectSortMode: String, CaseIterable {
+    case name
+    case dateNewest
+    case dateOldest
+
+    var displayName: String {
+        switch self {
+        case .name: return String(localized: "filesafe.project.sort.name")
+        case .dateNewest: return String(localized: "filesafe.project.sort.newest")
+        case .dateOldest: return String(localized: "filesafe.project.sort.oldest")
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .name: return "textformat.abc"
+        case .dateNewest: return "calendar.badge.clock"
+        case .dateOldest: return "calendar"
+        }
+    }
+}
+
+// MARK: - Section Header
+
+struct SectionHeader: View {
+    let title: String
+    let icon: String
+    var badge: String? = nil
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundColor(.accentColor)
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+            if let badge = badge {
+                Text(badge)
+                    .font(.system(size: 10, weight: .medium))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Color.accentColor.opacity(0.15))
+                    .foregroundColor(.accentColor)
+                    .clipShape(Capsule())
+            }
+        }
+    }
+}
+
 // MARK: - Nav Bar
 
 struct FileSafeNavBar: View {
     let title: String
-    let onBack: () -> Void
+    var onBack: (() -> Void)? = nil
 
     var body: some View {
         HStack {
-            Button(action: onBack) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .medium))
+            if let onBack = onBack {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .medium))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
 
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
@@ -992,5 +2648,38 @@ struct FileSafeNavBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Select Button
+
+struct FileSafeSelectButton: View {
+    let title: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                Text(title)
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .foregroundColor(isSelected ? .primary : .secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? Color.accentColor.opacity(0.12) : Color(.controlBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1.5)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
     }
 }

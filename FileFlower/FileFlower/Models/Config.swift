@@ -39,6 +39,7 @@ struct Config: Codable {
     var showPetalAnimation: Bool              // Toon bloemblaadjes-animatie na succesvolle verwerking
     var selectedNLEs: [String]               // Gekozen NLEs: ["premiere"], ["resolve"], of ["premiere", "resolve"]
     var fileSafeConfigs: [String: FileSafeShootConfig]  // FileSafe shoot configs per projectpad
+    var starredProjects: [String]                       // Gestarrede projectpaden (pinned bovenaan)
 
     static let defaultCloudStorageWebsites = [
         "drive.google.com", "googleusercontent.com",
@@ -106,7 +107,8 @@ struct Config: Codable {
         resolveAutoImport: true,
         showPetalAnimation: true,
         selectedNLEs: ["premiere", "resolve"],
-        fileSafeConfigs: [:]
+        fileSafeConfigs: [:],
+        starredProjects: []
     )
 
     // Default init
@@ -148,7 +150,8 @@ struct Config: Codable {
         resolveAutoImport: Bool = true,
         showPetalAnimation: Bool = true,
         selectedNLEs: [String] = ["premiere", "resolve"],
-        fileSafeConfigs: [String: FileSafeShootConfig] = [:]
+        fileSafeConfigs: [String: FileSafeShootConfig] = [:],
+        starredProjects: [String] = []
     ) {
         self.projectRoots = projectRoots
         self.musicClassification = musicClassification
@@ -188,6 +191,7 @@ struct Config: Codable {
         self.showPetalAnimation = showPetalAnimation
         self.selectedNLEs = selectedNLEs
         self.fileSafeConfigs = fileSafeConfigs
+        self.starredProjects = starredProjects
     }
 
     // Custom decoder voor migratie van oude configs
@@ -240,6 +244,7 @@ struct Config: Codable {
         showPetalAnimation = try container.decodeIfPresent(Bool.self, forKey: .showPetalAnimation) ?? true
         selectedNLEs = try container.decodeIfPresent([String].self, forKey: .selectedNLEs) ?? ["premiere", "resolve"]
         fileSafeConfigs = try container.decodeIfPresent([String: FileSafeShootConfig].self, forKey: .fileSafeConfigs) ?? [:]
+        starredProjects = try container.decodeIfPresent([String].self, forKey: .starredProjects) ?? []
     }
     
     // Custom encoder
@@ -283,6 +288,7 @@ struct Config: Codable {
         try container.encode(showPetalAnimation, forKey: .showPetalAnimation)
         try container.encode(selectedNLEs, forKey: .selectedNLEs)
         try container.encode(fileSafeConfigs, forKey: .fileSafeConfigs)
+        try container.encode(starredProjects, forKey: .starredProjects)
     }
     
     enum CodingKeys: String, CodingKey {
@@ -324,6 +330,7 @@ struct Config: Codable {
         case showPetalAnimation
         case selectedNLEs
         case fileSafeConfigs
+        case starredProjects
     }
     
     // Helper om alleen custom toegevoegde websites te krijgen (exclusief standaard)

@@ -727,48 +727,57 @@ struct FolderStructureSection: View {
     }
 
     private func selectTemplateFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = String(localized: "onboarding.template.panel_message")
+        DispatchQueue.main.async {
+            // Voorkom dat de popover dichtgaat terwijl het folderpaneel open is
+            StatusBarController.shared.setPopoverBehavior(.applicationDefined)
 
-        if panel.runModal() == .OK, let url = panel.url {
-            templateFolderPath = url.path
-            templateError = nil
-            isScanningTemplate = true
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.message = String(localized: "onboarding.template.panel_message")
+            panel.level = .modalPanel
 
-            Task {
-                let tree = FolderTemplateService.shared.scanFolderTree(at: url)
-                await MainActor.run {
-                    scannedFolderTree = tree
-                    isScanningTemplate = false
-                    isAnalyzingTemplate = true
-                }
+            if panel.runModal() == .OK, let url = panel.url {
+                self.templateFolderPath = url.path
+                self.templateError = nil
+                self.isScanningTemplate = true
 
-                do {
-                    let mapping = try await FolderTemplateService.shared.analyzeStructure(
-                        tree: tree,
-                        deviceId: appState.config.anonymousId
-                    )
+                Task {
+                    let tree = FolderTemplateService.shared.scanFolderTree(at: url)
                     await MainActor.run {
-                        appState.config.customFolderTemplate = CustomFolderTemplate(
-                            sourcePath: templateFolderPath,
-                            folderTree: tree,
-                            mapping: mapping,
-                            createdAt: Date(),
-                            lastUpdatedAt: Date()
-                        )
-                        appState.saveConfig()
-                        isAnalyzingTemplate = false
+                        self.scannedFolderTree = tree
+                        self.isScanningTemplate = false
+                        self.isAnalyzingTemplate = true
                     }
-                } catch {
-                    await MainActor.run {
-                        templateError = error.localizedDescription
-                        isAnalyzingTemplate = false
+
+                    do {
+                        let mapping = try await FolderTemplateService.shared.analyzeStructure(
+                            tree: tree,
+                            deviceId: self.appState.config.anonymousId
+                        )
+                        await MainActor.run {
+                            self.appState.config.customFolderTemplate = CustomFolderTemplate(
+                                sourcePath: self.templateFolderPath,
+                                folderTree: tree,
+                                mapping: mapping,
+                                createdAt: Date(),
+                                lastUpdatedAt: Date()
+                            )
+                            self.appState.saveConfig()
+                            self.isAnalyzingTemplate = false
+                        }
+                    } catch {
+                        await MainActor.run {
+                            self.templateError = error.localizedDescription
+                            self.isAnalyzingTemplate = false
+                        }
                     }
                 }
             }
+
+            // Herstel normaal popover-gedrag
+            StatusBarController.shared.setPopoverBehavior(.transient)
         }
     }
 

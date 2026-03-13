@@ -29,6 +29,9 @@ class VolumeDetector: ObservableObject {
 
     @Published var externalVolumes: [ExternalVolume] = []
 
+    /// Publiceert wanneer een nieuw volume wordt aangekoppeld (voor auto-popup)
+    let newVolumeDidMount = PassthroughSubject<ExternalVolume, Never>()
+
     private var mountObserver: NSObjectProtocol?
     private var unmountObserver: NSObjectProtocol?
 
@@ -42,7 +45,15 @@ class VolumeDetector: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.refreshVolumes()
+            guard let self = self else { return }
+            let previousURLs = Set(self.externalVolumes.map { $0.url })
+            self.refreshVolumes()
+            // Publiceer nieuw toegevoegde volumes
+            for volume in self.externalVolumes {
+                if !previousURLs.contains(volume.url) {
+                    self.newVolumeDidMount.send(volume)
+                }
+            }
         }
 
         unmountObserver = NSWorkspace.shared.notificationCenter.addObserver(

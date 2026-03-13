@@ -3,12 +3,13 @@ import Foundation
 class FileSafeStructureBuilder {
     static let shared = FileSafeStructureBuilder()
 
-    // MARK: - Bouw structuur op basis van shoot config
+    // MARK: - Bouw structuur op basis van project + card config
 
     func buildStructure(
         projectPath: String,
         scanResult: FileSafeScanResult,
-        shootConfig: FileSafeShootConfig,
+        projectConfig: FileSafeProjectConfig,
+        cardConfig: FileSafeCardConfig,
         folderPreset: FolderStructurePreset,
         customTemplate: CustomFolderTemplate?
     ) -> (tree: FileSafeTargetFolder, mappings: [FileSafeFileMapping]) {
@@ -16,16 +17,30 @@ class FileSafeStructureBuilder {
         // Bepaal basispaden voor video/audio/foto op basis van template
         let basePaths = resolveBasePaths(preset: folderPreset, customTemplate: customTemplate)
 
+        // Als foto's in de footage-map staan EN er zijn zowel video als foto:
+        // maak "Video" en "Photo" subfolders om ze gescheiden te houden
+        let videoBasePath: String
+        let photoBasePath: String
+
+        if basePaths.photosInFootage && scanResult.hasVideo && scanResult.hasPhoto {
+            videoBasePath = "\(basePaths.footagePath)/Video"
+            photoBasePath = "\(basePaths.footagePath)/Photo"
+        } else {
+            videoBasePath = basePaths.footagePath
+            photoBasePath = basePaths.photoPath
+        }
+
         var mappings: [FileSafeFileMapping] = []
         var rootChildren: [FileSafeTargetFolder] = []
 
         // Video structuur
         if scanResult.hasVideo {
             let (videoTree, videoMappings) = buildVideoStructure(
-                basePath: basePaths.footagePath,
+                basePath: videoBasePath,
                 projectPath: projectPath,
                 files: scanResult.videoFiles,
-                config: shootConfig
+                projectConfig: projectConfig,
+                cardConfig: cardConfig
             )
             rootChildren.append(videoTree)
             mappings.append(contentsOf: videoMappings)
@@ -37,7 +52,8 @@ class FileSafeStructureBuilder {
                 basePath: basePaths.audioPath,
                 projectPath: projectPath,
                 files: scanResult.audioFiles,
-                config: shootConfig
+                projectConfig: projectConfig,
+                cardConfig: cardConfig
             )
             rootChildren.append(audioTree)
             mappings.append(contentsOf: audioMappings)
@@ -46,10 +62,11 @@ class FileSafeStructureBuilder {
         // Foto structuur
         if scanResult.hasPhoto {
             let (photoTree, photoMappings) = buildPhotoStructure(
-                basePath: basePaths.photoPath,
+                basePath: photoBasePath,
                 projectPath: projectPath,
                 files: scanResult.photoFiles,
-                config: shootConfig
+                projectConfig: projectConfig,
+                cardConfig: cardConfig
             )
             rootChildren.append(photoTree)
             mappings.append(contentsOf: photoMappings)
@@ -57,11 +74,60 @@ class FileSafeStructureBuilder {
 
         let rootTree = FileSafeTargetFolder(
             relativePath: projectPath,
-            displayName: shootConfig.projectName,
+            displayName: projectConfig.projectName,
             children: rootChildren
         )
 
         return (rootTree, mappings)
+    }
+
+    // MARK: - Backward compatibility overload
+
+    func buildStructure(
+        projectPath: String,
+        scanResult: FileSafeScanResult,
+        shootConfig: FileSafeShootConfig,
+        folderPreset: FolderStructurePreset,
+        customTemplate: CustomFolderTemplate?
+    ) -> (tree: FileSafeTargetFolder, mappings: [FileSafeFileMapping]) {
+        // Converteer legacy config naar nieuwe structuur
+        let projectConfig = FileSafeProjectConfig(
+            projectName: shootConfig.projectName,
+            isMultiDayShoot: shootConfig.shootDays.count > 1,
+            location: shootConfig.location,
+            hasMultipleCameras: !shootConfig.cameraAngles.isEmpty,
+            cameraSplitMode: shootConfig.cameraAngles.isEmpty ? .none : .byAngle,
+            cameraLabels: shootConfig.cameraAngles,
+            audioPersons: shootConfig.audioPersons,
+            hasWildtrack: shootConfig.hasWildtrack,
+            linkAudioToDayStructure: shootConfig.linkAudioToDayStructure,
+            photoCategories: shootConfig.photoCategories,
+            splitRawJpeg: shootConfig.splitRawJpeg,
+            useTimestampAssignment: shootConfig.useTimestampAssignment,
+            dateSource: .materialDate,
+            lastUpdated: Date()
+        )
+
+        let cardConfig = FileSafeCardConfig(
+            shootDays: shootConfig.shootDays,
+            dateOverride: nil,
+            volumePath: scanResult.volumePath,
+            volumeName: scanResult.volumeName,
+            videoSubfolders: [],
+            photoSubfolders: [],
+            videoBins: [],
+            photoBins: [],
+            fileSubfolderMap: [:]
+        )
+
+        return buildStructure(
+            projectPath: projectPath,
+            scanResult: scanResult,
+            projectConfig: projectConfig,
+            cardConfig: cardConfig,
+            folderPreset: folderPreset,
+            customTemplate: customTemplate
+        )
     }
 
     // MARK: - Mappen aanmaken op schijf
@@ -87,36 +153,55 @@ class FileSafeStructureBuilder {
         let footagePath: String
         let audioPath: String
         let photoPath: String
+        let photosInFootage: Bool  // true = foto's delen de footage-map (geen aparte foto-map in template)
     }
 
-    private func resolveBasePaths(preset: FolderStructurePreset, customTemplate: CustomFolderTemplate?) -> BasePaths {
+    func resolveBasePaths(preset: FolderStructurePreset, customTemplate: CustomFolderTemplate?) -> BasePaths {
         switch preset {
         case .custom:
             if let template = customTemplate {
-                // Gebruik mapping om paden te vinden
-                let footagePath = template.mapping.stockFootagePath ?? "Footage"
+                // Footage: gebruik AI rawFootagePath → keyword search → fallback
+                let footagePath = template.mapping.rawFootagePath
+                    ?? findFootagePath(in: template)
+                    ?? template.mapping.stockFootagePath
+                    ?? "Footage"
                 let audioPath = findAudioPath(in: template) ?? "Audio"
-                let photoPath = findPhotoPath(in: template) ?? "Photos"
-                return BasePaths(footagePath: footagePath, audioPath: audioPath, photoPath: photoPath)
+
+                // Foto's: gebruik AI photoPath → keyword search → geen match = in footage
+                let aiPhotoPath = template.mapping.photoPath ?? findPhotoPath(in: template)
+
+                if let photoPath = aiPhotoPath {
+                    // Template heeft een aparte foto-map
+                    return BasePaths(footagePath: footagePath, audioPath: audioPath, photoPath: photoPath, photosInFootage: false)
+                } else {
+                    // Geen foto-map → foto's gaan in de footage-map
+                    return BasePaths(footagePath: footagePath, audioPath: audioPath, photoPath: footagePath, photosInFootage: true)
+                }
             }
-            return BasePaths(footagePath: "01_Footage", audioPath: "02_Production_Audio", photoPath: "06_Photos")
+            return BasePaths(footagePath: "01_Footage", audioPath: "02_Production_Audio", photoPath: "06_Photos", photosInFootage: false)
 
         case .standard:
-            // Standard template heeft geen footage map, maak sensible defaults
-            return BasePaths(footagePath: "01_Footage", audioPath: "02_Production_Audio", photoPath: "06_Photos")
+            return BasePaths(footagePath: "01_Footage", audioPath: "02_Production_Audio", photoPath: "06_Photos", photosInFootage: false)
 
         case .flat:
-            return BasePaths(footagePath: "Footage", audioPath: "Audio", photoPath: "Photos")
+            return BasePaths(footagePath: "Footage", audioPath: "Audio", photoPath: "Photos", photosInFootage: false)
         }
     }
 
+    private func findFootagePath(in template: CustomFolderTemplate) -> String? {
+        // Zoek eerst een "raw" submap (bijv. "02_Footage/01_Raw") — diepste match
+        if let rawPath = findPath(in: template.folderTree, matching: ["raw"]) {
+            return rawPath
+        }
+        // Fallback: zoek een footage-map op naam
+        return findPath(in: template.folderTree, matching: ["footage", "video", "beeldmateriaal"])
+    }
+
     private func findAudioPath(in template: CustomFolderTemplate) -> String? {
-        // Zoek naar een map die "audio" bevat in de template boom
         return findPath(in: template.folderTree, matching: ["audio", "sound", "geluid"])
     }
 
     private func findPhotoPath(in template: CustomFolderTemplate) -> String? {
-        // Zoek naar een map die "photo" of "stills" bevat
         return findPath(in: template.folderTree, matching: ["photo", "stills", "foto", "pictures", "images"])
     }
 
@@ -135,29 +220,131 @@ class FileSafeStructureBuilder {
         return nil
     }
 
+
     // MARK: - Video structuur
 
     private func buildVideoStructure(
         basePath: String,
         projectPath: String,
         files: [FileSafeSourceFile],
-        config: FileSafeShootConfig
+        projectConfig: FileSafeProjectConfig,
+        cardConfig: FileSafeCardConfig
     ) -> (tree: FileSafeTargetFolder, mappings: [FileSafeFileMapping]) {
 
         var mappings: [FileSafeFileMapping] = []
         var dayChildren: [FileSafeTargetFolder] = []
 
-        let filesByDay = assignFilesToDays(files: files, shootDays: config.shootDays, useTimestamp: config.useTimestampAssignment)
+        let filesByDay = assignFilesToDays(
+            files: files,
+            shootDays: cardConfig.shootDays,
+            useTimestamp: projectConfig.useTimestampAssignment
+        )
 
-        for day in config.shootDays {
+        let videoBins = cardConfig.videoBins.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+        let videoSubs = cardConfig.effectiveVideoSubfolders
+
+        for day in cardConfig.shootDays {
             let dayFiles = filesByDay[day.id] ?? []
-            var cameraChildren: [FileSafeTargetFolder] = []
+            let dayPath = "\(basePath)/\(day.displayName)"
 
-            if config.cameraAngles.isEmpty {
-                // Geen camera-hoeken: alle bestanden direct in dag-map
-                let dayFolderPath = "\(basePath)/\(day.displayName)"
-                let fullPath = "\(projectPath)/\(dayFolderPath)"
+            if !videoBins.isEmpty {
+                // NIEUW: bin-gebaseerde routing
+                var binChildren: [FileSafeTargetFolder] = []
 
+                for bin in videoBins {
+                    let binName = bin.name.trimmingCharacters(in: .whitespaces)
+                    let binFiles = dayFiles.filter { cardConfig.fileSubfolderMap[$0.id] == binName }
+                    let binPath = "\(dayPath)/\(binName)"
+                    let fullBinPath = "\(projectPath)/\(binPath)"
+
+                    for file in binFiles {
+                        mappings.append(FileSafeFileMapping(
+                            source: file,
+                            destinationPath: "\(fullBinPath)/\(file.fileName)",
+                            targetFolderName: binName
+                        ))
+                    }
+
+                    binChildren.append(FileSafeTargetFolder(
+                        relativePath: binPath,
+                        displayName: binName,
+                        fileCount: binFiles.count,
+                        totalSize: binFiles.reduce(0) { $0 + $1.fileSize }
+                    ))
+                }
+
+                // Unassigned bestanden → direct in dag-map
+                let assignedBinNames = Set(videoBins.map { $0.name.trimmingCharacters(in: .whitespaces) })
+                let unassigned = dayFiles.filter {
+                    guard let assignment = cardConfig.fileSubfolderMap[$0.id] else { return true }
+                    return !assignedBinNames.contains(assignment)
+                }
+                let fullDayPath = "\(projectPath)/\(dayPath)"
+                for file in unassigned {
+                    mappings.append(FileSafeFileMapping(
+                        source: file,
+                        destinationPath: "\(fullDayPath)/\(file.fileName)",
+                        targetFolderName: day.displayName
+                    ))
+                }
+
+                dayChildren.append(FileSafeTargetFolder(
+                    relativePath: dayPath,
+                    displayName: day.displayName,
+                    fileCount: unassigned.count,
+                    totalSize: unassigned.reduce(0) { $0 + $1.fileSize },
+                    children: binChildren
+                ))
+
+            } else if !videoSubs.isEmpty {
+                // Legacy modus: geneste submappen
+                var targetPath = dayPath
+                for sub in videoSubs {
+                    targetPath += "/\(sub)"
+                }
+                let fullPath = "\(projectPath)/\(targetPath)"
+                let leafName = videoSubs.last!
+
+                for file in dayFiles {
+                    mappings.append(FileSafeFileMapping(
+                        source: file,
+                        destinationPath: "\(fullPath)/\(file.fileName)",
+                        targetFolderName: leafName
+                    ))
+                }
+
+                // Bouw geneste kinderen van binnen naar buiten
+                var innerChild = FileSafeTargetFolder(
+                    relativePath: targetPath,
+                    displayName: videoSubs.last!,
+                    fileCount: dayFiles.count,
+                    totalSize: dayFiles.reduce(0) { $0 + $1.fileSize }
+                )
+                if videoSubs.count > 1 {
+                    var currentPath = dayPath
+                    var pathComponents: [(path: String, name: String)] = []
+                    for sub in videoSubs.dropLast() {
+                        currentPath += "/\(sub)"
+                        pathComponents.append((currentPath, sub))
+                    }
+                    for component in pathComponents.reversed() {
+                        innerChild = FileSafeTargetFolder(
+                            relativePath: component.path,
+                            displayName: component.name,
+                            children: [innerChild]
+                        )
+                    }
+                }
+
+                dayChildren.append(FileSafeTargetFolder(
+                    relativePath: dayPath,
+                    displayName: day.displayName,
+                    children: [innerChild]
+                ))
+
+            } else {
+                // Geen bins, geen legacy subfolders → alles direct in dag-map
+                let fullPath = "\(projectPath)/\(dayPath)"
                 for file in dayFiles {
                     mappings.append(FileSafeFileMapping(
                         source: file,
@@ -166,43 +353,11 @@ class FileSafeStructureBuilder {
                     ))
                 }
 
-                cameraChildren = []
                 dayChildren.append(FileSafeTargetFolder(
-                    relativePath: dayFolderPath,
+                    relativePath: dayPath,
                     displayName: day.displayName,
                     fileCount: dayFiles.count,
-                    totalSize: dayFiles.reduce(0) { $0 + $1.fileSize },
-                    children: cameraChildren
-                ))
-            } else {
-                // Verdeel bestanden over camera-hoeken
-                let filesPerAngle = distributeFilesOverAngles(files: dayFiles, angles: config.cameraAngles)
-
-                for angle in config.cameraAngles {
-                    let angleFiles = filesPerAngle[angle] ?? []
-                    let angleFolderPath = "\(basePath)/\(day.displayName)/\(angle)"
-                    let fullPath = "\(projectPath)/\(angleFolderPath)"
-
-                    for file in angleFiles {
-                        mappings.append(FileSafeFileMapping(
-                            source: file,
-                            destinationPath: "\(fullPath)/\(file.fileName)",
-                            targetFolderName: angle
-                        ))
-                    }
-
-                    cameraChildren.append(FileSafeTargetFolder(
-                        relativePath: angleFolderPath,
-                        displayName: angle,
-                        fileCount: angleFiles.count,
-                        totalSize: angleFiles.reduce(0) { $0 + $1.fileSize }
-                    ))
-                }
-
-                dayChildren.append(FileSafeTargetFolder(
-                    relativePath: "\(basePath)/\(day.displayName)",
-                    displayName: day.displayName,
-                    children: cameraChildren
+                    totalSize: dayFiles.reduce(0) { $0 + $1.fileSize }
                 ))
             }
         }
@@ -222,21 +377,25 @@ class FileSafeStructureBuilder {
         basePath: String,
         projectPath: String,
         files: [FileSafeSourceFile],
-        config: FileSafeShootConfig
+        projectConfig: FileSafeProjectConfig,
+        cardConfig: FileSafeCardConfig
     ) -> (tree: FileSafeTargetFolder, mappings: [FileSafeFileMapping]) {
 
         var mappings: [FileSafeFileMapping] = []
         var children: [FileSafeTargetFolder] = []
 
-        if config.linkAudioToDayStructure && config.shootDays.count > 1 {
-            // Audio per dag
-            let filesByDay = assignFilesToDays(files: files, shootDays: config.shootDays, useTimestamp: config.useTimestampAssignment)
+        if projectConfig.linkAudioToDayStructure && cardConfig.shootDays.count > 1 {
+            let filesByDay = assignFilesToDays(
+                files: files,
+                shootDays: cardConfig.shootDays,
+                useTimestamp: projectConfig.useTimestampAssignment
+            )
 
-            for day in config.shootDays {
+            for day in cardConfig.shootDays {
                 let dayFiles = filesByDay[day.id] ?? []
                 var personChildren: [FileSafeTargetFolder] = []
 
-                if config.audioPersons.isEmpty {
+                if projectConfig.audioPersons.isEmpty {
                     let dayPath = "\(basePath)/\(day.displayName)"
                     let fullPath = "\(projectPath)/\(dayPath)"
 
@@ -248,8 +407,8 @@ class FileSafeStructureBuilder {
                         ))
                     }
                 } else {
-                    let filesPerPerson = distributeFilesOverAngles(files: dayFiles, angles: config.audioPersons)
-                    for person in config.audioPersons {
+                    let filesPerPerson = distributeFilesOverLabels(files: dayFiles, labels: projectConfig.audioPersons)
+                    for person in projectConfig.audioPersons {
                         let personFiles = filesPerPerson[person] ?? []
                         let personPath = "\(basePath)/\(day.displayName)/\(person)"
                         let fullPath = "\(projectPath)/\(personPath)"
@@ -270,8 +429,7 @@ class FileSafeStructureBuilder {
                         ))
                     }
 
-                    // Wildtrack map
-                    if config.hasWildtrack {
+                    if projectConfig.hasWildtrack {
                         let wildtrackPath = "\(basePath)/\(day.displayName)/Wildtrack"
                         personChildren.append(FileSafeTargetFolder(
                             relativePath: wildtrackPath,
@@ -289,8 +447,7 @@ class FileSafeStructureBuilder {
                 ))
             }
         } else {
-            // Audio zonder dag-structuur
-            if config.audioPersons.isEmpty {
+            if projectConfig.audioPersons.isEmpty {
                 let fullPath = "\(projectPath)/\(basePath)"
                 for file in files {
                     mappings.append(FileSafeFileMapping(
@@ -300,8 +457,8 @@ class FileSafeStructureBuilder {
                     ))
                 }
             } else {
-                let filesPerPerson = distributeFilesOverAngles(files: files, angles: config.audioPersons)
-                for person in config.audioPersons {
+                let filesPerPerson = distributeFilesOverLabels(files: files, labels: projectConfig.audioPersons)
+                for person in projectConfig.audioPersons {
                     let personFiles = filesPerPerson[person] ?? []
                     let personPath = "\(basePath)/\(person)"
                     let fullPath = "\(projectPath)/\(personPath)"
@@ -322,7 +479,7 @@ class FileSafeStructureBuilder {
                     ))
                 }
 
-                if config.hasWildtrack {
+                if projectConfig.hasWildtrack {
                     children.append(FileSafeTargetFolder(
                         relativePath: "\(basePath)/Wildtrack",
                         displayName: "Wildtrack",
@@ -336,8 +493,8 @@ class FileSafeStructureBuilder {
         let audioTree = FileSafeTargetFolder(
             relativePath: basePath,
             displayName: URL(fileURLWithPath: basePath).lastPathComponent,
-            fileCount: config.audioPersons.isEmpty ? files.count : 0,
-            totalSize: config.audioPersons.isEmpty ? files.reduce(0) { $0 + $1.fileSize } : 0,
+            fileCount: projectConfig.audioPersons.isEmpty ? files.count : 0,
+            totalSize: projectConfig.audioPersons.isEmpty ? files.reduce(0) { $0 + $1.fileSize } : 0,
             children: children
         )
 
@@ -350,22 +507,197 @@ class FileSafeStructureBuilder {
         basePath: String,
         projectPath: String,
         files: [FileSafeSourceFile],
-        config: FileSafeShootConfig
+        projectConfig: FileSafeProjectConfig,
+        cardConfig: FileSafeCardConfig
+    ) -> (tree: FileSafeTargetFolder, mappings: [FileSafeFileMapping]) {
+
+        // Multi-day: wrap foto's in dag-submappen (ook als er maar 1 dag in deze import zit,
+        // want toekomstige imports voor hetzelfde project voegen meer dagen toe)
+        if projectConfig.isMultiDayShoot {
+            var mappings: [FileSafeFileMapping] = []
+            var dayChildren: [FileSafeTargetFolder] = []
+
+            let filesByDay = assignFilesToDays(
+                files: files,
+                shootDays: cardConfig.shootDays,
+                useTimestamp: projectConfig.useTimestampAssignment
+            )
+
+            for day in cardConfig.shootDays {
+                let dayFiles = filesByDay[day.id] ?? []
+                let dayBasePath = "\(basePath)/\(day.displayName)"
+                let (dayTree, dayMappings) = buildSingleDayPhotoStructure(
+                    basePath: dayBasePath,
+                    projectPath: projectPath,
+                    files: dayFiles,
+                    projectConfig: projectConfig,
+                    cardConfig: cardConfig
+                )
+                dayChildren.append(dayTree)
+                mappings.append(contentsOf: dayMappings)
+            }
+
+            let photoTree = FileSafeTargetFolder(
+                relativePath: basePath,
+                displayName: URL(fileURLWithPath: basePath).lastPathComponent,
+                children: dayChildren
+            )
+            return (photoTree, mappings)
+        }
+
+        // Single-day: bestaande logica
+        return buildSingleDayPhotoStructure(
+            basePath: basePath,
+            projectPath: projectPath,
+            files: files,
+            projectConfig: projectConfig,
+            cardConfig: cardConfig
+        )
+    }
+
+    /// Bouw foto-structuur voor één dag (of flat als single-day)
+    private func buildSingleDayPhotoStructure(
+        basePath: String,
+        projectPath: String,
+        files: [FileSafeSourceFile],
+        projectConfig: FileSafeProjectConfig,
+        cardConfig: FileSafeCardConfig
     ) -> (tree: FileSafeTargetFolder, mappings: [FileSafeFileMapping]) {
 
         var mappings: [FileSafeFileMapping] = []
         var children: [FileSafeTargetFolder] = []
 
         let rawExtensions: Set<String> = ["cr3", "cr2", "arw", "nef", "raf", "dng"]
+        let photoBins = cardConfig.photoBins.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+        let photoSubs = cardConfig.effectivePhotoSubfolders
+        let hasSubfolders = !photoSubs.isEmpty
+        let hasBins = !photoBins.isEmpty
 
-        if config.photoCategories.isEmpty {
-            // Geen categorieën
-            if config.splitRawJpeg {
+        if hasBins {
+            // NIEUW: bin-gebaseerde routing met optionele RAW/JPEG split per bin
+            let assignedBinNames = Set(photoBins.map { $0.name.trimmingCharacters(in: .whitespaces) })
+
+            for bin in photoBins {
+                let binName = bin.name.trimmingCharacters(in: .whitespaces)
+                let binFiles = files.filter { cardConfig.fileSubfolderMap[$0.id] == binName }
+                let binPath = "\(basePath)/\(binName)"
+
+                if projectConfig.splitRawJpeg {
+                    let rawFiles = binFiles.filter { rawExtensions.contains($0.fileExtension.lowercased()) }
+                    let jpegFiles = binFiles.filter { !rawExtensions.contains($0.fileExtension.lowercased()) }
+
+                    for file in rawFiles {
+                        mappings.append(FileSafeFileMapping(
+                            source: file,
+                            destinationPath: "\(projectPath)/\(binPath)/RAW/\(file.fileName)",
+                            targetFolderName: "RAW"
+                        ))
+                    }
+                    for file in jpegFiles {
+                        mappings.append(FileSafeFileMapping(
+                            source: file,
+                            destinationPath: "\(projectPath)/\(binPath)/JPEG/\(file.fileName)",
+                            targetFolderName: "JPEG"
+                        ))
+                    }
+
+                    children.append(FileSafeTargetFolder(
+                        relativePath: binPath,
+                        displayName: binName,
+                        children: [
+                            FileSafeTargetFolder(
+                                relativePath: "\(binPath)/RAW", displayName: "RAW",
+                                fileCount: rawFiles.count, totalSize: rawFiles.reduce(0) { $0 + $1.fileSize }
+                            ),
+                            FileSafeTargetFolder(
+                                relativePath: "\(binPath)/JPEG", displayName: "JPEG",
+                                fileCount: jpegFiles.count, totalSize: jpegFiles.reduce(0) { $0 + $1.fileSize }
+                            )
+                        ]
+                    ))
+                } else {
+                    let fullBinPath = "\(projectPath)/\(binPath)"
+                    for file in binFiles {
+                        mappings.append(FileSafeFileMapping(
+                            source: file,
+                            destinationPath: "\(fullBinPath)/\(file.fileName)",
+                            targetFolderName: binName
+                        ))
+                    }
+
+                    children.append(FileSafeTargetFolder(
+                        relativePath: binPath,
+                        displayName: binName,
+                        fileCount: binFiles.count,
+                        totalSize: binFiles.reduce(0) { $0 + $1.fileSize }
+                    ))
+                }
+            }
+
+            // Unassigned bestanden → direct in basePath (met optionele RAW/JPEG split)
+            let unassigned = files.filter {
+                guard let assignment = cardConfig.fileSubfolderMap[$0.id] else { return true }
+                return !assignedBinNames.contains(assignment)
+            }
+
+            if !unassigned.isEmpty {
+                if projectConfig.splitRawJpeg {
+                    let rawFiles = unassigned.filter { rawExtensions.contains($0.fileExtension.lowercased()) }
+                    let jpegFiles = unassigned.filter { !rawExtensions.contains($0.fileExtension.lowercased()) }
+
+                    for file in rawFiles {
+                        mappings.append(FileSafeFileMapping(
+                            source: file,
+                            destinationPath: "\(projectPath)/\(basePath)/RAW/\(file.fileName)",
+                            targetFolderName: "RAW"
+                        ))
+                    }
+                    for file in jpegFiles {
+                        mappings.append(FileSafeFileMapping(
+                            source: file,
+                            destinationPath: "\(projectPath)/\(basePath)/JPEG/\(file.fileName)",
+                            targetFolderName: "JPEG"
+                        ))
+                    }
+
+                    // RAW/JPEG nodes direct onder basePath (naast bins)
+                    if !rawFiles.isEmpty {
+                        children.append(FileSafeTargetFolder(
+                            relativePath: "\(basePath)/RAW", displayName: "RAW",
+                            fileCount: rawFiles.count, totalSize: rawFiles.reduce(0) { $0 + $1.fileSize }
+                        ))
+                    }
+                    if !jpegFiles.isEmpty {
+                        children.append(FileSafeTargetFolder(
+                            relativePath: "\(basePath)/JPEG", displayName: "JPEG",
+                            fileCount: jpegFiles.count, totalSize: jpegFiles.reduce(0) { $0 + $1.fileSize }
+                        ))
+                    }
+                } else {
+                    let fullPath = "\(projectPath)/\(basePath)"
+                    for file in unassigned {
+                        mappings.append(FileSafeFileMapping(
+                            source: file,
+                            destinationPath: "\(fullPath)/\(file.fileName)",
+                            targetFolderName: URL(fileURLWithPath: basePath).lastPathComponent
+                        ))
+                    }
+                }
+            }
+
+        } else {
+            // Legacy modus: geneste submappen
+            var effectiveBase = basePath
+            for sub in photoSubs {
+                effectiveBase += "/\(sub)"
+            }
+
+            if projectConfig.splitRawJpeg {
                 let rawFiles = files.filter { rawExtensions.contains($0.fileExtension.lowercased()) }
                 let jpegFiles = files.filter { !rawExtensions.contains($0.fileExtension.lowercased()) }
 
-                let rawPath = "\(basePath)/RAW"
-                let jpegPath = "\(basePath)/JPEG"
+                let rawPath = "\(effectiveBase)/RAW"
+                let jpegPath = "\(effectiveBase)/JPEG"
 
                 for file in rawFiles {
                     mappings.append(FileSafeFileMapping(
@@ -382,92 +714,87 @@ class FileSafeStructureBuilder {
                     ))
                 }
 
-                children.append(FileSafeTargetFolder(
-                    relativePath: rawPath, displayName: "RAW",
-                    fileCount: rawFiles.count, totalSize: rawFiles.reduce(0) { $0 + $1.fileSize }
-                ))
-                children.append(FileSafeTargetFolder(
-                    relativePath: jpegPath, displayName: "JPEG",
-                    fileCount: jpegFiles.count, totalSize: jpegFiles.reduce(0) { $0 + $1.fileSize }
-                ))
+                let splitChildren = [
+                    FileSafeTargetFolder(
+                        relativePath: rawPath, displayName: "RAW",
+                        fileCount: rawFiles.count, totalSize: rawFiles.reduce(0) { $0 + $1.fileSize }
+                    ),
+                    FileSafeTargetFolder(
+                        relativePath: jpegPath, displayName: "JPEG",
+                        fileCount: jpegFiles.count, totalSize: jpegFiles.reduce(0) { $0 + $1.fileSize }
+                    )
+                ]
+
+                if hasSubfolders {
+                    var innerNode = FileSafeTargetFolder(
+                        relativePath: effectiveBase,
+                        displayName: photoSubs.last!,
+                        children: splitChildren
+                    )
+                    if photoSubs.count > 1 {
+                        var currentPath = basePath
+                        var pathComponents: [(path: String, name: String)] = []
+                        for sub in photoSubs.dropLast() {
+                            currentPath += "/\(sub)"
+                            pathComponents.append((currentPath, sub))
+                        }
+                        for component in pathComponents.reversed() {
+                            innerNode = FileSafeTargetFolder(
+                                relativePath: component.path,
+                                displayName: component.name,
+                                children: [innerNode]
+                            )
+                        }
+                    }
+                    children.append(innerNode)
+                } else {
+                    children.append(contentsOf: splitChildren)
+                }
             } else {
-                let fullPath = "\(projectPath)/\(basePath)"
+                let fullPath = "\(projectPath)/\(effectiveBase)"
+                let leafName = photoSubs.last ?? URL(fileURLWithPath: basePath).lastPathComponent
+
                 for file in files {
                     mappings.append(FileSafeFileMapping(
                         source: file,
                         destinationPath: "\(fullPath)/\(file.fileName)",
-                        targetFolderName: URL(fileURLWithPath: basePath).lastPathComponent
+                        targetFolderName: leafName
                     ))
                 }
-            }
-        } else {
-            // Met categorieën
-            let filesPerCategory = distributeFilesOverAngles(files: files, angles: config.photoCategories)
 
-            for category in config.photoCategories {
-                let catFiles = filesPerCategory[category] ?? []
-
-                if config.splitRawJpeg {
-                    let rawFiles = catFiles.filter { rawExtensions.contains($0.fileExtension.lowercased()) }
-                    let jpegFiles = catFiles.filter { !rawExtensions.contains($0.fileExtension.lowercased()) }
-
-                    let rawPath = "\(basePath)/\(category)/RAW"
-                    let jpegPath = "\(basePath)/\(category)/JPEG"
-
-                    for file in rawFiles {
-                        mappings.append(FileSafeFileMapping(
-                            source: file,
-                            destinationPath: "\(projectPath)/\(rawPath)/\(file.fileName)",
-                            targetFolderName: "RAW"
-                        ))
+                if hasSubfolders {
+                    var innerNode = FileSafeTargetFolder(
+                        relativePath: effectiveBase,
+                        displayName: photoSubs.last!,
+                        fileCount: files.count,
+                        totalSize: files.reduce(0) { $0 + $1.fileSize }
+                    )
+                    if photoSubs.count > 1 {
+                        var currentPath = basePath
+                        var pathComponents: [(path: String, name: String)] = []
+                        for sub in photoSubs.dropLast() {
+                            currentPath += "/\(sub)"
+                            pathComponents.append((currentPath, sub))
+                        }
+                        for component in pathComponents.reversed() {
+                            innerNode = FileSafeTargetFolder(
+                                relativePath: component.path,
+                                displayName: component.name,
+                                children: [innerNode]
+                            )
+                        }
                     }
-                    for file in jpegFiles {
-                        mappings.append(FileSafeFileMapping(
-                            source: file,
-                            destinationPath: "\(projectPath)/\(jpegPath)/\(file.fileName)",
-                            targetFolderName: "JPEG"
-                        ))
-                    }
-
-                    var catChildren: [FileSafeTargetFolder] = []
-                    catChildren.append(FileSafeTargetFolder(
-                        relativePath: rawPath, displayName: "RAW",
-                        fileCount: rawFiles.count, totalSize: rawFiles.reduce(0) { $0 + $1.fileSize }
-                    ))
-                    catChildren.append(FileSafeTargetFolder(
-                        relativePath: jpegPath, displayName: "JPEG",
-                        fileCount: jpegFiles.count, totalSize: jpegFiles.reduce(0) { $0 + $1.fileSize }
-                    ))
-
-                    children.append(FileSafeTargetFolder(
-                        relativePath: "\(basePath)/\(category)",
-                        displayName: category,
-                        children: catChildren
-                    ))
-                } else {
-                    let catPath = "\(basePath)/\(category)"
-                    for file in catFiles {
-                        mappings.append(FileSafeFileMapping(
-                            source: file,
-                            destinationPath: "\(projectPath)/\(catPath)/\(file.fileName)",
-                            targetFolderName: category
-                        ))
-                    }
-                    children.append(FileSafeTargetFolder(
-                        relativePath: catPath,
-                        displayName: category,
-                        fileCount: catFiles.count,
-                        totalSize: catFiles.reduce(0) { $0 + $1.fileSize }
-                    ))
+                    children.append(innerNode)
                 }
             }
         }
 
+        let noBins = !hasBins
         let photoTree = FileSafeTargetFolder(
             relativePath: basePath,
             displayName: URL(fileURLWithPath: basePath).lastPathComponent,
-            fileCount: config.photoCategories.isEmpty && !config.splitRawJpeg ? files.count : 0,
-            totalSize: config.photoCategories.isEmpty && !config.splitRawJpeg ? files.reduce(0) { $0 + $1.fileSize } : 0,
+            fileCount: noBins && !hasSubfolders && !projectConfig.splitRawJpeg ? files.count : 0,
+            totalSize: noBins && !hasSubfolders && !projectConfig.splitRawJpeg ? files.reduce(0) { $0 + $1.fileSize } : 0,
             children: children
         )
 
@@ -476,7 +803,8 @@ class FileSafeStructureBuilder {
 
     // MARK: - Helpers
 
-    private func assignFilesToDays(
+    /// Wijs bestanden toe aan dagen op basis van werkelijke kalenderdatum
+    func assignFilesToDays(
         files: [FileSafeSourceFile],
         shootDays: [FileSafeShootDay],
         useTimestamp: Bool
@@ -488,69 +816,119 @@ class FileSafeStructureBuilder {
             return [shootDays[0].id: files]
         }
 
-        // Als timestamps niet gebruikt worden of geen datums beschikbaar, verdeel evenredig
-        if !useTimestamp || shootDays.allSatisfy({ $0.date == nil }) {
-            return distributeFilesEvenlyOverDays(files: files, days: shootDays)
-        }
-
-        // Timestamp-based toewijzing
+        // Groepeer bestanden per werkelijke kalenderdatum
         let calendar = Calendar.current
-        var dayFiles: [UUID: [FileSafeSourceFile]] = [:]
+        var filesByCalendarDay: [DateComponents: [FileSafeSourceFile]] = [:]
+        var filesWithoutDate: [FileSafeSourceFile] = []
 
         for file in files {
-            guard let fileDate = file.creationDate ?? file.modificationDate else {
-                // Geen datum: toewijzen aan eerste dag
-                dayFiles[shootDays[0].id, default: []].append(file)
-                continue
+            if let date = file.creationDate ?? file.modificationDate {
+                let key = calendar.dateComponents([.year, .month, .day], from: date)
+                filesByCalendarDay[key, default: []].append(file)
+            } else {
+                filesWithoutDate.append(file)
             }
-
-            let matched = shootDays.first { day in
-                guard let dayDate = day.date else { return false }
-                return calendar.isDate(fileDate, inSameDayAs: dayDate)
-            }
-
-            let targetDay = matched ?? shootDays.last!
-            dayFiles[targetDay.id, default: []].append(file)
         }
 
-        return dayFiles
-    }
-
-    private func distributeFilesEvenlyOverDays(
-        files: [FileSafeSourceFile],
-        days: [FileSafeShootDay]
-    ) -> [UUID: [FileSafeSourceFile]] {
+        // Match kalenderdatums met geconfigureerde shootdagen
         var result: [UUID: [FileSafeSourceFile]] = [:]
-        let filesPerDay = max(1, files.count / days.count)
 
-        for (index, file) in files.enumerated() {
-            let dayIndex = min(index / filesPerDay, days.count - 1)
-            result[days[dayIndex].id, default: []].append(file)
+        if useTimestamp {
+            for day in shootDays {
+                guard let dayDate = day.date else { continue }
+                let dayComponents = calendar.dateComponents([.year, .month, .day], from: dayDate)
+                if let matchedFiles = filesByCalendarDay[dayComponents] {
+                    result[day.id, default: []].append(contentsOf: matchedFiles)
+                    filesByCalendarDay.removeValue(forKey: dayComponents)
+                }
+            }
+        }
+
+        // Ongematchte bestanden en bestanden zonder datum → eerste dag
+        let remainingFiles = filesByCalendarDay.values.flatMap { $0 } + filesWithoutDate
+        if !remainingFiles.isEmpty {
+            result[shootDays[0].id, default: []].append(contentsOf: remainingFiles)
         }
 
         return result
     }
 
-    /// Verdeel bestanden over hoeken/personen.
-    /// Zonder verdere metadata worden bestanden gelijkmatig verdeeld.
-    private func distributeFilesOverAngles(
+    /// Verdeel bestanden over labels (camera's, personen, categorieën).
+    private func distributeFilesOverLabels(
         files: [FileSafeSourceFile],
-        angles: [String]
+        labels: [String]
     ) -> [String: [FileSafeSourceFile]] {
-        guard !angles.isEmpty else { return [:] }
+        guard !labels.isEmpty else { return [:] }
 
-        if angles.count == 1 {
-            return [angles[0]: files]
+        if labels.count == 1 {
+            return [labels[0]: files]
         }
 
         var result: [String: [FileSafeSourceFile]] = [:]
-        let filesPerAngle = max(1, files.count / angles.count)
+        let filesPerLabel = max(1, files.count / labels.count)
 
         for (index, file) in files.enumerated() {
-            let angleIndex = min(index / filesPerAngle, angles.count - 1)
-            result[angles[angleIndex], default: []].append(file)
+            let labelIndex = min(index / filesPerLabel, labels.count - 1)
+            result[labels[labelIndex], default: []].append(file)
         }
 
         return result
+    }
+
+    // MARK: - Duplicate Detection
+
+    /// Scant de footage-map van het project en markeert mappings waarvan het bestand
+    /// al in het project aanwezig is (op basis van bestandsnaam + bestandsgrootte).
+    func detectDuplicates(
+        in mappings: inout [FileSafeFileMapping],
+        projectPath: String,
+        footagePath: String?
+    ) {
+        // Bepaal zoekpad: footage-map binnen project, of hele project
+        let searchRoot: String
+        if let fp = footagePath, !fp.isEmpty {
+            searchRoot = (projectPath as NSString).appendingPathComponent(fp)
+        } else {
+            searchRoot = projectPath
+        }
+
+        let searchURL = URL(fileURLWithPath: searchRoot)
+
+        // Controleer of de map bestaat
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: searchRoot, isDirectory: &isDir),
+              isDir.boolValue else {
+            // Project/footage map bestaat nog niet → geen duplicaten
+            return
+        }
+
+        // Bouw lookup dictionary: [bestandsnaam (lowercase): Set<bestandsgrootte>]
+        var existingFiles: [String: Set<Int64>] = [:]
+
+        if let enumerator = FileManager.default.enumerator(
+            at: searchURL,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) {
+            for case let fileURL as URL in enumerator {
+                guard let resourceValues = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                      resourceValues.isRegularFile == true,
+                      let fileSize = resourceValues.fileSize else {
+                    continue
+                }
+
+                let fileName = fileURL.lastPathComponent.lowercased()
+                existingFiles[fileName, default: []].insert(Int64(fileSize))
+            }
+        }
+
+        // Markeer mappings waarvan bestand al bestaat
+        for i in mappings.indices {
+            let fileName = mappings[i].source.fileName.lowercased()
+            let fileSize = mappings[i].source.fileSize
+            if let sizes = existingFiles[fileName], sizes.contains(fileSize) {
+                mappings[i].isDuplicate = true
+            }
+        }
     }
 }

@@ -3,11 +3,12 @@ import SwiftUI
 /// Hoofdview met tabs voor DownloadSync en FolderSync
 struct MainTabView: View {
     @StateObject private var appState = AppState.shared
+    @StateObject private var volumeDetector = VolumeDetector.shared
     @Binding var showingSettings: Bool
     @Binding var selectedItemForPicker: DownloadItem?
     @Binding var isShowingFolderSyncForm: Bool
     @Binding var isShowingClearConfirmation: Bool
-    
+
     enum Tab: String, CaseIterable {
         case downloadSync = "DownloadSync"
         case folderSync = "FolderSync"
@@ -23,14 +24,23 @@ struct MainTabView: View {
             }
         }
     }
-    
+
     @State private var selectedTab: Tab = .downloadSync
-    
+
+    /// Tabs die zichtbaar zijn — FileSafe alleen als er externe schijven zijn
+    private var visibleTabs: [Tab] {
+        var tabs: [Tab] = [.downloadSync, .folderSync, .loadFolder]
+        if !volumeDetector.externalVolumes.isEmpty {
+            tabs.append(.fileSafe)
+        }
+        return tabs
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Tab bar
             HStack(spacing: 0) {
-                ForEach(Tab.allCases, id: \.self) { tab in
+                ForEach(visibleTabs, id: \.self) { tab in
                     TabButton(
                         title: tab.rawValue,
                         icon: tab.icon,
@@ -45,10 +55,10 @@ struct MainTabView: View {
             }
             .padding(.horizontal, 8)
             .padding(.top, 8)
-            
+
             Divider()
                 .padding(.top, 8)
-            
+
             // Content
             Group {
                 switch selectedTab {
@@ -62,13 +72,32 @@ struct MainTabView: View {
                 case .loadFolder:
                     LoadFolderView()
                 case .fileSafe:
-                    FileSafeView()
+                    FileSafeLauncherView()
                 }
             }
             .transition(.opacity)
         }
+        .onAppear {
+            volumeDetector.startMonitoring()
+        }
+        .onChange(of: volumeDetector.externalVolumes) { _, newVolumes in
+            // Als FileSafe tab verdwijnt terwijl die geselecteerd is, ga terug naar DownloadSync
+            if newVolumes.isEmpty && selectedTab == .fileSafe {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    selectedTab = .downloadSync
+                }
+            }
+        }
+        .onChange(of: appState.shouldSwitchToFileSafeTab) { _, shouldSwitch in
+            if shouldSwitch && !volumeDetector.externalVolumes.isEmpty {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    selectedTab = .fileSafe
+                }
+                appState.shouldSwitchToFileSafeTab = false
+            }
+        }
     }
-    
+
     private func badgeCount(for tab: Tab) -> Int {
         switch tab {
         case .downloadSync:
@@ -78,7 +107,7 @@ struct MainTabView: View {
         case .loadFolder:
             return appState.config.loadFolderPresets.count
         case .fileSafe:
-            return 0
+            return volumeDetector.externalVolumes.count
         }
     }
 }
@@ -238,6 +267,90 @@ struct EmptyDownloadSyncView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - FileSafe Launcher (toont drive-cards, opent apart venster bij klik)
+
+struct FileSafeLauncherView: View {
+    @StateObject private var volumeDetector = VolumeDetector.shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if volumeDetector.externalVolumes.isEmpty {
+                emptyContent
+            } else {
+                driveList
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            volumeDetector.startMonitoring()
+        }
+    }
+
+    private var driveList: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(volumeDetector.externalVolumes) { volume in
+                    Button(action: { openFileSafeWindow(volume: volume) }) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "externaldrive.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(.accentColor)
+                                .frame(width: 32)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(volume.name)
+                                    .font(.system(size: 13, weight: .medium))
+                                Text("\(volume.formattedTotalSize) \u{2022} \(volume.formattedFreeSpace) free")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color(.controlBackgroundColor))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                }
+            }
+            .padding(.bottom, 8)
+        }
+    }
+
+    private var emptyContent: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "externaldrive.badge.plus")
+                .font(.system(size: 36))
+                .foregroundColor(.secondary.opacity(0.4))
+            Text(String(localized: "filesafe.launcher.title"))
+                .font(.system(size: 14, weight: .semibold))
+            Text(String(localized: "filesafe.launcher.subtitle"))
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func openFileSafeWindow(volume: ExternalVolume) {
+        // Sluit bestaand venster en open nieuw met geselecteerde volume
+        FileSafeWindowController.shared?.close()
+        let controller = FileSafeWindowController(initialVolume: volume)
+        controller.show()
     }
 }
 
