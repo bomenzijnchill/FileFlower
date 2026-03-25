@@ -6,10 +6,13 @@ class TemplateDeployer {
 
     /// Standaard mappenstructuur voor video editing projecten
     static let standardTemplate: [(name: String, children: [String])] = [
-        ("03_Audio", ["01_Music", "02_VO"]),
-        ("04_SFX", []),
-        ("04_Visuals", ["01_Graphics", "02_MotionGraphics", "03_Stills"]),
-        ("05_VFX", [])
+        ("01_Adobe", []),
+        ("02_Footage", []),
+        ("03_Audio", []),
+        ("04_Graphics", []),
+        ("05_Subs", []),
+        ("98_Documents", []),
+        ("99_Exports", [])
     ]
 
     enum DeployError: LocalizedError {

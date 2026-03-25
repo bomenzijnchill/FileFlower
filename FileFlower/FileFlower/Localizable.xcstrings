@@ -2151,31 +2151,31 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Karteneinstellungen"
+            "value" : "Importeinstellungen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Card Settings"
+            "value" : "Import Settings"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Configuración de tarjeta"
+            "value" : "Configuración de importación"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Paramètres de la carte"
+            "value" : "Paramètres d'import"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kaartinstellingen"
+            "value" : "Importinstellingen"
           }
         }
       }

@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import Combine
 import Sparkle
+import UserNotifications
 
 /// Beheert app updates via Sparkle framework
 class UpdateManager: ObservableObject {
@@ -10,6 +11,7 @@ class UpdateManager: ObservableObject {
     // MARK: - Sparkle
 
     let updaterController: SPUStandardUpdaterController
+    private let sparkleDelegate = SparkleUpdateDelegate()
 
     // MARK: - Published Properties
 
@@ -22,13 +24,15 @@ class UpdateManager: ObservableObject {
         currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
         buildNumber = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
 
-        // Sparkle updater initialiseren
-        // startingUpdater: true = automatisch checken op basis van gebruikersinstellingen
+        // Sparkle updater initialiseren met delegate voor update-notificaties
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
-            updaterDelegate: nil,
+            updaterDelegate: sparkleDelegate,
             userDriverDelegate: nil
         )
+
+        // Notification permissie aanvragen
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     // MARK: - Public Methods
@@ -68,6 +72,25 @@ class UpdateManager: ObservableObject {
     /// Update de Premiere plugin naar de gebundelde versie
     func updatePremierePlugin() -> Result<Void, SetupError> {
         return SetupManager.shared.installPremierePlugin()
+    }
+}
+
+// MARK: - Sparkle Update Delegate
+
+/// Stuurt een push-notificatie wanneer Sparkle een nieuwe update vindt
+private class SparkleUpdateDelegate: NSObject, SPUUpdaterDelegate {
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        let content = UNMutableNotificationContent()
+        content.title = "FileFlower Update"
+        content.body = "Versie \(item.displayVersionString) is beschikbaar. Open FileFlower om te updaten."
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: "app-update-\(item.displayVersionString)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 }
 

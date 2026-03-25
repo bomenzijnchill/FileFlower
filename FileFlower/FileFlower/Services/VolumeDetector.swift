@@ -97,13 +97,18 @@ class VolumeDetector: ObservableObject {
         externalVolumes = volumeURLs.compactMap { url in
             guard let resources = try? url.resourceValues(forKeys: Set(keys)) else { return nil }
 
-            // Filter interne volumes
-            if resources.volumeIsInternal == true { return nil }
-
-            // Moet verwijderbaar of uitwerpbaar zijn
             let isRemovable = resources.volumeIsRemovable ?? false
             let isEjectable = resources.volumeIsEjectable ?? false
-            guard isRemovable || isEjectable else { return nil }
+            let isInternal = resources.volumeIsInternal ?? false
+
+            // Interne volumes alleen toestaan als ze removable/ejectable zijn
+            // (bijv. SD-kaart via ingebouwde kaartlezer)
+            if isInternal && !isRemovable && !isEjectable { return nil }
+
+            // Niet-interne volumes moeten removable of ejectable zijn
+            if !isInternal {
+                guard isRemovable || isEjectable else { return nil }
+            }
 
             let name = resources.volumeName ?? url.lastPathComponent
 

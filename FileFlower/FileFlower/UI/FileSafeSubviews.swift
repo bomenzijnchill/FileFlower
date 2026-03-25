@@ -1,5 +1,6 @@
 import SwiftUI
 import Quartz
+import QuickLookThumbnailing
 
 // MARK: - QuickLook Coordinator (macOS QLPreviewPanel)
 
@@ -766,7 +767,7 @@ struct FileSafeCardConfigView: View {
             FileSafeNavBar(title: String(localized: "filesafe.cardconfig.title"), onBack: onBack)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 16) {
                     // Detected info banner
                     detectedInfoBanner
 
@@ -812,7 +813,7 @@ struct FileSafeCardConfigView: View {
                         customTemplate: customTemplate
                     )
                 }
-                .padding(12)
+                .padding(16)
             }
 
             // Preview button
@@ -823,7 +824,7 @@ struct FileSafeCardConfigView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
-            .padding(12)
+            .padding(16)
         }
     }
 
@@ -1019,6 +1020,7 @@ struct FileSafeCategoryBinEditor: View {
     @State private var selectedFileIDs: Set<UUID> = []
     @State private var lastClickedFileID: UUID?
     @State private var isFileBrowserExpanded: Bool = false
+    @State private var thumbnailSize: CGFloat = 40
 
     private var filesByDay: [UUID: [FileSafeSourceFile]] {
         FileSafeStructureBuilder.shared.assignFilesToDays(
@@ -1046,7 +1048,7 @@ struct FileSafeCategoryBinEditor: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             // Section header
             SectionHeader(
                 title: category == .video
@@ -1089,7 +1091,21 @@ struct FileSafeCategoryBinEditor: View {
             DisclosureGroup(
                 isExpanded: $isFileBrowserExpanded,
                 content: {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        // Thumbnail grootte slider
+                        HStack(spacing: 8) {
+                            Spacer()
+                            Image(systemName: "photo")
+                                .font(.system(size: 9))
+                                .foregroundColor(.secondary)
+                            Slider(value: $thumbnailSize, in: 24...80, step: 8)
+                                .frame(width: 100)
+                            Image(systemName: "photo")
+                                .font(.system(size: 14))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.bottom, 2)
+
                         if isMultiDay && shootDays.count > 1 {
                             // Multi-day: per dag
                             ForEach(shootDays) { day in
@@ -1101,6 +1117,7 @@ struct FileSafeCategoryBinEditor: View {
                                         binNames: binNames,
                                         fileSubfolderMap: $fileSubfolderMap,
                                         selectedFileIDs: $selectedFileIDs,
+                                        thumbnailSize: thumbnailSize,
                                         onFileClick: { file, modifiers in
                                             handleFileClick(file: file, modifiers: modifiers)
                                         }
@@ -1109,13 +1126,14 @@ struct FileSafeCategoryBinEditor: View {
                             }
                         } else {
                             // Single-day: bestanden direct
-                            LazyVStack(alignment: .leading, spacing: 1) {
+                            LazyVStack(alignment: .leading, spacing: 2) {
                                 ForEach(files) { file in
                                     FileSafeFileRow(
                                         file: file,
                                         binNames: binNames,
                                         fileSubfolderMap: $fileSubfolderMap,
                                         isSelected: selectedFileIDs.contains(file.id),
+                                        thumbnailSize: thumbnailSize,
                                         onFileClick: { modifiers in
                                             handleFileClick(file: file, modifiers: modifiers)
                                         }
@@ -1125,10 +1143,6 @@ struct FileSafeCategoryBinEditor: View {
                         }
                     }
                     .padding(.top, 4)
-                    .onKeyPress(.space) {
-                        openQuickLook()
-                        return .handled
-                    }
                 },
                 label: {
                     HStack(spacing: 6) {
@@ -1151,12 +1165,17 @@ struct FileSafeCategoryBinEditor: View {
                     }
                 }
             )
-            .padding(10)
+            .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(.controlBackgroundColor))
             )
             .focusable()
+            .focusEffectDisabled()
+            .onKeyPress(.space) {
+                openQuickLook()
+                return .handled
+            }
 
             // Batch action bar (alleen zichtbaar als bestanden geselecteerd)
             if !selectedFileIDs.isEmpty && !binNames.isEmpty {
@@ -1338,6 +1357,7 @@ struct FileSafeDayFileSection: View {
     let binNames: [String]
     @Binding var fileSubfolderMap: [UUID: String]
     @Binding var selectedFileIDs: Set<UUID>
+    var thumbnailSize: CGFloat = 40
     var onFileClick: (FileSafeSourceFile, EventModifiers) -> Void
 
     @State private var isExpanded: Bool = false
@@ -1359,6 +1379,7 @@ struct FileSafeDayFileSection: View {
                             binNames: binNames,
                             fileSubfolderMap: $fileSubfolderMap,
                             isSelected: selectedFileIDs.contains(file.id),
+                            thumbnailSize: thumbnailSize,
                             onFileClick: { modifiers in
                                 onFileClick(file, modifiers)
                             }
@@ -1388,6 +1409,42 @@ struct FileSafeDayFileSection: View {
     }
 }
 
+// MARK: - Thumbnail View
+
+struct FileSafeThumbnailView: View {
+    let filePath: String
+    let category: FileSafeFileCategory
+    let size: CGFloat
+
+    @State private var thumbnail: NSImage?
+
+    var body: some View {
+        Group {
+            if let thumbnail {
+                Image(nsImage: thumbnail)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: size, height: size)
+                    .clipped()
+                    .cornerRadius(3)
+            } else {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color(.controlBackgroundColor))
+                    .frame(width: size, height: size)
+                    .overlay(
+                        Image(systemName: category == .video ? "film" : "photo")
+                            .font(.system(size: size * 0.4))
+                            .foregroundColor(.secondary.opacity(0.5))
+                    )
+            }
+        }
+        .task(id: filePath) {
+            guard category == .photo || category == .video else { return }
+            thumbnail = await FileSafeThumbnailCache.shared.thumbnail(for: filePath)
+        }
+    }
+}
+
 // MARK: - File Row
 
 struct FileSafeFileRow: View {
@@ -1395,28 +1452,44 @@ struct FileSafeFileRow: View {
     let binNames: [String]
     @Binding var fileSubfolderMap: [UUID: String]
     let isSelected: Bool
+    var thumbnailSize: CGFloat = 40
     var onFileClick: (EventModifiers) -> Void
 
     private var currentAssignment: String? {
         fileSubfolderMap[file.id]
     }
 
-    var body: some View {
-        HStack(spacing: 6) {
-            // Selectie indicator
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 12))
-                .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.4))
+    /// Detecteer modifier keys via NSApp.currentEvent
+    private func currentModifiers() -> EventModifiers {
+        guard let flags = NSApp.currentEvent?.modifierFlags else { return [] }
+        var mods: EventModifiers = []
+        if flags.contains(.shift) { mods.insert(.shift) }
+        if flags.contains(.command) { mods.insert(.command) }
+        return mods
+    }
 
-            // File icon
-            Image(systemName: file.category == .video ? "film" : "photo")
-                .font(.system(size: 10))
-                .foregroundColor(.secondary)
-                .frame(width: 14)
+    var body: some View {
+        HStack(spacing: 8) {
+            // Checkbox
+            Button(action: {
+                onFileClick(currentModifiers())
+            }) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 14))
+                    .foregroundColor(isSelected ? .accentColor : .secondary.opacity(0.4))
+            }
+            .buttonStyle(.plain)
+
+            // Thumbnail
+            FileSafeThumbnailView(
+                filePath: file.relativePath,
+                category: file.category,
+                size: thumbnailSize
+            )
 
             // Filename
             Text(file.fileName)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: 12, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.middle)
 
@@ -1473,31 +1546,16 @@ struct FileSafeFileRow: View {
                 .frame(minWidth: 80)
             }
         }
-        .padding(.vertical, 2)
-        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
         .background(
-            RoundedRectangle(cornerRadius: 4)
+            RoundedRectangle(cornerRadius: 5)
                 .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
         )
         .contentShape(Rectangle())
         .onTapGesture {
-            onFileClick([])
+            onFileClick(currentModifiers())
         }
-        .simultaneousGesture(
-            TapGesture().modifiers(.shift).onEnded {
-                onFileClick(.shift)
-            }
-        )
-        .simultaneousGesture(
-            TapGesture().modifiers(.command).onEnded {
-                onFileClick(.command)
-            }
-        )
-        .simultaneousGesture(
-            TapGesture().modifiers([.shift, .command]).onEnded {
-                onFileClick([.shift, .command])
-            }
-        )
     }
 }
 
@@ -2642,12 +2700,12 @@ struct FileSafeNavBar: View {
             }
 
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
 
             Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 }
 
