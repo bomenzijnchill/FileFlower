@@ -27,14 +27,25 @@ class BinMatcher {
         return normalized
     }
 
-    /// Zoek een bestaande Finder-map die matcht met het gegeven asset type
-    /// Returns de naam van de gematchte map, of nil als er geen match is
-    func findMatchingFolder(for assetType: AssetType, in projectRoot: URL) -> String? {
+    /// Zoek een bestaande Finder-map die matcht met het gegeven asset type.
+    /// Zoekt recursief door de projectstructuur (maxDepth niveaus diep).
+    /// Returns de naam van de gematchte map, of nil als er geen match is.
+    func findMatchingFolder(for assetType: AssetType, in projectRoot: URL, maxDepth: Int = 3) -> String? {
         guard let keywords = categoryKeywords[assetType] else { return nil }
+        return findMatchingFolderRecursive(keywords: keywords, in: projectRoot, maxDepth: maxDepth)
+    }
 
+    /// Zoek recursief in submappen voor een match (bijv. binnen 03_Audio zoeken naar VO)
+    func findMatchingSubfolder(for assetType: AssetType, in parentFolder: URL, maxDepth: Int = 2) -> String? {
+        guard let keywords = categoryKeywords[assetType] else { return nil }
+        return findMatchingFolderRecursive(keywords: keywords, in: parentFolder, maxDepth: maxDepth)
+    }
+
+    /// Interne recursieve zoekfunctie
+    private func findMatchingFolderRecursive(keywords: [String], in directory: URL, maxDepth: Int) -> String? {
         let fileManager = FileManager.default
         guard let contents = try? fileManager.contentsOfDirectory(
-            at: projectRoot,
+            at: directory,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         ) else { return nil }
@@ -44,12 +55,11 @@ class BinMatcher {
             return fileManager.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
         }
 
-        // Zoek een map die matcht op keywords
+        // Stap 1: Zoek op huidig niveau
         for folder in folders {
             let folderName = folder.lastPathComponent
             let normalized = normalizeName(folderName)
 
-            // Exact match met genormaliseerde naam
             for keyword in keywords {
                 if normalized == keyword || normalized.contains(keyword) || keyword.contains(normalized) {
                     return folderName
@@ -57,32 +67,19 @@ class BinMatcher {
             }
         }
 
-        return nil
-    }
-
-    /// Zoek recursief in submappen voor een match (bijv. binnen 03_Audio zoeken naar VO)
-    func findMatchingSubfolder(for assetType: AssetType, in parentFolder: URL) -> String? {
-        guard let keywords = categoryKeywords[assetType] else { return nil }
-
-        let fileManager = FileManager.default
-        guard let contents = try? fileManager.contentsOfDirectory(
-            at: parentFolder,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-
-        let folders = contents.filter { url in
-            var isDir: ObjCBool = false
-            return fileManager.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
-        }
-
-        for folder in folders {
-            let folderName = folder.lastPathComponent
-            let normalized = normalizeName(folderName)
-
-            for keyword in keywords {
-                if normalized == keyword || normalized.contains(keyword) || keyword.contains(normalized) {
-                    return folderName
+        // Stap 2: Recursief zoeken (als maxDepth > 0)
+        if maxDepth > 0 {
+            for folder in folders {
+                let name = folder.lastPathComponent.lowercased()
+                // Skip NLE-specifieke en systeem mappen
+                if name.contains("adobe") || name.contains("premiere") ||
+                   name.contains("davinci") || name.contains("resolve") ||
+                   name.contains("auto-save") || name.contains("audio previews") ||
+                   name.hasPrefix("01_") || name.hasPrefix(".") {
+                    continue
+                }
+                if let found = findMatchingFolderRecursive(keywords: keywords, in: folder, maxDepth: maxDepth - 1) {
+                    return found
                 }
             }
         }

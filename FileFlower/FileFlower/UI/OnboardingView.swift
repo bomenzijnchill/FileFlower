@@ -139,14 +139,25 @@ struct OnboardingView: View {
         .background(Color(NSColor.windowBackgroundColor))
         .environment(\.locale, wizardLocale)
         .onAppear {
-            // Start wizard altijd in het Engels
-            selectedLanguage = "en"
-            wizardLocale = Locale(identifier: "en")
+            // Pre-populate vanuit bestaande config (zodat update-re-shows de eerdere keuzes tonen)
+            let existingLang = appState.config.appLanguage
+            if !existingLang.isEmpty && existingLang != "en" && SetupManager.shared.hasCompletedOnboarding {
+                selectedLanguage = existingLang
+                wizardLocale = Locale(identifier: existingLang)
+            } else {
+                selectedLanguage = "en"
+                wizardLocale = Locale(identifier: "en")
+            }
             musicClassifyEnabled = appState.config.useGenreMoodDetection
             musicMode = appState.config.musicClassification
             sfxSubfoldersEnabled = appState.config.useSfxSubfolders
             autoStartEnabled = appState.config.startAtLogin
             selectedNLEs = Set(appState.config.selectedNLEs)
+            selectedFolderStructure = appState.config.folderStructurePreset
+            analyticsOptIn = appState.config.analyticsEnabled
+            if let firstRoot = appState.config.projectRoots.first, !firstRoot.isEmpty {
+                projectRoot = firstRoot
+            }
             AnalyticsService.shared.track(.onboardingStarted())
         }
     }
@@ -1285,13 +1296,15 @@ struct OnboardingView: View {
         panel.allowsMultipleSelection = false
         panel.message = String(localized: "onboarding.template.panel_message")
 
-        if panel.runModal() == .OK, let url = panel.url {
-            templateFolderPath = url.path
-            templateError = nil
-            templateMapping = nil
-            isScanningTemplate = true
+        panel.begin { response in
+            DispatchQueue.main.async {
+                guard response == .OK, let url = panel.url else { return }
+                templateFolderPath = url.path
+                templateError = nil
+                templateMapping = nil
+                isScanningTemplate = true
 
-            Task {
+                Task {
                 // Stap 1: Scan
                 let tree = FolderTemplateService.shared.scanFolderTree(at: url)
                 await MainActor.run {
@@ -1315,6 +1328,7 @@ struct OnboardingView: View {
                         templateError = error.localizedDescription
                         isAnalyzingTemplate = false
                     }
+                }
                 }
             }
         }
@@ -1736,17 +1750,20 @@ struct OnboardingView: View {
         panel.canCreateDirectories = true
         panel.message = String(localized: "onboarding.project.subtitle")
 
-        if panel.runModal() == .OK, let url = panel.url {
-            projectRoot = url.path
-            // Scan projecten async met progress indicator
-            isScanning = true
-            Task {
-                if !appState.config.projectRoots.contains(url.path) {
-                    appState.config.projectRoots.append(url.path)
-                    appState.saveConfig()
+        panel.begin { response in
+            DispatchQueue.main.async {
+                guard response == .OK, let url = panel.url else { return }
+                projectRoot = url.path
+                // Scan projecten async met progress indicator
+                isScanning = true
+                Task {
+                    if !appState.config.projectRoots.contains(url.path) {
+                        appState.config.projectRoots.append(url.path)
+                        appState.saveConfig()
+                    }
+                    await appState.refreshRecentProjects()
+                    isScanning = false
                 }
-                await appState.refreshRecentProjects()
-                isScanning = false
             }
         }
     }

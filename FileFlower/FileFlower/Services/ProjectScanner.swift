@@ -129,6 +129,125 @@ class ProjectScanner {
         return projects
     }
 
+    // MARK: - Folder-based Project Scanning
+
+    /// Scan alle top-level mappen in de projectroots als projecten, ongeacht of ze .prproj/.drp bevatten.
+    /// Sorteert op meest recente wijzigingsdatum van de map.
+    func scanAllFolderProjects(roots: [String], limit: Int = 50) async -> [ProjectInfo] {
+        var projects: [ProjectInfo] = []
+
+        for rootPath in roots {
+            let rootURL: URL
+            if let url = URL(string: rootPath), url.scheme != nil {
+                rootURL = url
+            } else {
+                rootURL = URL(fileURLWithPath: rootPath)
+            }
+
+            let found = await scanTopLevelFoldersWithTimeout(in: rootURL, timeout: 10)
+            projects.append(contentsOf: found)
+        }
+
+        // Dedupliceer op projectPath
+        var seen = Set<String>()
+        projects = projects.filter { project in
+            if seen.contains(project.projectPath) { return false }
+            seen.insert(project.projectPath)
+            return true
+        }
+
+        // Sorteer op lastModified aflopend
+        projects.sort { $0.lastModified > $1.lastModified }
+
+        return Array(projects.prefix(limit))
+    }
+
+    private func scanTopLevelFoldersWithTimeout(in root: URL, timeout: TimeInterval) async -> [ProjectInfo] {
+        await withTaskGroup(of: [ProjectInfo].self) { group in
+            group.addTask {
+                self.scanTopLevelFolders(in: root)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return []
+            }
+            if let first = await group.next() {
+                group.cancelAll()
+                return first
+            }
+            return []
+        }
+    }
+
+    /// Lijst alle directe subdirectories in een root op, met hun wijzigingsdatum.
+    private func scanTopLevelFolders(in root: URL) -> [ProjectInfo] {
+        let fileManager = FileManager.default
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) else {
+            return []
+        }
+
+        var projects: [ProjectInfo] = []
+        let skipNames: Set<String> = ["Auto-Save", "Backup", ".Trash", "Adobe Premiere Pro Auto-Save"]
+
+        for item in contents {
+            guard !Task.isCancelled else { break }
+
+            guard let resourceValues = try? item.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey]),
+                  resourceValues.isDirectory == true else {
+                continue
+            }
+
+            let dirName = item.lastPathComponent
+            // Skip system/autosave mappen
+            if skipNames.contains(dirName) ||
+               dirName.localizedCaseInsensitiveContains("Auto-Save") ||
+               dirName.localizedCaseInsensitiveContains("Backup") ||
+               dirName.hasPrefix(".") {
+                continue
+            }
+
+            // Gebruik de meest recente wijzigingsdatum: ofwel de map zelf, ofwel het nieuwste bestand erin
+            let modDate = mostRecentModificationDate(in: item) ?? resourceValues.contentModificationDate ?? Date.distantPast
+
+            let project = ProjectInfo(
+                name: dirName,
+                rootPath: root.path,
+                projectPath: item.path,
+                lastModified: modDate.timeIntervalSince1970
+            )
+            projects.append(project)
+        }
+
+        return projects
+    }
+
+    /// Zoek de meest recente wijzigingsdatum in een map (1 niveau diep, voor performance).
+    private func mostRecentModificationDate(in directory: URL) -> Date? {
+        let fileManager = FileManager.default
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+
+        var latestDate: Date?
+        for item in contents {
+            if let attrs = try? item.resourceValues(forKeys: [.contentModificationDateKey]),
+               let modDate = attrs.contentModificationDate {
+                if latestDate == nil || modDate > latestDate! {
+                    latestDate = modDate
+                }
+            }
+        }
+        return latestDate
+    }
+
     /// Check of een projectbestand een autosave is
     private func isAutosaveFile(_ url: URL) -> Bool {
         // Check parent directory naam

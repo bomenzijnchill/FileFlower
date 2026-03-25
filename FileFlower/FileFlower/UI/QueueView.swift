@@ -99,36 +99,9 @@ struct QueueView: View {
                 .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
             }
             
-            // List - scrollbaar alleen als meer dan 4 items
-            if appState.queuedItems.count > 4 {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(appState.queuedItems) { item in
-                            QueueItemRow(
-                                item: item,
-                                isSelected: selectedItems.contains(item.id),
-                                onSelect: {
-                                    if selectedItems.contains(item.id) {
-                                        selectedItems.remove(item.id)
-                                    } else {
-                                        selectedItems.insert(item.id)
-                                    }
-                                },
-                                onChangeLocation: {
-                                    selectedItemForPicker = item
-                                },
-                                onProcess: { processItem(item) },
-                                onOpenInFinder: { openInFinder(for: item) },
-                                onRetry: { retryItem(item) }
-                            )
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                        }
-                    }
-                }
-            } else {
-                // Weinig items - gebruik vaste minimale hoogte met Spacer
-                VStack(spacing: 0) {
+            // List - altijd scrollbaar
+            ScrollView {
+                LazyVStack(spacing: 0) {
                     ForEach(appState.queuedItems) { item in
                         QueueItemRow(
                             item: item,
@@ -150,11 +123,7 @@ struct QueueView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                     }
-                    
-                    // Spacer om ruimte op te vullen tot minimale hoogte
-                    Spacer(minLength: 0)
                 }
-                .frame(minHeight: 150) // Minimale hoogte voor content area
             }
         }
         .onAppear {
@@ -520,6 +489,37 @@ struct QueueView: View {
             return
         }
 
+        // Bepaal of het geselecteerde project overeenkomt met het actieve NLE project.
+        // Alleen als dat zo is maken we een NLE import job aan; anders alleen verplaatsen.
+        let shouldCreateNLEJob: Bool = {
+            let jobServer = JobServer.shared
+            // Check Premiere Pro
+            if let premierePath = jobServer.activeProjectPath, jobServer.isActiveProjectFresh {
+                if let targetProject = processedItem.targetProject {
+                    let premiereDir = URL(fileURLWithPath: premierePath).deletingLastPathComponent().path
+                    // Match: target folder bevat het .prproj, of het is exact hetzelfde pad
+                    if targetProject.projectPath == premierePath ||
+                       targetProject.projectPath == premiereDir ||
+                       premierePath.hasPrefix(targetProject.projectPath + "/") {
+                        return true
+                    }
+                }
+            }
+            // Check DaVinci Resolve
+            if let resolvePath = jobServer.resolveActiveProjectPath, jobServer.isResolveActiveProjectFresh {
+                if let targetProject = processedItem.targetProject {
+                    let resolveDir = URL(fileURLWithPath: resolvePath).deletingLastPathComponent().path
+                    if targetProject.projectPath == resolvePath ||
+                       targetProject.projectPath == resolveDir ||
+                       resolvePath.hasPrefix(targetProject.projectPath + "/") {
+                        return true
+                    }
+                }
+            }
+            // Geen NLE open of project matcht niet → alleen verplaatsen
+            return false
+        }()
+
         // Process item
         await MainActor.run {
             if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
@@ -529,7 +529,7 @@ struct QueueView: View {
         }
 
         do {
-            try await FileProcessor.shared.process(processedItem)
+            try await FileProcessor.shared.process(processedItem, createNLEJob: shouldCreateNLEJob)
 
             await MainActor.run {
                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
@@ -554,14 +554,22 @@ struct QueueView: View {
                         ))
                     }
 
-                    // Haal de actieve NLE naar voren als dit is ingeschakeld
-                    if appState.config.bringPremiereToFront {
-                        if let nleType = NLEType.from(projectPath: item.targetProject?.projectPath ?? "") {
-                            NLEChecker.shared.bringToFront(nleType)
-                        } else if NLEChecker.shared.isRunning(.premiere) {
-                            NLEChecker.shared.bringToFront(.premiere)
-                        } else if NLEChecker.shared.isRunning(.resolve) {
-                            NLEChecker.shared.bringToFront(.resolve)
+                    if shouldCreateNLEJob {
+                        // NLE import job aangemaakt — breng NLE naar voren als ingeschakeld
+                        if appState.config.bringPremiereToFront {
+                            if let nleType = NLEType.from(projectPath: item.targetProject?.projectPath ?? "") {
+                                NLEChecker.shared.bringToFront(nleType)
+                            } else if NLEChecker.shared.isRunning(.premiere) {
+                                NLEChecker.shared.bringToFront(.premiere)
+                            } else if NLEChecker.shared.isRunning(.resolve) {
+                                NLEChecker.shared.bringToFront(.resolve)
+                            }
+                        }
+                    } else {
+                        // Geen NLE import — open de doelmap in Finder
+                        if let targetPath = appState.queuedItems[index].targetPath {
+                            let targetURL = URL(fileURLWithPath: targetPath)
+                            NSWorkspace.shared.activateFileViewerSelecting([targetURL])
                         }
                     }
                 }
@@ -691,24 +699,20 @@ struct QueueItemRow: View {
             .buttonStyle(.plain)
             .help(isSelected ? String(localized: "queue.deselect") : String(localized: "queue.select"))
             
-            // File icon with loading indicator
-            ZStack {
-                Image(systemName: item.isFolder ? "folder.fill" : iconForType(item.predictedType))
-                    .font(.system(size: 20))
-                    .foregroundColor(.accentColor.opacity(0.7))
-                    .frame(width: 32)
-
-                // Loading indicator voor classifying status
-                if item.status == .classifying {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                        .frame(width: 32, height: 32)
-                }
-            }
+            // Bestandspreview thumbnail (of SF Symbol fallback)
+            ThumbnailView(
+                path: item.path,
+                isFolder: item.isFolder,
+                assetType: item.predictedType,
+                isClassifying: item.status == .classifying
+            )
 
             // Content
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
+                // Regel 1: Status badge + bestandsnaam
                 HStack(spacing: 6) {
+                    StatusBadge(status: item.status, failureReason: item.failureReason)
+
                     Text(URL(fileURLWithPath: item.path).lastPathComponent)
                         .font(.system(size: 13, weight: .medium))
                         .lineLimit(1)
@@ -724,7 +728,8 @@ struct QueueItemRow: View {
                             .clipShape(Capsule())
                     }
                 }
-                
+
+                // Regel 2: Type dropdown + subcategorieën
                 HStack(spacing: 8) {
                     // Type dropdown
                     Menu {
@@ -767,46 +772,7 @@ struct QueueItemRow: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(item.status == .classifying)
-                    
-                    if let project = item.targetProject {
-                        Text("•")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary.opacity(0.5))
 
-                        // NLE type icoon
-                        if let nleType = NLEType.from(projectPath: project.projectPath) {
-                            Image(systemName: nleType.icon)
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                                .help(nleType.displayName)
-                        }
-
-                        // Project dropdown
-                        Menu {
-                            ForEach(appState.recentProjects) { projectOption in
-                                Button(action: {
-                                    if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
-                                        appState.queuedItems[index].targetProject = projectOption
-                                        // Herbereken preview pad
-                                        updatePreviewPath(at: index)
-                                    }
-                                }) {
-                                    if let nle = NLEType.from(projectPath: projectOption.projectPath) {
-                                        Label(projectOption.name, systemImage: nle.icon)
-                                    } else {
-                                        Text(projectOption.name)
-                                    }
-                                }
-                            }
-                        } label: {
-                            Text(project.name)
-                                .font(.system(size: 11))
-                                .foregroundColor(.accentColor)
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    
                     // Toon genre/mood/categorie als beschikbaar
                     if item.predictedType == .music {
                         if let genre = item.predictedGenre {
@@ -829,7 +795,7 @@ struct QueueItemRow: View {
                         Text("•")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary.opacity(0.5))
-                        
+
                         // SFX categorie dropdown
                         Menu {
                             ForEach(sfxCategories, id: \.self) { category in
@@ -854,17 +820,57 @@ struct QueueItemRow: View {
                         }
                         .buttonStyle(.plain)
                     }
-                }
-                
-                StatusBadge(status: item.status, failureReason: item.failureReason)
 
-                // Preview pad: laat zien waar het bestand naartoe gaat
+                    // Bestaande submappen als dropdown (als er submappen zijn in de doelmap)
+                    if let subfolders = detectExistingSubfolders(), !subfolders.isEmpty {
+                        Text("•")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary.opacity(0.5))
+
+                        Menu {
+                            Button(action: {
+                                if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
+                                    appState.queuedItems[index].targetSubfolder = nil
+                                    updatePreviewPath(at: index)
+                                }
+                            }) {
+                                if item.targetSubfolder == nil {
+                                    Label(String(localized: "queue.no_subfolder"), systemImage: "checkmark")
+                                } else {
+                                    Text(String(localized: "queue.no_subfolder"))
+                                }
+                            }
+                            Divider()
+                            ForEach(subfolders, id: \.self) { subfolder in
+                                Button(action: {
+                                    if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
+                                        appState.queuedItems[index].targetSubfolder = subfolder
+                                        updatePreviewPath(at: index)
+                                    }
+                                }) {
+                                    if subfolder == item.targetSubfolder {
+                                        Label(subfolder, systemImage: "checkmark")
+                                    } else {
+                                        Text(subfolder)
+                                    }
+                                }
+                            }
+                        } label: {
+                            Text(item.targetSubfolder ?? String(localized: "queue.subfolder"))
+                                .font(.system(size: 11))
+                                .foregroundColor(item.targetSubfolder != nil ? .green : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                // Preview pad: laat zien waar het bestand naartoe gaat (zonder project naam)
                 if item.status == .queued, let preview = item.previewPath, !preview.isEmpty {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.right")
                             .font(.system(size: 9))
                             .foregroundColor(.secondary.opacity(0.6))
-                        Text(preview)
+                        Text(previewWithoutProject(preview))
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
@@ -1011,6 +1017,52 @@ struct QueueItemRow: View {
         }
 
         appState.queuedItems[index] = updated
+    }
+
+    /// Verwijder de projectnaam uit het preview pad (staat al in de header)
+    private func previewWithoutProject(_ preview: String) -> String {
+        // Preview format: "ProjectName → Audio → Music"
+        // We willen: "Audio → Music"
+        let parts = preview.components(separatedBy: " → ")
+        if parts.count > 1 {
+            return parts.dropFirst().joined(separator: " → ")
+        }
+        return preview
+    }
+
+    /// Detecteer bestaande submappen in de doelmap voor dit item's asset type
+    private func detectExistingSubfolders() -> [String]? {
+        guard let project = item.targetProject,
+              item.predictedType != .unknown,
+              item.predictedType != .sfx,  // SFX heeft al eigen categorie dropdown
+              item.predictedType != .music else { return nil }  // Music heeft genre/mood
+
+        // Zoek de doelmap voor dit asset type
+        let rootPath = project.rootPath
+        let rootURL = URL(fileURLWithPath: rootPath)
+
+        // Gebruik BinMatcher om de juiste map te vinden
+        guard let folderName = BinMatcher.shared.findMatchingFolder(
+            for: item.predictedType,
+            in: rootURL
+        ) else { return nil }
+
+        let targetFolderURL = rootURL.appendingPathComponent(folderName)
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: targetFolderURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        let subfolders = contents
+            .filter { url in
+                var isDir: ObjCBool = false
+                return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
+            }
+            .map { $0.lastPathComponent }
+            .sorted()
+
+        return subfolders.isEmpty ? nil : subfolders
     }
 
     /// Herbereken het preview-pad voor een item na type/project/categorie wijziging

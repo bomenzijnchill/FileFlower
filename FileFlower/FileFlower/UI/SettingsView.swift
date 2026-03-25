@@ -865,14 +865,19 @@ struct ProjectRootsSection: View {
                     .textFieldStyle(.roundedBorder)
                     .controlSize(.small)
                 Button(String(localized: "common.browse")) {
+                    StatusBarController.shared.setPopoverBehavior(.applicationDefined)
                     let panel = NSOpenPanel()
                     panel.canChooseFiles = false
                     panel.canChooseDirectories = true
                     panel.allowsMultipleSelection = false
                     panel.canCreateDirectories = true
-                    
-                    if panel.runModal() == .OK, let url = panel.url {
-                        newRoot = url.path
+                    panel.begin { response in
+                        DispatchQueue.main.async {
+                            StatusBarController.shared.setPopoverBehavior(.transient)
+                            if response == .OK, let url = panel.url {
+                                newRoot = url.path
+                            }
+                        }
                     }
                 }
                 .buttonStyle(.bordered)
@@ -1123,17 +1128,20 @@ struct DownloadsFolderSection: View {
                     .controlSize(.small)
                     .disabled(true)
                 Button(String(localized: "common.browse")) {
+                    StatusBarController.shared.setPopoverBehavior(.applicationDefined)
                     let panel = NSOpenPanel()
                     panel.canChooseFiles = false
                     panel.canChooseDirectories = true
                     panel.allowsMultipleSelection = false
                     panel.canCreateDirectories = true
-                    
-                    if panel.runModal() == .OK, let url = panel.url {
-                        downloadsFolder = url.path
-                        onSave()
+                    panel.begin { response in
                         DispatchQueue.main.async {
-                            DownloadsWatcher.shared.updateDownloadsFolder(url)
+                            StatusBarController.shared.setPopoverBehavior(.transient)
+                            if response == .OK, let url = panel.url {
+                                downloadsFolder = url.path
+                                onSave()
+                                DownloadsWatcher.shared.updateDownloadsFolder(url)
+                            }
                         }
                     }
                 }

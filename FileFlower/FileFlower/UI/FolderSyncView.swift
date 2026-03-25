@@ -38,13 +38,20 @@ struct FolderSyncView: View {
         }
     }
     
-    /// Groepeer syncs per project
+    /// Groepeer syncs per project — actief project bovenaan
     private var syncsByProject: [(projectPath: String, projectName: String, syncs: [FolderSync])] {
         let grouped = Dictionary(grouping: appState.config.folderSyncs) { $0.projectPath }
+        let activeProjectPath = appState.activeProject?.projectPath
         return grouped.map { (projectPath, syncs) in
             let projectName = URL(fileURLWithPath: projectPath).deletingPathExtension().lastPathComponent
             return (projectPath: projectPath, projectName: projectName, syncs: syncs)
-        }.sorted { $0.projectName.localizedCaseInsensitiveCompare($1.projectName) == .orderedAscending }
+        }.sorted { lhs, rhs in
+            // Actief project altijd bovenaan
+            let lhsIsActive = lhs.projectPath == activeProjectPath
+            let rhsIsActive = rhs.projectPath == activeProjectPath
+            if lhsIsActive != rhsIsActive { return lhsIsActive }
+            return lhs.projectName.localizedCaseInsensitiveCompare(rhs.projectName) == .orderedAscending
+        }
     }
     
     private var folderSyncListContent: some View {
@@ -159,7 +166,7 @@ struct EmptyFolderSyncView: View {
     
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: "folder.badge.gearshape")
+            Image(systemName: "arrow.triangle.2.circlepath")
                 .font(.system(size: 40))
                 .foregroundColor(.secondary.opacity(0.5))
             
@@ -786,25 +793,23 @@ struct AddFolderSyncForm: View {
     }
 
     private func selectFolder() {
-        // Gebruik DispatchQueue om de panel te openen nadat de huidige event loop is afgerond
-        // Dit voorkomt problemen met MenuBarExtra
-        DispatchQueue.main.async {
-            // Voorkom dat de popover sluit terwijl de folder picker open is
-            StatusBarController.shared.setPopoverBehavior(.applicationDefined)
+        // Voorkom dat de popover sluit terwijl de folder picker open is
+        StatusBarController.shared.setPopoverBehavior(.applicationDefined)
 
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.message = String(localized: "foldersync.select_folder_panel")
-            panel.level = .modalPanel // Zorg dat de panel bovenop komt
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = String(localized: "foldersync.select_folder_panel")
+        panel.level = .modalPanel
 
-            if panel.runModal() == .OK, let url = panel.url {
-                self.selectedFolderPath = url.path
+        panel.begin { response in
+            DispatchQueue.main.async {
+                StatusBarController.shared.setPopoverBehavior(.transient)
+                if response == .OK, let url = panel.url {
+                    self.selectedFolderPath = url.path
+                }
             }
-
-            // Herstel normaal popover gedrag
-            StatusBarController.shared.setPopoverBehavior(.transient)
         }
     }
     

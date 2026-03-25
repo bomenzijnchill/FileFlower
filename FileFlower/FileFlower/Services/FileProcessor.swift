@@ -5,7 +5,12 @@ class FileProcessor {
     
     private init() {}
     
-    func process(_ item: DownloadItem) async throws {
+    /// Verwerk een download item: verplaats het bestand en maak optioneel een NLE import job aan.
+    /// - Parameters:
+    ///   - item: Het te verwerken download item
+    ///   - createNLEJob: Als `false`, wordt het bestand alleen verplaatst zonder NLE import job.
+    ///     Gebruik dit wanneer het geselecteerde project niet overeenkomt met het actieve NLE project.
+    func process(_ item: DownloadItem, createNLEJob: Bool = true) async throws {
         guard let project = item.targetProject,
               let targetPath = item.targetPath else {
             throw FileProcessorError.missingTarget
@@ -90,76 +95,83 @@ class FileProcessor {
             )
         }
         
-        // Detecteer NLE type op basis van project extensie
-        let nleType = NLEType.from(projectPath: project.projectPath) ?? .premiere
+        // NLE import job alleen aanmaken als gewenst (project matcht met actieve NLE)
+        if createNLEJob {
+            // Detecteer NLE type op basis van project extensie
+            let nleType = NLEType.from(projectPath: project.projectPath) ?? .premiere
 
-        // Create job request for NLE import
-        let premiereBinPath: String
-        if let mapping = getPremiereBinMapping(project: project, finderPath: targetDir.path) {
-            premiereBinPath = mapping
-            #if DEBUG
-            print("FileProcessor: Using mapped bin path: \(mapping)")
-            #endif
-        } else {
-            // Default: create bin path from folder structure relative to project main folder
-            let projectMainFolder = findProjectMainFolder(from: targetDir, projectPath: project.projectPath)
-
-            // Bepaal relative path; voorkom lege string als targetDir gelijk is aan projectMainFolder
-            let relativePath: String
-            if targetDir.path == projectMainFolder.path {
-                relativePath = targetDir.lastPathComponent
+            // Create job request for NLE import
+            let premiereBinPath: String
+            if let mapping = getPremiereBinMapping(project: project, finderPath: targetDir.path) {
+                premiereBinPath = mapping
+                #if DEBUG
+                print("FileProcessor: Using mapped bin path: \(mapping)")
+                #endif
             } else {
-                var path = targetDir.path.replacingOccurrences(of: projectMainFolder.path, with: "")
-                if path.hasPrefix("/") {
-                    path.removeFirst()
+                // Default: create bin path from folder structure relative to project main folder
+                let projectMainFolder = findProjectMainFolder(from: targetDir, projectPath: project.projectPath)
+
+                // Bepaal relative path; voorkom lege string als targetDir gelijk is aan projectMainFolder
+                let relativePath: String
+                if targetDir.path == projectMainFolder.path {
+                    relativePath = targetDir.lastPathComponent
+                } else {
+                    var path = targetDir.path.replacingOccurrences(of: projectMainFolder.path, with: "")
+                    if path.hasPrefix("/") {
+                        path.removeFirst()
+                    }
+                    relativePath = path
                 }
-                relativePath = path
-            }
 
-            var components = relativePath.split(separator: "/").filter { !$0.isEmpty }.map { String($0) }
+                var components = relativePath.split(separator: "/").filter { !$0.isEmpty }.map { String($0) }
 
-            // Smart matching: check of er al een bestaande Finder-map is die beter matcht
-            if !components.isEmpty {
-                if let matchedFolder = BinMatcher.shared.findMatchingFolder(
-                    for: item.predictedType,
-                    in: projectMainFolder
-                ) {
-                    let normalizedFirst = BinMatcher.shared.normalizeName(components[0])
-                    let normalizedMatch = BinMatcher.shared.normalizeName(matchedFolder)
-                    if normalizedFirst != normalizedMatch {
-                        #if DEBUG
-                        print("FileProcessor: Smart match - '\(components[0])' → '\(matchedFolder)' voor type \(item.predictedType.rawValue)")
-                        #endif
-                        components[0] = matchedFolder
+                // Smart matching: check of er al een bestaande Finder-map is die beter matcht
+                if !components.isEmpty {
+                    if let matchedFolder = BinMatcher.shared.findMatchingFolder(
+                        for: item.predictedType,
+                        in: projectMainFolder
+                    ) {
+                        let normalizedFirst = BinMatcher.shared.normalizeName(components[0])
+                        let normalizedMatch = BinMatcher.shared.normalizeName(matchedFolder)
+                        if normalizedFirst != normalizedMatch {
+                            #if DEBUG
+                            print("FileProcessor: Smart match - '\(components[0])' → '\(matchedFolder)' voor type \(item.predictedType.rawValue)")
+                            #endif
+                            components[0] = matchedFolder
+                        }
                     }
                 }
+
+                premiereBinPath = components.isEmpty ? targetDir.lastPathComponent : components.joined(separator: "/")
+                #if DEBUG
+                print("FileProcessor: Project main folder: \(projectMainFolder.path)")
+                print("FileProcessor: Target dir: \(targetDir.path)")
+                print("FileProcessor: Relative path: \(relativePath)")
+                print("FileProcessor: Calculated bin path: \(premiereBinPath)")
+                #endif
             }
 
-            premiereBinPath = components.isEmpty ? targetDir.lastPathComponent : components.joined(separator: "/")
             #if DEBUG
-            print("FileProcessor: Project main folder: \(projectMainFolder.path)")
-            print("FileProcessor: Target dir: \(targetDir.path)")
-            print("FileProcessor: Relative path: \(relativePath)")
-            print("FileProcessor: Calculated bin path: \(premiereBinPath)")
+            print("FileProcessor: Creating job for project: \(project.projectPath)")
+            print("FileProcessor: Files to import: \(filesToImport)")
+            print("FileProcessor: Premiere bin path: \(premiereBinPath)")
+            #endif
+
+            let job = JobRequest(
+                projectPath: project.projectPath,
+                finderTargetDir: targetDir.path,
+                premiereBinPath: premiereBinPath,
+                files: filesToImport,
+                assetType: item.predictedType.rawValue,
+                nleType: nleType
+            )
+
+            JobServer.shared.addJob(job)
+        } else {
+            #if DEBUG
+            print("FileProcessor: Bestand alleen verplaatst (geen NLE import) naar \(targetDir.path)")
             #endif
         }
-        
-        #if DEBUG
-        print("FileProcessor: Creating job for project: \(project.projectPath)")
-        print("FileProcessor: Files to import: \(filesToImport)")
-        print("FileProcessor: Premiere bin path: \(premiereBinPath)")
-        #endif
-        
-        let job = JobRequest(
-            projectPath: project.projectPath,
-            finderTargetDir: targetDir.path,
-            premiereBinPath: premiereBinPath,
-            files: filesToImport,
-            assetType: item.predictedType.rawValue,
-            nleType: nleType
-        )
-        
-        JobServer.shared.addJob(job)
     }
     
     private func getPremiereBinMapping(project: ProjectInfo, finderPath: String) -> String? {

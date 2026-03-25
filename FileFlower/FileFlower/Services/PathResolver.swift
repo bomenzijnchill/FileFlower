@@ -535,10 +535,14 @@ class PathResolver {
         return nil
     }
     
-    private func findExistingFolder(in parent: URL, names: [String]) -> URL? {
+    /// Zoek recursief naar een bestaande map die matcht met de gegeven namen.
+    /// - Parameters:
+    ///   - parent: De bovenliggende map om in te zoeken
+    ///   - names: Naam-varianten om op te matchen (bijv. ["03_Audio", "Audio"])
+    ///   - maxDepth: Maximale zoekdiepte (0 = alleen huidige map, 3 = standaard)
+    private func findExistingFolder(in parent: URL, names: [String], maxDepth: Int = 3) -> URL? {
         let fileManager = FileManager.default
-        
-        // Get all items in parent directory
+
         guard let contents = try? fileManager.contentsOfDirectory(
             at: parent,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -546,50 +550,171 @@ class PathResolver {
         ) else {
             return nil
         }
-        
-        // Normalize names for comparison
-        // Remove number prefixes (03_, 04_, etc.) and normalize
-        let normalizeName: (String) -> String = { name in
-            var normalized = name.lowercased().trimmingCharacters(in: .whitespaces)
-            // Remove number prefix pattern like "03_" or "01_"
-            if let range = normalized.range(of: #"^\d+_"#, options: .regularExpression) {
-                normalized = String(normalized[range.upperBound...])
-            }
-            return normalized
+
+        let normalizedNames = names.map(normalizeFolderName)
+
+        let folders = contents.filter { url in
+            var isDir: ObjCBool = false
+            return fileManager.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
         }
-        
-        let normalizedNames = names.map(normalizeName)
-        
-        // Check each existing folder
-        for item in contents {
-            var isDirectory: ObjCBool = false
-            guard fileManager.fileExists(atPath: item.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                continue
-            }
-            
-            let itemName = normalizeName(item.lastPathComponent)
-            
-            // Check if this folder matches any of our name variants
+
+        // Stap 1: Zoek exacte en contains-matches op huidig niveau
+        for item in folders {
+            let itemName = normalizeFolderName(item.lastPathComponent)
+
+            // Exacte match
             for normalizedName in normalizedNames {
                 if itemName == normalizedName {
                     return item
                 }
             }
-            
-            // Also check if the folder name contains any of our search terms
-            // (e.g., "03_Audio" contains "audio")
+
+            // Contains match (bijv. "03_Audio" bevat "audio")
             for normalizedName in normalizedNames {
                 if itemName.contains(normalizedName) || normalizedName.contains(itemName) {
-                    // Make sure it's a reasonable match (not too short)
                     if normalizedName.count >= 3 && itemName.count >= 3 {
                         return item
                     }
                 }
             }
         }
-        
+
+        // Stap 2: Recursief zoeken in submappen (als maxDepth > 0)
+        if maxDepth > 0 {
+            for item in folders {
+                // Skip NLE-specifieke en systeem mappen
+                let name = item.lastPathComponent.lowercased()
+                if name.contains("adobe") || name.contains("premiere") ||
+                   name.contains("davinci") || name.contains("resolve") ||
+                   name.contains("auto-save") || name.contains("audio previews") ||
+                   name.hasPrefix("01_") || name.hasPrefix(".") {
+                    continue
+                }
+                if let found = findExistingFolder(in: item, names: names, maxDepth: maxDepth - 1) {
+                    return found
+                }
+            }
+        }
+
         return nil
+    }
+
+    /// Normaliseer een mapnaam: strip nummer-prefix (03_) en lowercase
+    private func normalizeFolderName(_ name: String) -> String {
+        var normalized = name.lowercased().trimmingCharacters(in: .whitespaces)
+        if let range = normalized.range(of: #"^\d+_"#, options: .regularExpression) {
+            normalized = String(normalized[range.upperBound...])
+        }
+        return normalized
+    }
+
+    // MARK: - Naming Convention Detection
+
+    /// Detecteer de naamgeving-conventie van een project op basis van bestaande mappen
+    func detectNamingConvention(in projectRoot: URL) -> NamingConvention {
+        let fileManager = FileManager.default
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: projectRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return .unknown
+        }
+
+        let folderNames = contents.compactMap { url -> String? in
+            var isDir: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { return nil }
+            return url.lastPathComponent
+        }
+
+        let dutchKeywords = ["muziek", "geluidseffecten", "vormgeving", "materiaal", "geluid"]
+        let englishKeywords = ["audio", "music", "sfx", "graphics", "footage", "visuals"]
+        var hasNumberPrefix = false
+        var dutchScore = 0
+        var englishScore = 0
+
+        for name in folderNames {
+            let lower = name.lowercased()
+            if lower.range(of: #"^\d+_"#, options: .regularExpression) != nil {
+                hasNumberPrefix = true
+            }
+            for keyword in dutchKeywords {
+                if lower.contains(keyword) { dutchScore += 1 }
+            }
+            for keyword in englishKeywords {
+                if lower.contains(keyword) { englishScore += 1 }
+            }
+        }
+
+        if dutchScore > englishScore {
+            return hasNumberPrefix ? .numberedDutch : .plainDutch
+        } else if englishScore > 0 {
+            return hasNumberPrefix ? .numberedEnglish : .plainEnglish
+        }
+        return hasNumberPrefix ? .numberedEnglish : .unknown
+    }
+
+    // MARK: - Project Structure Discovery
+
+    /// Scan de hele projectstructuur en ontdek bestaande mappen per asset type.
+    /// Resultaten worden gecached in Config.mappings voor hergebruik.
+    func discoverProjectStructure(projectRoot: URL) -> [String: String] {
+        var discovered: [String: String] = [:]
+
+        for (assetType, keywords) in BinMatcher.shared.categoryKeywords {
+            // Zoek recursief vanuit de project root
+            if let found = findExistingFolder(in: projectRoot, names: keywords, maxDepth: 4) {
+                discovered[assetType.rawValue] = found.path
+            }
+        }
+
+        #if DEBUG
+        print("PathResolver: Discovered \(discovered.count) asset folders in \(projectRoot.lastPathComponent)")
+        for (type, path) in discovered {
+            print("  \(type) → \(path)")
+        }
+        #endif
+
+        return discovered
+    }
+
+    /// Haal de gecachte discovery op, of voer een scan uit als de cache verlopen is
+    func getOrDiscoverStructure(for project: ProjectInfo) -> DiscoveredProjectStructure? {
+        let projectKey = project.projectPath
+        let config = AppState.shared.config
+
+        // Check bestaande cache
+        if let mapping = config.mappings[projectKey],
+           let existing = mapping.discoveredStructure,
+           existing.isValid {
+            return existing
+        }
+
+        // Voer discovery scan uit
+        let projectRoot = findProjectMainFolder(
+            prprojPath: URL(fileURLWithPath: project.projectPath),
+            configuredRootPath: project.rootPath
+        )
+
+        let discoveredPaths = discoverProjectStructure(projectRoot: projectRoot)
+        guard !discoveredPaths.isEmpty else { return nil }
+
+        let convention = detectNamingConvention(in: projectRoot)
+        let structure = DiscoveredProjectStructure(
+            discoveredPaths: discoveredPaths,
+            namingConvention: convention.rawValue,
+            lastScannedDate: Date()
+        )
+
+        // Sla op in config cache
+        var updatedConfig = config
+        var mapping = updatedConfig.mappings[projectKey] ?? ProjectMapping()
+        mapping.discoveredStructure = structure
+        updatedConfig.mappings[projectKey] = mapping
+        AppState.shared.config = updatedConfig
+        AppState.shared.saveConfig()
+
+        return structure
     }
 }
 

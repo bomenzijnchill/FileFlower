@@ -44,6 +44,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // in Systeeminstellingen tijdens de onboarding wizard
         SetupManager.shared.registerFinderExtension()
 
+        // Migreer onboarding schema versie voor bestaande gebruikers
+        SetupManager.shared.migrateOnboardingSchemaVersionIfNeeded()
+
         // Stap 1: Check of dit de eerste launch is, of een update met nieuwe onboarding stappen
         if !SetupManager.shared.hasCompletedOnboarding || SetupManager.shared.shouldShowOnboardingForUpdate {
             showOnboarding()
@@ -124,10 +127,16 @@ class AppState: ObservableObject {
     @Published var queuedItems: [DownloadItem] = []
     @Published var config: Config = Config.default
     @Published var recentProjects: [ProjectInfo] = []
+    @Published var allFolderProjects: [ProjectInfo] = []  // Alle mappen in project roots
+    @Published var nleActiveProjects: [ProjectInfo] = []   // Projecten open in Premiere/Resolve
     @Published var shouldOpenWindow = false
     @Published var shouldSwitchToFileSafeTab = false
     @Published var isPaused = false
-    
+    @Published var activeProject: ProjectInfo?
+    /// Houdt bij welk NLE-project als laatst automatisch is ingesteld, zodat we alleen
+    /// bij een NIEUW NLE-project de selectie overschrijven (niet bij elke refresh).
+    private var lastAutoSelectedNLEPath: String?
+
     // FolderSync state
     @Published var folderSyncStatuses: [UUID: FolderSyncStatus] = [:]
     
@@ -317,6 +326,12 @@ class AppState: ObservableObject {
             }
 
             recentProjects.insert(project, at: 0)
+            // Alleen activeProject overschrijven als het een NIEUW NLE-project is
+            // (niet hetzelfde als waar we al voor auto-selected hadden)
+            if path != lastAutoSelectedNLEPath {
+                activeProject = project
+                lastAutoSelectedNLEPath = path
+            }
             if existingIndex != 0 {
                 #if DEBUG
                 print("AppState: Actief project \(project.name) naar voren verplaatst")
@@ -378,12 +393,15 @@ class AppState: ObservableObject {
             )
 
             recentProjects.insert(newProject, at: 0)
+            // Nieuw NLE-project → altijd actief maken (was nog niet bekend)
+            activeProject = newProject
+            lastAutoSelectedNLEPath = path
             #if DEBUG
             print("AppState: Actief project \(projectName) toegevoegd als eerste project")
             #endif
         }
     }
-    
+
     /// Zoek een echte projectmap in geconfigureerde project roots die overeenkomt met de projectnaam
     /// Wordt gebruikt voor database-backed DaVinci Resolve projecten die geen .drp op disk hebben
     private func findRealProjectFolder(name: String) -> String? {
@@ -497,6 +515,81 @@ class AppState: ObservableObject {
         }
     }
 
+    /// Update het actieve project op basis van beschikbare informatie
+    func updateActiveProject() {
+        // 1. Als Premiere daadwerkelijk open is EN het is een NIEUW NLE project
+        //    (niet hetzelfde als vorige keer), overschrijf de selectie.
+        //    Als het hetzelfde NLE project is, respecteer de handmatige keuze.
+        if let activeProjectPath = jobServer.activeProjectPath,
+           jobServer.isActiveProjectFresh,
+           activeProjectPath != lastAutoSelectedNLEPath {
+            let premiereProjectDir = URL(fileURLWithPath: activeProjectPath).deletingLastPathComponent().path
+            if let folderProject = allFolderProjects.first(where: { $0.projectPath == premiereProjectDir }) {
+                activeProject = folderProject
+                lastAutoSelectedNLEPath = activeProjectPath
+                return
+            }
+            if let project = recentProjects.first(where: { $0.projectPath == activeProjectPath }) {
+                activeProject = project
+                lastAutoSelectedNLEPath = activeProjectPath
+                return
+            }
+        }
+        // 2. Als Resolve daadwerkelijk open is EN het is een NIEUW NLE project
+        if let resolveProjectPath = jobServer.resolveActiveProjectPath,
+           jobServer.isResolveActiveProjectFresh,
+           resolveProjectPath != lastAutoSelectedNLEPath {
+            let resolveProjectDir = URL(fileURLWithPath: resolveProjectPath).deletingLastPathComponent().path
+            if let folderProject = allFolderProjects.first(where: { $0.projectPath == resolveProjectDir }) {
+                activeProject = folderProject
+                lastAutoSelectedNLEPath = resolveProjectPath
+                return
+            }
+            if let project = recentProjects.first(where: { $0.projectPath == resolveProjectPath }) {
+                activeProject = project
+                lastAutoSelectedNLEPath = resolveProjectPath
+                return
+            }
+        }
+        // 3. Meest recent gewijzigd folder-project (alleen als er nog geen actief project is)
+        if activeProject == nil, let first = allFolderProjects.first {
+            activeProject = first
+        }
+        // 4. Fallback naar recentProjects als allFolderProjects leeg is
+        if activeProject == nil, let first = recentProjects.first {
+            activeProject = first
+        }
+        // 5. Zorg dat het actieve project nog in een van de lijsten zit
+        if let active = activeProject,
+           !allFolderProjects.contains(where: { $0.id == active.id }),
+           !recentProjects.contains(where: { $0.id == active.id }) {
+            activeProject = allFolderProjects.first ?? recentProjects.first
+        }
+    }
+
+    /// Maak een nieuw project aan in de opgegeven root map
+    func createNewProject(name: String, inRoot rootPath: String) throws -> ProjectInfo {
+        let projectURL = URL(fileURLWithPath: rootPath).appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        // Deploy mappenstructuur
+        let deployConfig = DeployConfig(
+            folderStructurePreset: config.folderStructurePreset,
+            customFolderTemplate: config.customFolderTemplate
+        )
+        let _ = try TemplateDeployer.deploy(to: projectURL, config: deployConfig)
+
+        let project = ProjectInfo(
+            name: name,
+            rootPath: rootPath,
+            projectPath: projectURL.path,
+            lastModified: Date().timeIntervalSince1970
+        )
+        recentProjects.insert(project, at: 0)
+        activeProject = project
+        return project
+    }
+
     private func syncLaunchAgent() {
         // Synchroniseer login item status met config
         let shouldBeEnabled = config.startAtLogin
@@ -576,15 +669,21 @@ class AppState: ObservableObject {
     }
     
     func refreshRecentProjects() async {
-        // Stap 1: Scan geconfigureerde roots (bestaand gedrag)
+        // Stap 1: Scan ALLE mappen in project roots (folder-based)
+        let folderProjects = await projectScanner.scanAllFolderProjects(
+            roots: config.projectRoots,
+            limit: 100
+        )
+        allFolderProjects = folderProjects
+
+        // Stap 2: Scan NLE projectbestanden (bestaand gedrag — voor recentProjects / jobs)
         var projects = await projectScanner.scanRecentProjects(
             roots: config.projectRoots,
             limit: config.recentProjectsCacheSize,
             filterToLocal: config.filterServerProjectsToLocal
         )
 
-        // Stap 2: Voeg Spotlight-ontdekte projecten toe die nog niet in de lijst staan
-        // Zoek zowel Premiere (.prproj) als DaVinci Resolve (.drp) projecten
+        // Stap 3: Voeg Spotlight-ontdekte projecten toe die nog niet in de lijst staan
         var spotlightProjects = PremiereRecentProjectsReader.getRecentProjects(limit: 5)
         spotlightProjects.append(contentsOf: ResolveRecentProjectsReader.getRecentProjects(limit: 5))
         if config.filterServerProjectsToLocal {
@@ -596,7 +695,7 @@ class AppState: ObservableObject {
             }
         }
 
-        // Stap 3: Zorg dat het actieve CEP project altijd in de lijst zit
+        // Stap 4: Zorg dat het actieve CEP project altijd in de lijst zit
         if let activeProjectPath = jobServer.activeProjectPath,
            !projects.contains(where: { $0.projectPath == activeProjectPath }) {
             let url = URL(fileURLWithPath: activeProjectPath)
@@ -625,8 +724,34 @@ class AppState: ObservableObject {
         cachedSpotlightProjects = nil
 
         recentProjects = Array(projects.prefix(config.recentProjectsCacheSize))
+
+        // Stap 5: Bepaal NLE-actieve projecten (alleen als Premiere/Resolve daadwerkelijk draait)
+        var nleProjects: [ProjectInfo] = []
+        if let premierePath = jobServer.activeProjectPath, jobServer.isActiveProjectFresh {
+            // Zoek het bijbehorende folder-project (parent map van .prproj)
+            let premiereProjectDir = URL(fileURLWithPath: premierePath).deletingLastPathComponent().path
+            if let folderProject = allFolderProjects.first(where: { $0.projectPath == premiereProjectDir }) {
+                nleProjects.append(folderProject)
+            } else if let nleProject = recentProjects.first(where: { $0.projectPath == premierePath }) {
+                // Fallback: gebruik het NLE project zelf
+                nleProjects.append(nleProject)
+            }
+        }
+        if let resolvePath = jobServer.resolveActiveProjectPath, jobServer.isResolveActiveProjectFresh {
+            let resolveProjectDir = URL(fileURLWithPath: resolvePath).deletingLastPathComponent().path
+            if let folderProject = allFolderProjects.first(where: { $0.projectPath == resolveProjectDir }),
+               !nleProjects.contains(where: { $0.id == folderProject.id }) {
+                nleProjects.append(folderProject)
+            } else if let nleProject = recentProjects.first(where: { $0.projectPath == resolvePath }),
+                      !nleProjects.contains(where: { $0.id == nleProject.id }) {
+                nleProjects.append(nleProject)
+            }
+        }
+        nleActiveProjects = nleProjects
+
+        updateActiveProject()
     }
-    
+
     private func handleNewDownload(url: URL, originURL: String?) async {
         // Blokkeer verwerking als trial verlopen en geen license
         guard LicenseManager.shared.canUseApp else {

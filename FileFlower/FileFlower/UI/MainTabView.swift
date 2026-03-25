@@ -18,7 +18,7 @@ struct MainTabView: View {
         var icon: String {
             switch self {
             case .downloadSync: return "arrow.down.circle"
-            case .folderSync: return "folder.badge.gearshape"
+            case .folderSync: return "arrow.triangle.2.circlepath"
             case .loadFolder: return "folder.badge.plus"
             case .fileSafe: return "externaldrive.badge.checkmark"
             }

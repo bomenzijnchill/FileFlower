@@ -7,7 +7,10 @@ struct MenuBarView: View {
     @State private var selectedItemForPicker: DownloadItem?
     @State private var isShowingFolderSyncForm = false
     @State private var isShowingClearConfirmation = false
-    
+    @AppStorage("userPopoverHeight") private var userPopoverHeight: Double = 0
+    @State private var isDragging = false
+    @State private var dragStartHeight: CGFloat = 0
+
     // Bereken dynamische breedte op basis van content
     private var calculatedWidth: CGFloat {
         if showingSettings {
@@ -40,17 +43,24 @@ struct MenuBarView: View {
             let queueItemCount = min(appState.queuedItems.count, 5)
             let folderSyncCount = min(appState.config.folderSyncs.count, 5)
             let maxItems = max(queueItemCount, folderSyncCount, 0)
-            
+            let resizeHandleHeight: CGFloat = 20
+
             // Extra hoogte als clear confirmatie wordt getoond
             let extraConfirmationHeight = isShowingClearConfirmation ? confirmationHeight : 0
-            
+
+            let contentBasedHeight: CGFloat
             if maxItems == 0 || (appState.queuedItems.isEmpty && appState.config.folderSyncs.isEmpty) {
-                // Empty state - minimaal 300px totale hoogte
-                return headerHeight + tabBarHeight + minContentHeight + footerHeight
+                contentBasedHeight = headerHeight + tabBarHeight + minContentHeight + footerHeight
             } else {
-                // Met items - bereken op basis van aantal, maar minimaal minContentHeight
                 let listHeight = max(toolbarHeight + (CGFloat(maxItems) * itemHeight), minContentHeight)
-                return headerHeight + tabBarHeight + listHeight + footerHeight + extraConfirmationHeight + 10
+                contentBasedHeight = headerHeight + tabBarHeight + listHeight + footerHeight + extraConfirmationHeight + 10
+            }
+
+            // Gebruik de door de gebruiker ingestelde hoogte als die groter is dan de content-based hoogte
+            if userPopoverHeight > 0 {
+                return max(CGFloat(userPopoverHeight), contentBasedHeight) + resizeHandleHeight
+            } else {
+                return contentBasedHeight + resizeHandleHeight
             }
         }
     }
@@ -58,14 +68,16 @@ struct MenuBarView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header - vast, altijd zichtbaar
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
                 Image("FileFlowerTitle")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(height: 22)
                     .fixedSize()
-                
-                // Pauze indicator
+
+                // Project selector — vult de ruimte tussen logo en pauzeknop
+                ProjectSelectorView(appState: appState)
+
                 if appState.isPaused {
                     Text(String(localized: "menu.paused"))
                         .font(.caption)
@@ -76,9 +88,7 @@ struct MenuBarView: View {
                         .clipShape(Capsule())
                         .fixedSize()
                 }
-                
-                Spacer()
-                
+
                 // Pauze knop
                 Button(action: {
                     appState.togglePause()
@@ -188,6 +198,25 @@ struct MenuBarView: View {
             .padding(.vertical, 14)
             .frame(height: 56)
             .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+
+            // Resize handle — alleen in normale modus
+            if !showingSettings && selectedItemForPicker == nil && LicenseManager.shared.canUseApp {
+                ResizeHandleView(
+                    onDrag: { translation in
+                        let newHeight = dragStartHeight + translation
+                        userPopoverHeight = Double(min(max(newHeight, 300), 900))
+                    },
+                    onDragStart: {
+                        isDragging = true
+                        dragStartHeight = CGFloat(userPopoverHeight > 0 ? userPopoverHeight : Double(calculatedHeight))
+                        StatusBarController.shared.setPopoverBehavior(.applicationDefined)
+                    },
+                    onDragEnd: {
+                        isDragging = false
+                        StatusBarController.shared.setPopoverBehavior(.transient)
+                    }
+                )
+            }
         }
         .frame(width: calculatedWidth, height: calculatedHeight)
         // Taal wordt bepaald door UserDefaults "AppleLanguages" (herstart nodig)
@@ -213,3 +242,49 @@ struct MenuBarView: View {
     }
 }
 
+// MARK: - Resize Handle
+
+/// Sleepbare handle onderaan het popover venster voor verticaal resizen.
+struct ResizeHandleView: View {
+    let onDrag: (CGFloat) -> Void
+    let onDragStart: () -> Void
+    let onDragEnd: () -> Void
+
+    @State private var isHovered = false
+    @State private var dragStarted = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider()
+
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 10))
+                .foregroundColor(.secondary.opacity(isHovered ? 0.8 : 0.4))
+                .frame(maxWidth: .infinity)
+                .frame(height: 16)
+                .contentShape(Rectangle())
+                .onHover { hovering in
+                    isHovered = hovering
+                    if hovering {
+                        NSCursor.resizeUpDown.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            if !dragStarted {
+                                dragStarted = true
+                                onDragStart()
+                            }
+                            onDrag(value.translation.height)
+                        }
+                        .onEnded { _ in
+                            dragStarted = false
+                            onDragEnd()
+                        }
+                )
+        }
+    }
+}

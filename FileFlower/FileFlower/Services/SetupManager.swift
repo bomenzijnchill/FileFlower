@@ -9,6 +9,11 @@ class SetupManager {
     
     private let hasCompletedOnboardingKey = "hasCompletedOnboarding"
     private let lastOnboardingVersionKey = "lastOnboardingVersion"
+    private let lastOnboardingSchemaVersionKey = "lastOnboardingSchemaVersion"
+
+    /// Alleen ophogen als wizard-stappen daadwerkelijk wijzigen.
+    /// Bij reguliere app updates verandert dit NIET, zodat de wizard niet opnieuw verschijnt.
+    static let currentOnboardingSchemaVersion = "1"
     private let installedPremierePluginVersionKey = "installedPremierePluginVersion"
     private let installedChromeExtensionVersionKey = "installedChromeExtensionVersion"
     private let selectedBrowserKey = "selectedBrowser"
@@ -39,22 +44,36 @@ class SetupManager {
         set { UserDefaults.standard.set(newValue, forKey: hasCompletedOnboardingKey) }
     }
     
-    /// Markeer onboarding als voltooid en sla de huidige versie op
+    /// Markeer onboarding als voltooid en sla de huidige versie + schema versie op
     func completeOnboarding() {
         hasCompletedOnboarding = true
         let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
         UserDefaults.standard.set(currentVersion, forKey: lastOnboardingVersionKey)
+        UserDefaults.standard.set(SetupManager.currentOnboardingSchemaVersion, forKey: lastOnboardingSchemaVersionKey)
         #if DEBUG
-        print("SetupManager: Onboarding voltooid voor versie \(currentVersion)")
+        print("SetupManager: Onboarding voltooid voor versie \(currentVersion), schema \(SetupManager.currentOnboardingSchemaVersion)")
         #endif
     }
 
-    /// Check of de onboarding opnieuw getoond moet worden na een app update
+    /// Check of de onboarding opnieuw getoond moet worden na een app update.
+    /// Vergelijkt alleen de schema versie — niet de app versie.
+    /// De wizard verschijnt alleen als de wizard-stappen zelf zijn gewijzigd.
     var shouldShowOnboardingForUpdate: Bool {
         guard hasCompletedOnboarding else { return false }
-        let lastVersion = UserDefaults.standard.string(forKey: lastOnboardingVersionKey) ?? "0"
-        let currentVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
-        return lastVersion != currentVersion
+        let lastSchemaVersion = UserDefaults.standard.string(forKey: lastOnboardingSchemaVersionKey) ?? "0"
+        return lastSchemaVersion != SetupManager.currentOnboardingSchemaVersion
+    }
+
+    /// Migratie: zet schema versie voor bestaande gebruikers die al onboarding hebben voltooid.
+    /// Zonder dit zouden ze de wizard opnieuw zien omdat lastOnboardingSchemaVersion nil is.
+    func migrateOnboardingSchemaVersionIfNeeded() {
+        if hasCompletedOnboarding &&
+           UserDefaults.standard.string(forKey: lastOnboardingSchemaVersionKey) == nil {
+            UserDefaults.standard.set(SetupManager.currentOnboardingSchemaVersion, forKey: lastOnboardingSchemaVersionKey)
+            #if DEBUG
+            print("SetupManager: Schema versie gemigreerd naar \(SetupManager.currentOnboardingSchemaVersion)")
+            #endif
+        }
     }
     
     /// Reset onboarding status (voor testing)

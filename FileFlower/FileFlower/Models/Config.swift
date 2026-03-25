@@ -350,11 +350,50 @@ enum MusicMode: String, Codable {
 struct ProjectMapping: Codable {
     var finderToPremiere: [String: String]
     var preferences: [String: String]
-    
-    init(finderToPremiere: [String: String] = [:], preferences: [String: String] = [:]) {
+    var discoveredStructure: DiscoveredProjectStructure?
+
+    init(finderToPremiere: [String: String] = [:], preferences: [String: String] = [:], discoveredStructure: DiscoveredProjectStructure? = nil) {
         self.finderToPremiere = finderToPremiere
         self.preferences = preferences
+        self.discoveredStructure = discoveredStructure
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        finderToPremiere = try container.decodeIfPresent([String: String].self, forKey: .finderToPremiere) ?? [:]
+        preferences = try container.decodeIfPresent([String: String].self, forKey: .preferences) ?? [:]
+        discoveredStructure = try container.decodeIfPresent(DiscoveredProjectStructure.self, forKey: .discoveredStructure)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case finderToPremiere, preferences, discoveredStructure
+    }
+}
+
+/// Gecachte ontdekte mapstructuur voor een project.
+/// Wordt opgeslagen per project in Config.mappings, zodat de app de naamgeving-conventie
+/// van de gebruiker leert en hergebruikt.
+struct DiscoveredProjectStructure: Codable {
+    /// AssetType rawValue → absoluut pad naar bestaande map
+    var discoveredPaths: [String: String]
+    /// Herkende naamgeving-conventie (bijv. "numberedDutch", "numberedEnglish")
+    var namingConvention: String?
+    /// Wanneer de structuur voor het laatst is gescand
+    var lastScannedDate: Date
+
+    /// Of de cache nog geldig is (max 24 uur)
+    var isValid: Bool {
+        Date().timeIntervalSince(lastScannedDate) < 86400
+    }
+}
+
+/// Detecteerbare naamgeving-conventies van projectmappen
+enum NamingConvention: String, Codable {
+    case numberedDutch    // "03_Muziek", "04_SFX"
+    case numberedEnglish  // "03_Audio", "04_SFX"
+    case plainDutch       // "Muziek", "Geluidseffecten"
+    case plainEnglish     // "Audio", "SFX"
+    case unknown
 }
 
 struct NetworkConfig: Codable {
