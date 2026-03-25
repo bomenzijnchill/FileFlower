@@ -9,6 +9,33 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 2.1.0</title>
+            <sparkle:version>29</sparkle:version>
+            <sparkle:shortVersionString>2.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>FileFlower 2.1.0</h2>
+                <ul>
+                    <li><strong>FileSafe</strong> — Nieuw: veilig shoot materiaal importeren van camera kaarten met multi-step wizard, subfolder bins, thumbnails en QuickLook preview</li>
+                    <li><strong>Project selector</strong> — Projecten zichtbaar in de header balk met NLE-detectie, automatische folder discovery en nieuw project aanmaken</li>
+                    <li><strong>Slimme mapnamen</strong> — Recursieve patroonherkenning leert je mappenstructuur en past naming conventions toe</li>
+                    <li><strong>Thumbnails</strong> — Bestandspreview in download queue en FileSafe file browser</li>
+                    <li><strong>Update notificaties</strong> — Push notificatie wanneer een nieuwe versie beschikbaar is</li>
+                    <li><strong>SD-kaart detectie</strong> — Ingebouwde kaartlezers worden nu correct herkend</li>
+                    <li><strong>Versleepbaar venster</strong> — Sleep de onderkant van het popover om het groter te maken</li>
+                    <li><strong>Bug fixes</strong> — Browse dialoog sluit app niet meer, scroll fix bij meerdere downloads, wizard onthoud instellingen bij update</li>
+                </ul>
+            ]]></description>
+            <pubDate>Tue, 25 Mar 2026 12:00:00 +0100</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v2.1.0/FileFlower.dmg"
+                sparkle:edSignature="WkpjFmRQ4sTwW+B8jeFMF0m+1bMwtHvTS1hM59viYGJr5o/ZQg3piXgf5/YpBjT5wy/Q3qz0+J1rf1j/Q5zhAA=="
+                length="6315237"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 2.0.9</title>
             <sparkle:version>28</sparkle:version>
             <sparkle:shortVersionString>2.0.9</sparkle:shortVersionString>
