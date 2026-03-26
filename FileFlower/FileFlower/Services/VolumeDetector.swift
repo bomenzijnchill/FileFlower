@@ -100,15 +100,15 @@ class VolumeDetector: ObservableObject {
             let isRemovable = resources.volumeIsRemovable ?? false
             let isEjectable = resources.volumeIsEjectable ?? false
             let isInternal = resources.volumeIsInternal ?? false
+            let isOnVolumes = url.path.hasPrefix("/Volumes/")
 
             // Interne volumes alleen toestaan als ze removable/ejectable zijn
             // (bijv. SD-kaart via ingebouwde kaartlezer)
             if isInternal && !isRemovable && !isEjectable { return nil }
 
-            // Niet-interne volumes moeten removable of ejectable zijn
-            if !isInternal {
-                guard isRemovable || isEjectable else { return nil }
-            }
+            // Niet-interne volumes: toestaan als removable/ejectable OF gemount in /Volumes/
+            // (sommige USB card readers rapporteren Fixed + niet-ejectable)
+            if !isInternal && !isRemovable && !isEjectable && !isOnVolumes { return nil }
 
             let name = resources.volumeName ?? url.lastPathComponent
 

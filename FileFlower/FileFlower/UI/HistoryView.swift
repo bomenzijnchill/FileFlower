@@ -255,6 +255,7 @@ struct HistoryItemRow: View {
         case .music: return "music.note"
         case .sfx: return "waveform"
         case .vo: return "mic"
+        case .footage: return "video.fill"
         case .motionGraphic: return "video"
         case .graphic: return "photo"
         case .stockFootage: return "film"

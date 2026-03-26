@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Quartz
 
 struct QueueView: View {
     @StateObject private var appState = AppState.shared
@@ -125,6 +126,18 @@ struct QueueView: View {
                     }
                 }
             }
+        }
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(.space) {
+            // QuickLook voor het eerste geselecteerde item
+            if let firstSelected = selectedItems.first,
+               let item = appState.queuedItems.first(where: { $0.id == firstSelected }) {
+                let url = URL(fileURLWithPath: item.path)
+                FileSafeQuickLookCoordinator.shared.toggle(url: url)
+                return .handled
+            }
+            return .ignored
         }
         .onAppear {
             startAutoClearTimer()
@@ -669,6 +682,8 @@ struct QueueItemRow: View {
     @ObservedObject private var appState = AppState.shared
     @State private var isHovered = false
     @State private var selectedManualFolder: String?
+    @State private var isAddingSubfolder = false
+    @State private var newSubfolderName = ""
 
     // Veelgebruikte SFX categorieën (gebaseerd op Epidemic Sound)
     private let sfxCategories = [
@@ -821,12 +836,35 @@ struct QueueItemRow: View {
                         .buttonStyle(.plain)
                     }
 
-                    // Bestaande submappen als dropdown (als er submappen zijn in de doelmap)
-                    if let subfolders = detectExistingSubfolders(), !subfolders.isEmpty {
-                        Text("•")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary.opacity(0.5))
+                    // Subfolder dropdown (bestaande mappen + eigen naam toevoegen)
+                    Text("•")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary.opacity(0.5))
 
+                    if isAddingSubfolder {
+                        HStack(spacing: 4) {
+                            TextField("Add subfolder", text: $newSubfolderName)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 11))
+                                .frame(width: 120)
+                                .onSubmit {
+                                    if !newSubfolderName.trimmingCharacters(in: .whitespaces).isEmpty {
+                                        if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
+                                            appState.queuedItems[index].targetSubfolder = newSubfolderName.trimmingCharacters(in: .whitespaces)
+                                            updatePreviewPath(at: index)
+                                        }
+                                    }
+                                    isAddingSubfolder = false
+                                    newSubfolderName = ""
+                                }
+                            Button(action: { isAddingSubfolder = false; newSubfolderName = "" }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    } else {
                         Menu {
                             Button(action: {
                                 if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
@@ -840,20 +878,28 @@ struct QueueItemRow: View {
                                     Text(String(localized: "queue.no_subfolder"))
                                 }
                             }
-                            Divider()
-                            ForEach(subfolders, id: \.self) { subfolder in
-                                Button(action: {
-                                    if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
-                                        appState.queuedItems[index].targetSubfolder = subfolder
-                                        updatePreviewPath(at: index)
-                                    }
-                                }) {
-                                    if subfolder == item.targetSubfolder {
-                                        Label(subfolder, systemImage: "checkmark")
-                                    } else {
-                                        Text(subfolder)
+
+                            if let subfolders = detectExistingSubfolders(), !subfolders.isEmpty {
+                                Divider()
+                                ForEach(subfolders, id: \.self) { subfolder in
+                                    Button(action: {
+                                        if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
+                                            appState.queuedItems[index].targetSubfolder = subfolder
+                                            updatePreviewPath(at: index)
+                                        }
+                                    }) {
+                                        if subfolder == item.targetSubfolder {
+                                            Label(subfolder, systemImage: "checkmark")
+                                        } else {
+                                            Text(subfolder)
+                                        }
                                     }
                                 }
+                            }
+
+                            Divider()
+                            Button(action: { isAddingSubfolder = true }) {
+                                Label("Add subfolder...", systemImage: "plus")
                             }
                         } label: {
                             Text(item.targetSubfolder ?? String(localized: "queue.subfolder"))
@@ -864,13 +910,13 @@ struct QueueItemRow: View {
                     }
                 }
 
-                // Preview pad: laat zien waar het bestand naartoe gaat (zonder project naam)
+                // Preview pad: laat zien waar het bestand naartoe gaat (incl. project naam)
                 if item.status == .queued, let preview = item.previewPath, !preview.isEmpty {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.right")
                             .font(.system(size: 9))
                             .foregroundColor(.secondary.opacity(0.6))
-                        Text(previewWithoutProject(preview))
+                        Text(preview)
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
@@ -1087,6 +1133,7 @@ struct QueueItemRow: View {
         case .music: return "music.note"
         case .sfx: return "waveform"
         case .vo: return "mic"
+        case .footage: return "video.fill"
         case .motionGraphic: return "video"
         case .graphic: return "photo"
         case .stockFootage: return "film"

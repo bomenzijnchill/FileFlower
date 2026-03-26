@@ -254,18 +254,28 @@ class FileSafeTransfer: ObservableObject, Identifiable {
                 self.currentPhase = .copying
             }
 
-            // Stap 1: Kopieer bestand naar temp locatie
-            do {
-                try FileManager.default.createDirectory(
-                    at: destURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try? FileManager.default.removeItem(at: tempURL)
-                try FileManager.default.copyItem(at: sourceURL, to: tempURL)
-            } catch {
+            // Stap 1: Kopieer bestand naar temp locatie (op achtergrond thread)
+            let copyResult: Result<Void, Error> = await Task.detached(priority: .userInitiated) {
+                do {
+                    try FileManager.default.createDirectory(
+                        at: destURL.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    try? FileManager.default.removeItem(at: tempURL)
+                    try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+                    return .success(())
+                } catch {
+                    return .failure(error)
+                }
+            }.value
+
+            switch copyResult {
+            case .failure(let error):
                 lastError = "Copy failed: \(error.localizedDescription)"
                 try? FileManager.default.removeItem(at: tempURL)
                 continue
+            case .success:
+                break
             }
 
             // Size check

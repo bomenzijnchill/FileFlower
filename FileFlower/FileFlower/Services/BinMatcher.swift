@@ -12,7 +12,8 @@ class BinMatcher {
         .vo: ["vo", "voice", "voiceover", "voice-over", "voice over", "ingesproken", "ingesproken tekst", "narration", "dialogue", "spraak", "sprecher", "voix"],
         .graphic: ["graphics", "graphic", "vormgeving", "design", "stills", "afbeeldingen", "images", "fotos", "photos", "bilder", "grafik"],
         .motionGraphic: ["motion", "motion graphics", "motiongraphics", "animatie", "animation", "mogrt", "templates", "bewegend"],
-        .stockFootage: ["footage", "stock", "stockfootage", "stock footage", "beeldmateriaal", "b-roll", "broll", "shots", "visuals", "video", "clips"]
+        .footage: ["footage", "raw", "materiaal", "beeldmateriaal", "camera", "rushes", "dailies"],
+        .stockFootage: ["stock", "stockfootage", "stock footage", "b-roll", "broll", "shots", "visuals", "clips"]
     ]
 
     private init() {}

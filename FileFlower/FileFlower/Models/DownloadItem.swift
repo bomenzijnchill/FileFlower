@@ -151,16 +151,18 @@ enum AssetType: String, Codable, CaseIterable {
     case music = "Music"
     case sfx = "SFX"
     case vo = "VO"
+    case footage = "Footage"
     case motionGraphic = "MotionGraphic"
     case graphic = "Graphic"
     case stockFootage = "StockFootage"
     case unknown = "Unknown"
-    
+
     var displayName: String {
         switch self {
         case .music: return "Music"
         case .sfx: return "SFX"
         case .vo: return "Voice Over"
+        case .footage: return "Footage"
         case .motionGraphic: return "Motion Graphic"
         case .graphic: return "Graphic"
         case .stockFootage: return "Stock Footage"

@@ -281,7 +281,7 @@ struct FileSafeProjectSelectView: View {
     }
 
     @State private var searchText: String = ""
-    @State private var sortMode: ProjectSortMode = .name
+    @State private var sortMode: ProjectSortMode = .dateNewest
 
     private var existingProjectContent: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -329,7 +329,56 @@ struct FileSafeProjectSelectView: View {
                         .foregroundColor(.secondary)
                         .padding(.vertical, 8)
                 } else {
+                    // NLE project bovenaan als het niet in de lijst staat
+                    if let nlePath = activeNLEProjectFolder,
+                       !projects.contains(where: { $0.path == nlePath }) {
+                        let nleName = URL(fileURLWithPath: nlePath).lastPathComponent
+                        Button(action: { selectedProjectPath = nlePath }) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.green)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    HStack(spacing: 4) {
+                                        Text(nleName)
+                                            .font(.system(size: 12))
+                                            .lineLimit(1)
+                                        Text("Premiere")
+                                            .font(.system(size: 9, weight: .medium))
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .background(Color.green.opacity(0.2))
+                                            .clipShape(Capsule())
+                                            .foregroundColor(.green)
+                                    }
+                                    Text(String(localized: "filesafe.project.external"))
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                if selectedProjectPath == nlePath {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                            .padding(8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(selectedProjectPath == nlePath ? Color.accentColor.opacity(0.1) : Color(.controlBackgroundColor))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .strokeBorder(Color.green.opacity(0.5), lineWidth: 1.5)
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        Divider().padding(.vertical, 4)
+                    }
+
                     ForEach(projects) { project in
+                        let isNLEActive = activeNLEProjectFolder == project.path
                         Button(action: { selectedProjectPath = project.path }) {
                             HStack(spacing: 8) {
                                 // Star toggle
@@ -342,12 +391,23 @@ struct FileSafeProjectSelectView: View {
 
                                 Image(systemName: "folder.fill")
                                     .font(.system(size: 12))
-                                    .foregroundColor(.accentColor)
+                                    .foregroundColor(isNLEActive ? .green : .accentColor)
 
                                 VStack(alignment: .leading, spacing: 1) {
-                                    Text(project.name)
-                                        .font(.system(size: 12))
-                                        .lineLimit(1)
+                                    HStack(spacing: 4) {
+                                        Text(project.name)
+                                            .font(.system(size: 12))
+                                            .lineLimit(1)
+                                        if isNLEActive {
+                                            Text("Premiere")
+                                                .font(.system(size: 9, weight: .medium))
+                                                .padding(.horizontal, 4)
+                                                .padding(.vertical, 1)
+                                                .background(Color.green.opacity(0.2))
+                                                .clipShape(Capsule())
+                                                .foregroundColor(.green)
+                                        }
+                                    }
 
                                     if let date = project.modificationDate {
                                         Text(date, style: .relative)
@@ -368,6 +428,12 @@ struct FileSafeProjectSelectView: View {
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(selectedProjectPath == project.path ? Color.accentColor.opacity(0.1) : Color(.controlBackgroundColor))
+                            )
+                            .overlay(
+                                isNLEActive ?
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .strokeBorder(Color.green.opacity(0.5), lineWidth: 1.5)
+                                    : nil
                             )
                         }
                         .buttonStyle(.plain)
@@ -394,6 +460,49 @@ struct FileSafeProjectSelectView: View {
         let isStarred: Bool
     }
 
+    /// Active NLE project folder path (Premiere/Resolve)
+    /// Resolve het echte project-pad door template-submappen heen te kijken
+    private func resolveNLEProjectRoot(from nleFilePath: String) -> String {
+        var dir = URL(fileURLWithPath: nleFilePath).deletingLastPathComponent()
+        for _ in 0..<3 {
+            let normalized = dir.lastPathComponent.lowercased()
+                .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+            if Self.templateFolderBlocklist.contains(normalized) {
+                dir = dir.deletingLastPathComponent()
+            } else {
+                break
+            }
+        }
+        return dir.path
+    }
+
+    private var activeNLEProjectFolder: String? {
+        if let premierePath = JobServer.shared.activeProjectPath, JobServer.shared.isActiveProjectFresh {
+            return resolveNLEProjectRoot(from: premierePath)
+        }
+        if let resolvePath = JobServer.shared.resolveActiveProjectPath, JobServer.shared.isResolveActiveProjectFresh {
+            return resolveNLEProjectRoot(from: resolvePath)
+        }
+        return nil
+    }
+
+    /// Template folder names die geen projecten zijn
+    private static let templateFolderBlocklist: Set<String> = {
+        // From TemplateDeployer.standardTemplate + common names
+        var names: Set<String> = ["adobe", "footage", "audio", "graphics", "subs", "documents",
+                                   "exports", "vfx", "sfx", "visuals", "music", "materiaal",
+                                   "vormgeving", "muziek", "subtitles", "export", "photos",
+                                   "stills", "production_audio", "foto", "video"]
+        // Add standardTemplate names (normalized)
+        for item in TemplateDeployer.standardTemplate {
+            let normalized = item.name.lowercased()
+                .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
+            names.insert(normalized)
+        }
+        return names
+    }()
+
     private func loadAndFilterProjects() -> [ProjectListItem] {
         var allProjects: [ProjectListItem] = []
 
@@ -401,6 +510,12 @@ struct FileSafeProjectSelectView: View {
             let subfolders = listSubfolders(at: root)
             for folder in subfolders {
                 let name = URL(fileURLWithPath: folder).lastPathComponent
+                // Filter template/subfolder mappen (01_Adobe, FOOTAGE, etc.)
+                let normalized = name.lowercased()
+                    .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespaces)
+                if Self.templateFolderBlocklist.contains(normalized) { continue }
+
                 let modDate = modificationDate(for: folder)
                 let isStarred = appState.config.starredProjects.contains(folder)
                 allProjects.append(ProjectListItem(
@@ -753,6 +868,7 @@ struct FileSafeCardConfigView: View {
     let scanResult: FileSafeScanResult
     let folderPreset: FolderStructurePreset
     let customTemplate: CustomFolderTemplate?
+    var projectPath: String? = nil
     let onPreview: () -> Void
     let onBack: () -> Void
 
@@ -760,6 +876,70 @@ struct FileSafeCardConfigView: View {
         let f = DateFormatter()
         f.dateFormat = "dd-MM-yyyy"
         return f
+    }
+
+    /// Detecteer bestaande footage map + duplicaten met bestanden op de kaart
+    @State private var duplicateFileNames: Set<String> = []
+    @State private var footageFolderInfo: (found: Bool, folderName: String, fileCount: Int) = (false, "", 0)
+
+    private func scanForExistingFootage() {
+        guard let path = projectPath else {
+            footageFolderInfo = (false, "", 0)
+            duplicateFileNames = []
+            return
+        }
+
+        let projectURL = URL(fileURLWithPath: path)
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: projectURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let footageKeywords = ["footage", "raw", "materiaal", "beeldmateriaal", "video"]
+        var foundFolder: URL?
+
+        for folder in contents {
+            guard (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+            let normalized = folder.lastPathComponent.lowercased()
+                .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
+            if footageKeywords.contains(where: { normalized.contains($0) }) {
+                foundFolder = folder
+                break
+            }
+        }
+
+        guard let footageURL = foundFolder else {
+            footageFolderInfo = (false, "", 0)
+            duplicateFileNames = []
+            return
+        }
+
+        // Scan recursief alle bestanden in de footage map
+        var existingFiles: [String: Set<Int64>] = [:]
+        var totalCount = 0
+        if let enumerator = FileManager.default.enumerator(
+            at: footageURL,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        ) {
+            for case let fileURL as URL in enumerator {
+                guard let rv = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                      rv.isRegularFile == true, let size = rv.fileSize else { continue }
+                existingFiles[fileURL.lastPathComponent.lowercased(), default: []].insert(Int64(size))
+                totalCount += 1
+            }
+        }
+
+        footageFolderInfo = (true, footageURL.lastPathComponent, totalCount)
+
+        // Vergelijk met bestanden op de kaart
+        var dupes: Set<String> = []
+        for file in scanResult.files {
+            let key = file.fileName.lowercased()
+            if let sizes = existingFiles[key], sizes.contains(file.fileSize) {
+                dupes.insert(file.fileName)
+            }
+        }
+        duplicateFileNames = dupes
     }
 
     var body: some View {
@@ -770,6 +950,42 @@ struct FileSafeCardConfigView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     // Detected info banner
                     detectedInfoBanner
+
+                    // Bestaande footage waarschuwing
+                    if footageFolderInfo.found {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "info.circle.fill")
+                                    .foregroundColor(.blue)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(String(localized: "filesafe.cardconfig.existing_footage_title"))
+                                        .font(.system(size: 12, weight: .medium))
+                                    Text(String(localized: "filesafe.cardconfig.existing_footage_detail \(footageFolderInfo.folderName) \(footageFolderInfo.fileCount)"))
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                            }
+
+                            // Duplicaten melding
+                            if !duplicateFileNames.isEmpty {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "doc.on.doc.fill")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.orange)
+                                    Text(String(localized: "filesafe.cardconfig.duplicates_found \(duplicateFileNames.count)"))
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(.orange)
+                                }
+                                .padding(.leading, 28)
+                            }
+                        }
+                        .padding(10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(duplicateFileNames.isEmpty ? Color.blue.opacity(0.1) : Color.orange.opacity(0.1))
+                        )
+                    }
 
                     // Day configuration (read-only)
                     if projectConfig.isMultiDayShoot {
@@ -810,7 +1026,8 @@ struct FileSafeCardConfigView: View {
                         cardConfig: cardConfig,
                         scanResult: scanResult,
                         folderPreset: folderPreset,
-                        customTemplate: customTemplate
+                        customTemplate: customTemplate,
+                        projectPath: projectPath
                     )
                 }
                 .padding(16)
@@ -825,6 +1042,9 @@ struct FileSafeCardConfigView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.regular)
             .padding(16)
+        }
+        .onAppear {
+            scanForExistingFootage()
         }
     }
 
@@ -867,10 +1087,12 @@ struct FileSafeCardConfigView: View {
                     Text(String(localized: "filesafe.cardconfig.day \(index + 1)"))
                         .font(.system(size: 12))
                     Spacer()
-                    if let date = cardConfig.shootDays[index].date {
-                        Text(dateFormatter.string(from: date))
-                            .font(.system(size: 12, weight: .medium))
-                    }
+                    DatePicker("", selection: Binding(
+                        get: { cardConfig.shootDays[index].date ?? Date() },
+                        set: { cardConfig.shootDays[index].date = $0 }
+                    ), displayedComponents: .date)
+                    .labelsHidden()
+                    .datePickerStyle(.compact)
                 }
             }
         }
@@ -880,15 +1102,29 @@ struct FileSafeCardConfigView: View {
         VStack(alignment: .leading, spacing: 8) {
             SectionHeader(title: String(localized: "filesafe.cardconfig.date"), icon: "calendar")
 
-            if let day = cardConfig.shootDays.first, let date = day.date {
+            if !cardConfig.shootDays.isEmpty {
                 HStack {
                     Text(String(localized: "filesafe.cardconfig.detected_date"))
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Text(dateFormatter.string(from: date))
-                        .font(.system(size: 12, weight: .medium))
+                    DatePicker("", selection: Binding(
+                        get: { cardConfig.shootDays.first?.date ?? Date() },
+                        set: { newDate in
+                            if !cardConfig.shootDays.isEmpty {
+                                cardConfig.shootDays[0].date = newDate
+                            }
+                        }
+                    ), displayedComponents: .date)
+                    .labelsHidden()
+                    .datePickerStyle(.compact)
                 }
+
+                Toggle(isOn: $cardConfig.useDateSubfolder) {
+                    Text(String(localized: "filesafe.cardconfig.use_date_subfolder"))
+                        .font(.system(size: 12))
+                }
+                .toggleStyle(.checkbox)
             }
         }
     }
@@ -1020,7 +1256,7 @@ struct FileSafeCategoryBinEditor: View {
     @State private var selectedFileIDs: Set<UUID> = []
     @State private var lastClickedFileID: UUID?
     @State private var isFileBrowserExpanded: Bool = false
-    @State private var thumbnailSize: CGFloat = 40
+    @State private var thumbnailSize: CGFloat = 24
 
     private var filesByDay: [UUID: [FileSafeSourceFile]] {
         FileSafeStructureBuilder.shared.assignFilesToDays(
@@ -1055,7 +1291,8 @@ struct FileSafeCategoryBinEditor: View {
                     ? String(localized: "filesafe.cardconfig.video_subfolders")
                     : String(localized: "filesafe.cardconfig.photo_subfolders"),
                 icon: category == .video ? "video" : "photo",
-                badge: "\(files.count)"
+                badge: "\(files.count)",
+                helpText: String(localized: "filesafe.help.bins")
             )
 
             // Bins lijst
@@ -1120,6 +1357,9 @@ struct FileSafeCategoryBinEditor: View {
                                         thumbnailSize: thumbnailSize,
                                         onFileClick: { file, modifiers in
                                             handleFileClick(file: file, modifiers: modifiers)
+                                        },
+                                        onBinChange: { binName in
+                                            batchAssign(to: binName)
                                         }
                                     )
                                 }
@@ -1136,6 +1376,9 @@ struct FileSafeCategoryBinEditor: View {
                                         thumbnailSize: thumbnailSize,
                                         onFileClick: { modifiers in
                                             handleFileClick(file: file, modifiers: modifiers)
+                                        },
+                                        onBinChange: { binName in
+                                            batchAssign(to: binName)
                                         }
                                     )
                                 }
@@ -1357,8 +1600,9 @@ struct FileSafeDayFileSection: View {
     let binNames: [String]
     @Binding var fileSubfolderMap: [UUID: String]
     @Binding var selectedFileIDs: Set<UUID>
-    var thumbnailSize: CGFloat = 40
+    var thumbnailSize: CGFloat = 24
     var onFileClick: (FileSafeSourceFile, EventModifiers) -> Void
+    var onBinChange: ((String?) -> Void)?
 
     @State private var isExpanded: Bool = false
 
@@ -1382,7 +1626,8 @@ struct FileSafeDayFileSection: View {
                             thumbnailSize: thumbnailSize,
                             onFileClick: { modifiers in
                                 onFileClick(file, modifiers)
-                            }
+                            },
+                            onBinChange: onBinChange
                         )
                     }
                 }
@@ -1452,8 +1697,9 @@ struct FileSafeFileRow: View {
     let binNames: [String]
     @Binding var fileSubfolderMap: [UUID: String]
     let isSelected: Bool
-    var thumbnailSize: CGFloat = 40
+    var thumbnailSize: CGFloat = 24
     var onFileClick: (EventModifiers) -> Void
+    var onBinChange: ((String?) -> Void)?
 
     private var currentAssignment: String? {
         fileSubfolderMap[file.id]
@@ -1505,7 +1751,11 @@ struct FileSafeFileRow: View {
             if !binNames.isEmpty {
                 Menu {
                     Button {
-                        fileSubfolderMap.removeValue(forKey: file.id)
+                        if isSelected, let cb = onBinChange {
+                            cb(nil)
+                        } else {
+                            fileSubfolderMap.removeValue(forKey: file.id)
+                        }
                     } label: {
                         HStack {
                             Text("—")
@@ -1517,7 +1767,11 @@ struct FileSafeFileRow: View {
                     Divider()
                     ForEach(binNames, id: \.self) { name in
                         Button {
-                            fileSubfolderMap[file.id] = name
+                            if isSelected, let cb = onBinChange {
+                                cb(name)
+                            } else {
+                                fileSubfolderMap[file.id] = name
+                            }
                         } label: {
                             HStack {
                                 Text(name)
@@ -1567,6 +1821,7 @@ struct FileSafePathPreview: View {
     let scanResult: FileSafeScanResult
     let folderPreset: FolderStructurePreset
     let customTemplate: CustomFolderTemplate?
+    var projectPath: String? = nil
 
     @State private var isExpanded: Bool = true
 
@@ -1575,21 +1830,28 @@ struct FileSafePathPreview: View {
         let dayFormatter = DateFormatter()
         dayFormatter.dateFormat = "ddMMyyyy"
 
+        // Bij single-day zonder useDateSubfolder → geen dagmap in pad
+        let skipDayInPath = !projectConfig.isMultiDayShoot && !cardConfig.useDateSubfolder
         let dayLabel: String
-        if let firstDay = cardConfig.shootDays.first, let date = firstDay.date {
+        if skipDayInPath {
+            dayLabel = ""
+        } else if let firstDay = cardConfig.shootDays.first, let date = firstDay.date {
             if projectConfig.isMultiDayShoot {
-                dayLabel = "Dag 1_\(dayFormatter.string(from: date))"
+                let localizedDay = String(localized: "filesafe.cardconfig.day \(1)")
+                dayLabel = "\(localizedDay)_\(dayFormatter.string(from: date))"
             } else {
+                // Single-day met useDateSubfolder: alleen datum, geen "Day 1"
                 dayLabel = dayFormatter.string(from: date)
             }
         } else {
             dayLabel = dayFormatter.string(from: Date())
         }
 
-        // Resolve dynamische basispaden uit template
+        // Resolve dynamische basispaden uit template (met bestaande map herkenning)
         let basePaths = FileSafeStructureBuilder.shared.resolveBasePaths(
             preset: folderPreset,
-            customTemplate: customTemplate
+            customTemplate: customTemplate,
+            existingProjectPath: projectPath
         )
 
         // Bepaal video/foto base paths (zelfde logica als buildStructure)
@@ -1603,30 +1865,31 @@ struct FileSafePathPreview: View {
             photoBase = basePaths.photoPath
         }
 
+        // Helper: voeg dayLabel toe aan pad als die niet leeg is
+        func withDay(_ base: String) -> String {
+            dayLabel.isEmpty ? base : "\(base)/\(dayLabel)"
+        }
+
         // Video example paths
         if scanResult.hasVideo {
             let videoBinNames = cardConfig.effectiveVideoBinNames
             if !videoBinNames.isEmpty {
-                // Bin-gebaseerd: toon 1 voorbeeld per bin + 1 unassigned
                 for binName in videoBinNames.prefix(2) {
-                    // Zoek een bestand dat aan deze bin is toegewezen
                     if let sampleFile = scanResult.videoFiles.first(where: {
                         cardConfig.fileSubfolderMap[$0.id] == binName
                     }) ?? scanResult.videoFiles.first {
-                        paths.append("\(videoBase)/\(dayLabel)/\(binName)/\(sampleFile.fileName)")
+                        paths.append("\(withDay(videoBase))/\(binName)/\(sampleFile.fileName)")
                     }
                 }
-                // Toon ook unassigned voorbeeld als er bestanden zonder bin zijn
                 let assignedBins = Set(videoBinNames)
                 if let unassigned = scanResult.videoFiles.first(where: {
                     guard let assignment = cardConfig.fileSubfolderMap[$0.id] else { return true }
                     return !assignedBins.contains(assignment)
                 }) {
-                    paths.append("\(videoBase)/\(dayLabel)/\(unassigned.fileName)")
+                    paths.append("\(withDay(videoBase))/\(unassigned.fileName)")
                 }
             } else if let sampleFile = scanResult.videoFiles.first {
-                var videoPath = "\(videoBase)/\(dayLabel)"
-                // Legacy: voeg geneste submappen toe
+                var videoPath = withDay(videoBase)
                 for subfolder in cardConfig.effectiveVideoSubfolders {
                     videoPath += "/\(subfolder)"
                 }
@@ -1697,7 +1960,9 @@ struct FileSafePathPreview: View {
             }
         }
 
-        return paths
+        // Prepend project name to all paths
+        let projectPrefix = projectConfig.projectName
+        return paths.map { projectPrefix + "/" + $0 }
     }
 
     var body: some View {
@@ -1829,10 +2094,8 @@ struct FileSafeStructurePreviewView: View {
                         .padding(.bottom, 8)
                     }
 
-                    // Folder structure tree
-                    ForEach(tree.children) { child in
-                        FolderTreeRow(folder: child, depth: 0)
-                    }
+                    // Folder structure tree (start bij project root)
+                    FolderTreeRow(folder: tree, depth: 0)
                 }
                 .padding(12)
             }
@@ -2632,6 +2895,30 @@ struct FileSafeTransferStatusChip: View {
     }
 }
 
+// MARK: - Help Button
+
+struct FileSafeHelpButton: View {
+    let text: String
+
+    @State private var isPresented = false
+
+    var body: some View {
+        Button { isPresented.toggle() } label: {
+            Image(systemName: "questionmark.circle")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary.opacity(0.6))
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPresented) {
+            Text(text)
+                .font(.system(size: 12))
+                .padding(12)
+                .frame(maxWidth: 250)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 // MARK: - Project Sort Mode
 
 enum ProjectSortMode: String, CaseIterable {
@@ -2662,6 +2949,7 @@ struct SectionHeader: View {
     let title: String
     let icon: String
     var badge: String? = nil
+    var helpText: String? = nil
 
     var body: some View {
         HStack(spacing: 6) {
@@ -2678,6 +2966,9 @@ struct SectionHeader: View {
                     .background(Color.accentColor.opacity(0.15))
                     .foregroundColor(.accentColor)
                     .clipShape(Capsule())
+            }
+            if let helpText = helpText {
+                FileSafeHelpButton(text: helpText)
             }
         }
     }

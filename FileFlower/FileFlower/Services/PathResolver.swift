@@ -93,6 +93,12 @@ class PathResolver {
                 in: projectRoot,
                 names: languageMapping["Visuals"] ?? ["Visuals"]
             )
+        case .footage:
+            // Footage gaat naar de footage/raw map
+            baseFolder = try findOrCreateFolder(
+                in: projectRoot,
+                names: languageMapping["Footage"] ?? ["Footage", "Raw", "Materiaal"]
+            )
         case .stockFootage:
             baseFolder = try findOrCreateFolder(
                 in: projectRoot,
@@ -144,20 +150,20 @@ class PathResolver {
             )
             targetFolder = graphicsFolder
             
+        case .footage:
+            // Footage gaat direct in de base footage map (of subfolder als opgegeven)
+            targetFolder = baseFolder
+
         case .stockFootage:
             // Speciale routing voor YouTube 4K downloads
             if source == .youtube4K {
-                // YouTube 4K bestanden gaan naar Visuals/4KYoutube downloader/
                 let youtube4KFolder = try findOrCreateFolder(in: baseFolder, names: [youtube4KSubfolderName])
                 targetFolder = youtube4KFolder
-                #if DEBUG
-                print("PathResolver: YouTube 4K bestand -> \(targetFolder.path)")
-                #endif
             } else {
                 let footageFolder = try findOrCreateFolder(in: baseFolder, names: ["StockFootage"])
                 targetFolder = footageFolder
             }
-            
+
         case .unknown:
             break
         }
@@ -198,6 +204,8 @@ class PathResolver {
         case .motionGraphic, .graphic:
             components.append("Visuals")
             components.append("Graphics")
+        case .footage:
+            components.append("Footage")
         case .stockFootage:
             components.append("Visuals")
             components.append("StockFootage")
@@ -244,6 +252,8 @@ class PathResolver {
             relativePath = mapping.graphicsPath
         case .motionGraphic:
             relativePath = mapping.motionGraphicsPath
+        case .footage:
+            relativePath = mapping.rawFootagePath ?? mapping.stockFootagePath
         case .stockFootage:
             relativePath = mapping.stockFootagePath
         case .unknown:
@@ -251,11 +261,9 @@ class PathResolver {
         }
 
         guard let path = relativePath, !path.isEmpty else {
-            // Fallback naar standaard routing als mapping ontbreekt
             #if DEBUG
             print("PathResolver: Geen custom mapping voor \(assetType), fallback naar standaard")
             #endif
-            // Gebruik de bestaande languageMapping als fallback
             let fallbackNames: [String]
             switch assetType {
             case .music: fallbackNames = languageMapping["Music"] ?? ["Music"]
@@ -263,6 +271,7 @@ class PathResolver {
             case .vo: fallbackNames = languageMapping["VO"] ?? ["VO"]
             case .graphic: fallbackNames = languageMapping["Graphics"] ?? ["Graphics"]
             case .motionGraphic: fallbackNames = languageMapping["MotionGraphics"] ?? ["MotionGraphics"]
+            case .footage: fallbackNames = languageMapping["Footage"] ?? ["Footage", "Raw", "Materiaal"]
             case .stockFootage: fallbackNames = ["StockFootage"]
             case .unknown: throw PathResolverError.unknownAssetType
             }

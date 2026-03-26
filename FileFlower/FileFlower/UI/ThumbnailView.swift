@@ -16,6 +16,7 @@ struct ThumbnailView: View {
         case .music: return "music.note"
         case .sfx: return "waveform"
         case .vo: return "mic.fill"
+        case .footage: return "video.fill"
         case .motionGraphic: return "film"
         case .graphic: return "photo"
         case .stockFootage: return "film"

@@ -10,6 +10,7 @@ struct ProjectPickerView: View {
     @State private var selectedType: AssetType = .music
     @State private var selectedSubfolder: String = ""
     @State private var selectedSfxCategory: String = ""
+    @State private var customSubfolder: String = ""
     @State private var showingSubfolderPicker = false
     
     // Veelgebruikte SFX categorieën (gebaseerd op Epidemic Sound)
@@ -130,7 +131,7 @@ struct ProjectPickerView: View {
                         Label(String(localized: "picker.sfx_category"), systemImage: "waveform.badge.plus")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.secondary)
-                        
+
                         Picker(String(localized: "picker.category"), selection: $selectedSfxCategory) {
                             Text(String(localized: "picker.no_category")).tag("")
                             ForEach(sfxCategories, id: \.self) { category in
@@ -142,7 +143,36 @@ struct ProjectPickerView: View {
                     }
                     .padding(.horizontal, 20)
                 }
-                
+
+                // Custom subfolder (voor alle types behalve music/sfx die eigen opties hebben)
+                if selectedType != .music && selectedType != .sfx {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Subfolder", systemImage: "folder.badge.plus")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.secondary)
+
+                        TextField("Subfolder (optional)", text: $customSubfolder)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(size: 13))
+                    }
+                    .padding(.horizontal, 20)
+                }
+
+                // Preview pad
+                if let project = selectedProject {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary.opacity(0.6))
+                        Text("\(project.name) → \(selectedType.displayName)\(customSubfolder.isEmpty ? "" : " → \(customSubfolder)")")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .padding(.horizontal, 20)
+                }
+
                 Spacer()
             }
             
@@ -199,6 +229,7 @@ struct ProjectPickerView: View {
         case .music: return "music.note"
         case .sfx: return "waveform"
         case .vo: return "mic"
+        case .footage: return "video.fill"
         case .motionGraphic: return "video"
         case .graphic: return "photo"
         case .stockFootage: return "film"
@@ -222,13 +253,20 @@ struct ProjectPickerView: View {
             if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {
                 appState.queuedItems[index].targetProject = project
                 appState.queuedItems[index].predictedType = selectedType
-                appState.queuedItems[index].targetSubfolder = selectedSubfolder.isEmpty ? nil : selectedSubfolder
-                // Sla SFX categorie op als type SFX is
+                // Bepaal subfolder: music gebruikt selectedSubfolder, anderen gebruiken customSubfolder
+                let effectiveSubfolder: String?
+                if selectedType == .music {
+                    effectiveSubfolder = selectedSubfolder.isEmpty ? nil : selectedSubfolder
+                } else if selectedType == .sfx {
+                    effectiveSubfolder = selectedSfxCategory.isEmpty ? nil : selectedSfxCategory
+                } else {
+                    effectiveSubfolder = customSubfolder.trimmingCharacters(in: .whitespaces).isEmpty ? nil : customSubfolder.trimmingCharacters(in: .whitespaces)
+                }
+                appState.queuedItems[index].targetSubfolder = effectiveSubfolder
                 if selectedType == .sfx {
                     appState.queuedItems[index].predictedSfxCategory = selectedSfxCategory.isEmpty ? nil : selectedSfxCategory
                 }
-                // Herbereken preview pad
-                let subfolder = selectedSubfolder.isEmpty ? nil : selectedSubfolder
+                let subfolder = effectiveSubfolder
                 appState.queuedItems[index].previewPath = PathResolver.shared.previewRelativePath(
                     project: project,
                     assetType: selectedType,

@@ -230,15 +230,26 @@ struct FileSafeShootDay: Codable, Identifiable, Equatable {
     var label: String?
 
     var displayName: String {
+        displayName(isMultiDay: true)
+    }
+
+    /// Display naam voor de dagmap. Bij single-day (isMultiDay=false) wordt alleen de datum getoond.
+    func displayName(isMultiDay: Bool) -> String {
         if let label = label, !label.isEmpty {
             return label
         }
         if let date = date {
             let formatter = DateFormatter()
             formatter.dateFormat = "ddMMyyyy"
-            return "Dag \(dayNumber)_\(formatter.string(from: date))"
+            if isMultiDay {
+                let dayLabel = String(localized: "filesafe.cardconfig.day \(dayNumber)")
+                return "\(dayLabel)_\(formatter.string(from: date))"
+            } else {
+                return formatter.string(from: date)
+            }
         }
-        return "Dag \(dayNumber)"
+        let dayLabel = String(localized: "filesafe.cardconfig.day \(dayNumber)")
+        return dayLabel
     }
 
     init(dayNumber: Int, date: Date? = nil, label: String? = nil) {
@@ -320,7 +331,7 @@ extension FileSafeProjectConfig {
 
 // MARK: - Subfolder Bin
 
-struct FileSafeSubfolderBin: Identifiable, Equatable {
+struct FileSafeSubfolderBin: Identifiable, Equatable, Codable {
     let id: UUID
     var name: String
 
@@ -332,7 +343,7 @@ struct FileSafeSubfolderBin: Identifiable, Equatable {
 
 // MARK: - Card Config (per import)
 
-struct FileSafeCardConfig {
+struct FileSafeCardConfig: Codable {
     var shootDays: [FileSafeShootDay]
     var dateOverride: Date?
     var volumePath: String
@@ -348,6 +359,9 @@ struct FileSafeCardConfig {
 
     // Per-file toewijzing: fileId → bin name (bestanden zonder entry → direct in dag-map)
     var fileSubfolderMap: [UUID: String]
+
+    // Single-day: optioneel datum-subfolder
+    var useDateSubfolder: Bool
 
     static func defaultFor(scanResult: FileSafeScanResult, projectConfig: FileSafeProjectConfig) -> FileSafeCardConfig {
         var days: [FileSafeShootDay] = []
@@ -391,7 +405,8 @@ struct FileSafeCardConfig {
             photoSubfolders: [],
             videoBins: videoBins,
             photoBins: [],
-            fileSubfolderMap: [:]
+            fileSubfolderMap: [:],
+            useDateSubfolder: false
         )
     }
 
@@ -439,6 +454,28 @@ struct FileSafeCardConfig {
     /// Verwijder alle assignments voor een specifieke bin
     mutating func removeAssignmentsForBin(_ binName: String) {
         fileSubfolderMap = fileSubfolderMap.filter { $0.value != binName }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case shootDays, dateOverride, volumePath, volumeName
+        case videoSubfolders, photoSubfolders, videoBins, photoBins
+        case fileSubfolderMap, useDateSubfolder
+    }
+}
+
+extension FileSafeCardConfig {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        shootDays = try c.decode([FileSafeShootDay].self, forKey: .shootDays)
+        dateOverride = try c.decodeIfPresent(Date.self, forKey: .dateOverride)
+        volumePath = try c.decode(String.self, forKey: .volumePath)
+        volumeName = try c.decode(String.self, forKey: .volumeName)
+        videoSubfolders = try c.decode([String].self, forKey: .videoSubfolders)
+        photoSubfolders = try c.decode([String].self, forKey: .photoSubfolders)
+        videoBins = try c.decodeIfPresent([FileSafeSubfolderBin].self, forKey: .videoBins) ?? []
+        photoBins = try c.decodeIfPresent([FileSafeSubfolderBin].self, forKey: .photoBins) ?? []
+        fileSubfolderMap = try c.decodeIfPresent([UUID: String].self, forKey: .fileSubfolderMap) ?? [:]
+        useDateSubfolder = try c.decodeIfPresent(Bool.self, forKey: .useDateSubfolder) ?? false
     }
 }
 

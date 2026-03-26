@@ -465,24 +465,87 @@ class AppState: ObservableObject {
     }
 
     /// Geeft het beste project terug: 1) actief NLE project, 2) eerste recente project, 3) Spotlight fallback
+    /// Template/submap namen die geen echte projecten zijn
+    private static let templateFolderNames: Set<String> = [
+        "adobe", "footage", "audio", "graphics", "subs", "documents",
+        "exports", "vfx", "sfx", "visuals", "music", "materiaal",
+        "vormgeving", "muziek", "subtitles", "export", "photos",
+        "stills", "production_audio", "foto", "video", "raw"
+    ]
+
+    /// Vind het echte project-pad vanuit een NLE bestandspad.
+    /// Als het .prproj in een template-submap zit (bijv. /project/ADOBE/file.prproj),
+    /// loop omhoog tot we een niet-template map vinden.
+    private func resolveProjectRoot(from nleFilePath: String) -> (projectPath: String, projectName: String) {
+        var dir = URL(fileURLWithPath: nleFilePath).deletingLastPathComponent()
+
+        // Loop maximaal 3 niveaus omhoog door template-mappen
+        for _ in 0..<3 {
+            let folderName = dir.lastPathComponent
+            let normalized = folderName.lowercased()
+                .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+
+            if Self.templateFolderNames.contains(normalized) {
+                dir = dir.deletingLastPathComponent()
+            } else {
+                break
+            }
+        }
+
+        return (dir.path, dir.lastPathComponent)
+    }
+
+    /// Zoek het NLE-project in bekende projecten, of maak een fallback ProjectInfo
+    private func findOrCreateNLEProject(nleFilePath: String) -> ProjectInfo {
+        // Check recentProjects op exact path match
+        if let project = recentProjects.first(where: { $0.projectPath == nleFilePath }) {
+            return project
+        }
+
+        // Resolve de echte project root (kijk door template-mappen heen)
+        let (projectPath, projectName) = resolveProjectRoot(from: nleFilePath)
+
+        // Check bekende projecten op het resolved pad
+        if let project = allFolderProjects.first(where: { $0.projectPath == projectPath }) {
+            return project
+        }
+        if let project = nleActiveProjects.first(where: { $0.projectPath == projectPath }) {
+            return project
+        }
+        if let project = recentProjects.first(where: { p in
+            projectPath.hasPrefix(p.projectPath + "/") || p.projectPath.hasPrefix(projectPath + "/")
+        }) {
+            return project
+        }
+
+        // Fallback: maak tijdelijk ProjectInfo
+        return ProjectInfo(
+            name: projectName,
+            rootPath: URL(fileURLWithPath: projectPath).deletingLastPathComponent().path,
+            projectPath: projectPath,
+            lastModified: Date().timeIntervalSince1970
+        )
+    }
+
     var preferredProject: ProjectInfo? {
         // Prioriteit 1a: Actief Premiere project via CEP plugin (indien vers)
-        if let activeProjectPath = jobServer.activeProjectPath,
-           jobServer.isActiveProjectFresh,
-           let activeProject = recentProjects.first(where: { $0.projectPath == activeProjectPath }) {
-            return activeProject
+        if let activeProjectPath = jobServer.activeProjectPath, jobServer.isActiveProjectFresh {
+            return findOrCreateNLEProject(nleFilePath: activeProjectPath)
         }
         // Prioriteit 1b: Actief Resolve project via Python bridge (indien vers)
-        if let resolveProjectPath = jobServer.resolveActiveProjectPath,
-           jobServer.isResolveActiveProjectFresh,
-           let resolveProject = recentProjects.first(where: { $0.projectPath == resolveProjectPath }) {
-            return resolveProject
+        if let resolveProjectPath = jobServer.resolveActiveProjectPath, jobServer.isResolveActiveProjectFresh {
+            return findOrCreateNLEProject(nleFilePath: resolveProjectPath)
         }
-        // Prioriteit 2: Eerste recente project (bevat nu ook Spotlight resultaten)
+        // Prioriteit 2: Actief project uit selector
+        if let active = activeProject {
+            return active
+        }
+        // Prioriteit 3: Eerste recente project
         if let firstRecent = recentProjects.first {
             return firstRecent
         }
-        // Prioriteit 3: Directe Spotlight query (gecached, fallback als refreshRecentProjects nog niet klaar is)
+        // Prioriteit 4: Directe Spotlight query
         return spotlightProjects.first
     }
 
@@ -518,38 +581,20 @@ class AppState: ObservableObject {
     /// Update het actieve project op basis van beschikbare informatie
     func updateActiveProject() {
         // 1. Als Premiere daadwerkelijk open is EN het is een NIEUW NLE project
-        //    (niet hetzelfde als vorige keer), overschrijf de selectie.
-        //    Als het hetzelfde NLE project is, respecteer de handmatige keuze.
         if let activeProjectPath = jobServer.activeProjectPath,
            jobServer.isActiveProjectFresh,
            activeProjectPath != lastAutoSelectedNLEPath {
-            let premiereProjectDir = URL(fileURLWithPath: activeProjectPath).deletingLastPathComponent().path
-            if let folderProject = allFolderProjects.first(where: { $0.projectPath == premiereProjectDir }) {
-                activeProject = folderProject
-                lastAutoSelectedNLEPath = activeProjectPath
-                return
-            }
-            if let project = recentProjects.first(where: { $0.projectPath == activeProjectPath }) {
-                activeProject = project
-                lastAutoSelectedNLEPath = activeProjectPath
-                return
-            }
+            activeProject = findOrCreateNLEProject(nleFilePath: activeProjectPath)
+            lastAutoSelectedNLEPath = activeProjectPath
+            return
         }
         // 2. Als Resolve daadwerkelijk open is EN het is een NIEUW NLE project
         if let resolveProjectPath = jobServer.resolveActiveProjectPath,
            jobServer.isResolveActiveProjectFresh,
            resolveProjectPath != lastAutoSelectedNLEPath {
-            let resolveProjectDir = URL(fileURLWithPath: resolveProjectPath).deletingLastPathComponent().path
-            if let folderProject = allFolderProjects.first(where: { $0.projectPath == resolveProjectDir }) {
-                activeProject = folderProject
-                lastAutoSelectedNLEPath = resolveProjectPath
-                return
-            }
-            if let project = recentProjects.first(where: { $0.projectPath == resolveProjectPath }) {
-                activeProject = project
-                lastAutoSelectedNLEPath = resolveProjectPath
-                return
-            }
+            activeProject = findOrCreateNLEProject(nleFilePath: resolveProjectPath)
+            lastAutoSelectedNLEPath = resolveProjectPath
+            return
         }
         // 3. Meest recent gewijzigd folder-project (alleen als er nog geen actief project is)
         if activeProject == nil, let first = allFolderProjects.first {
@@ -728,13 +773,20 @@ class AppState: ObservableObject {
         // Stap 5: Bepaal NLE-actieve projecten (alleen als Premiere/Resolve daadwerkelijk draait)
         var nleProjects: [ProjectInfo] = []
         if let premierePath = jobServer.activeProjectPath, jobServer.isActiveProjectFresh {
-            // Zoek het bijbehorende folder-project (parent map van .prproj)
             let premiereProjectDir = URL(fileURLWithPath: premierePath).deletingLastPathComponent().path
             if let folderProject = allFolderProjects.first(where: { $0.projectPath == premiereProjectDir }) {
                 nleProjects.append(folderProject)
             } else if let nleProject = recentProjects.first(where: { $0.projectPath == premierePath }) {
-                // Fallback: gebruik het NLE project zelf
                 nleProjects.append(nleProject)
+            } else {
+                // NLE project niet in bekende roots → maak tijdelijk ProjectInfo
+                let projectName = URL(fileURLWithPath: premiereProjectDir).lastPathComponent
+                nleProjects.append(ProjectInfo(
+                    name: projectName,
+                    rootPath: URL(fileURLWithPath: premiereProjectDir).deletingLastPathComponent().path,
+                    projectPath: premiereProjectDir,
+                    lastModified: Date().timeIntervalSince1970
+                ))
             }
         }
         if let resolvePath = jobServer.resolveActiveProjectPath, jobServer.isResolveActiveProjectFresh {
@@ -745,6 +797,14 @@ class AppState: ObservableObject {
             } else if let nleProject = recentProjects.first(where: { $0.projectPath == resolvePath }),
                       !nleProjects.contains(where: { $0.id == nleProject.id }) {
                 nleProjects.append(nleProject)
+            } else if !nleProjects.contains(where: { $0.projectPath == resolveProjectDir }) {
+                let projectName = URL(fileURLWithPath: resolveProjectDir).lastPathComponent
+                nleProjects.append(ProjectInfo(
+                    name: projectName,
+                    rootPath: URL(fileURLWithPath: resolveProjectDir).deletingLastPathComponent().path,
+                    projectPath: resolveProjectDir,
+                    lastModified: Date().timeIntervalSince1970
+                ))
             }
         }
         nleActiveProjects = nleProjects
@@ -1089,8 +1149,9 @@ class AppState: ObservableObject {
 
         let folderURL = URL(fileURLWithPath: preset.folderPath)
         let fileManager = FileManager.default
+        let baseBinPath = preset.premiereBinPath ?? preset.folderName
 
-        // Enumerate alle bestanden in de map (recursief)
+        // Groepeer bestanden per subfolder (relatief pad t.o.v. de root folder)
         guard let enumerator = fileManager.enumerator(
             at: folderURL,
             includingPropertiesForKeys: [.isRegularFileKey],
@@ -1102,31 +1163,55 @@ class AppState: ObservableObject {
             return
         }
 
-        let files = enumerator.allObjects.compactMap { $0 as? URL }.filter { url in
+        // Bouw dictionary: relatief subfolder pad → [file URLs]
+        var filesBySubpath: [String: [URL]] = [:]
+        for case let fileURL as URL in enumerator.allObjects.compactMap({ $0 as? URL }) {
             var isFile: ObjCBool = false
-            return fileManager.fileExists(atPath: url.path, isDirectory: &isFile) && !isFile.boolValue
+            guard fileManager.fileExists(atPath: fileURL.path, isDirectory: &isFile), !isFile.boolValue else { continue }
+
+            // Bereken relatief pad van de subfolder t.o.v. de root folder
+            let parentDir = fileURL.deletingLastPathComponent().path
+            let rootDir = folderURL.path
+            let relativePath: String
+            if parentDir == rootDir {
+                relativePath = "" // Bestand zit direct in de root
+            } else {
+                relativePath = String(parentDir.dropFirst(rootDir.count + 1)) // Strip root + "/"
+            }
+
+            filesBySubpath[relativePath, default: []].append(fileURL)
         }
 
-        guard !files.isEmpty else {
+        guard !filesBySubpath.isEmpty else {
             #if DEBUG
             print("AppState: LoadFolder map is leeg: \(preset.folderPath)")
             #endif
             return
         }
 
-        // Bepaal het bin pad
-        let binPath = preset.premiereBinPath ?? preset.folderName
+        // Maak een job per subfolder, zodat elke subfolder een aparte bin wordt in Premiere/Resolve
+        var totalFiles = 0
+        for (subpath, files) in filesBySubpath.sorted(by: { $0.key < $1.key }) {
+            let binPath: String
+            if subpath.isEmpty {
+                binPath = baseBinPath
+            } else {
+                binPath = baseBinPath + "/" + subpath
+            }
 
-        let job = JobRequest(
-            projectPath: project.projectPath,
-            finderTargetDir: preset.folderPath,
-            premiereBinPath: binPath,
-            files: files.map { $0.path }
-        )
+            let job = JobRequest(
+                projectPath: project.projectPath,
+                finderTargetDir: preset.folderPath,
+                premiereBinPath: binPath,
+                files: files.map { $0.path }
+            )
 
-        JobServer.shared.addJob(job)
+            JobServer.shared.addJob(job)
+            totalFiles += files.count
+        }
+
         #if DEBUG
-        print("AppState: LoadFolder job aangemaakt - \(files.count) bestanden naar bin '\(binPath)'")
+        print("AppState: LoadFolder \(filesBySubpath.count) jobs aangemaakt - \(totalFiles) bestanden in \(filesBySubpath.count) bins onder '\(baseBinPath)'")
         #endif
     }
 }

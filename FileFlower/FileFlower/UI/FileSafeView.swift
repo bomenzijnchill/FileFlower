@@ -122,6 +122,7 @@ struct FileSafeView: View {
                             scanResult: scanResult!,
                             folderPreset: appState.config.folderStructurePreset,
                             customTemplate: appState.config.customFolderTemplate,
+                            projectPath: selectedProjectPath,
                             onPreview: { buildPreview() },
                             onBack: { withAnimation { currentStep = .projectConfig } }
                         )
@@ -288,9 +289,11 @@ struct FileSafeView: View {
         fileMappings = mappings
 
         // Detecteer duplicaten (bestanden die al in het project staan)
+        // Gebruik existingProjectPath zodat bestaande mappen (bijv. "FOOTAGE") herkend worden
         let footagePath = FileSafeStructureBuilder.shared.resolveBasePaths(
             preset: appState.config.folderStructurePreset,
-            customTemplate: appState.config.customFolderTemplate
+            customTemplate: appState.config.customFolderTemplate,
+            existingProjectPath: projectPath
         ).footagePath
         FileSafeStructureBuilder.shared.detectDuplicates(
             in: &fileMappings,

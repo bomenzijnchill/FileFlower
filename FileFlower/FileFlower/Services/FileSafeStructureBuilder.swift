@@ -15,7 +15,7 @@ class FileSafeStructureBuilder {
     ) -> (tree: FileSafeTargetFolder, mappings: [FileSafeFileMapping]) {
 
         // Bepaal basispaden voor video/audio/foto op basis van template
-        let basePaths = resolveBasePaths(preset: folderPreset, customTemplate: customTemplate)
+        let basePaths = resolveBasePaths(preset: folderPreset, customTemplate: customTemplate, existingProjectPath: projectPath)
 
         // Als foto's in de footage-map staan EN er zijn zowel video als foto:
         // maak "Video" en "Photo" subfolders om ze gescheiden te houden
@@ -117,7 +117,8 @@ class FileSafeStructureBuilder {
             photoSubfolders: [],
             videoBins: [],
             photoBins: [],
-            fileSubfolderMap: [:]
+            fileSubfolderMap: [:],
+            useDateSubfolder: false
         )
 
         return buildStructure(
@@ -156,7 +157,61 @@ class FileSafeStructureBuilder {
         let photosInFootage: Bool  // true = foto's delen de footage-map (geen aparte foto-map in template)
     }
 
-    func resolveBasePaths(preset: FolderStructurePreset, customTemplate: CustomFolderTemplate?) -> BasePaths {
+    /// Resolve base paths, checking existing project folder structure first
+    func resolveBasePaths(preset: FolderStructurePreset, customTemplate: CustomFolderTemplate?, existingProjectPath: String? = nil) -> BasePaths {
+        // Als er een bestaand project is, zoek eerst naar bestaande mappen
+        if let projectPath = existingProjectPath {
+            if let existing = resolveFromExistingProject(at: projectPath) {
+                return existing
+            }
+        }
+        return resolveBasePathsFromPreset(preset: preset, customTemplate: customTemplate)
+    }
+
+    /// Zoek bestaande footage/audio/photo mappen in een project directory
+    private func resolveFromExistingProject(at projectPath: String) -> BasePaths? {
+        let projectURL = URL(fileURLWithPath: projectPath)
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: projectURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        let folders = contents.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+
+        let footageKeywords = ["footage", "raw", "materiaal", "beeldmateriaal", "video"]
+        let audioKeywords = ["audio", "sound", "geluid", "production_audio"]
+        let photoKeywords = ["photo", "photos", "stills", "foto", "pictures", "images"]
+
+        func findFolder(matching keywords: [String]) -> String? {
+            for folder in folders {
+                let name = folder.lastPathComponent
+                let normalized = name.lowercased()
+                    .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespaces)
+                for keyword in keywords {
+                    if normalized == keyword || normalized.contains(keyword) || keyword.contains(normalized) {
+                        return name
+                    }
+                }
+            }
+            return nil
+        }
+
+        let footagePath = findFolder(matching: footageKeywords)
+        guard let footage = footagePath else { return nil }
+
+        let audioPath = findFolder(matching: audioKeywords) ?? "Audio"
+        let photoPath = findFolder(matching: photoKeywords)
+
+        if let photo = photoPath {
+            return BasePaths(footagePath: footage, audioPath: audioPath, photoPath: photo, photosInFootage: false)
+        } else {
+            return BasePaths(footagePath: footage, audioPath: audioPath, photoPath: footage, photosInFootage: true)
+        }
+    }
+
+    private func resolveBasePathsFromPreset(preset: FolderStructurePreset, customTemplate: CustomFolderTemplate?) -> BasePaths {
         switch preset {
         case .custom:
             if let template = customTemplate {
@@ -243,9 +298,14 @@ class FileSafeStructureBuilder {
         let videoBins = cardConfig.videoBins.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
         let videoSubs = cardConfig.effectiveVideoSubfolders
 
+        // Single-day zonder date subfolder → bestanden direct in basePath
+        let skipDayFolder = !projectConfig.isMultiDayShoot && !cardConfig.useDateSubfolder
+        let isMultiDay = projectConfig.isMultiDayShoot
+
         for day in cardConfig.shootDays {
             let dayFiles = filesByDay[day.id] ?? []
-            let dayPath = "\(basePath)/\(day.displayName)"
+            let dayDisplayName = day.displayName(isMultiDay: isMultiDay)
+            let dayPath = skipDayFolder ? basePath : "\(basePath)/\(dayDisplayName)"
 
             if !videoBins.isEmpty {
                 // NIEUW: bin-gebaseerde routing
@@ -284,17 +344,21 @@ class FileSafeStructureBuilder {
                     mappings.append(FileSafeFileMapping(
                         source: file,
                         destinationPath: "\(fullDayPath)/\(file.fileName)",
-                        targetFolderName: day.displayName
+                        targetFolderName: dayDisplayName
                     ))
                 }
 
-                dayChildren.append(FileSafeTargetFolder(
-                    relativePath: dayPath,
-                    displayName: day.displayName,
-                    fileCount: unassigned.count,
-                    totalSize: unassigned.reduce(0) { $0 + $1.fileSize },
-                    children: binChildren
-                ))
+                if skipDayFolder {
+                    dayChildren.append(contentsOf: binChildren)
+                } else {
+                    dayChildren.append(FileSafeTargetFolder(
+                        relativePath: dayPath,
+                        displayName: dayDisplayName,
+                        fileCount: unassigned.count,
+                        totalSize: unassigned.reduce(0) { $0 + $1.fileSize },
+                        children: binChildren
+                    ))
+                }
 
             } else if !videoSubs.isEmpty {
                 // Legacy modus: geneste submappen
@@ -336,11 +400,15 @@ class FileSafeStructureBuilder {
                     }
                 }
 
-                dayChildren.append(FileSafeTargetFolder(
-                    relativePath: dayPath,
-                    displayName: day.displayName,
-                    children: [innerChild]
-                ))
+                if skipDayFolder {
+                    dayChildren.append(innerChild)
+                } else {
+                    dayChildren.append(FileSafeTargetFolder(
+                        relativePath: dayPath,
+                        displayName: dayDisplayName,
+                        children: [innerChild]
+                    ))
+                }
 
             } else {
                 // Geen bins, geen legacy subfolders → alles direct in dag-map
@@ -349,16 +417,18 @@ class FileSafeStructureBuilder {
                     mappings.append(FileSafeFileMapping(
                         source: file,
                         destinationPath: "\(fullPath)/\(file.fileName)",
-                        targetFolderName: day.displayName
+                        targetFolderName: skipDayFolder ? URL(fileURLWithPath: basePath).lastPathComponent : dayDisplayName
                     ))
                 }
 
-                dayChildren.append(FileSafeTargetFolder(
-                    relativePath: dayPath,
-                    displayName: day.displayName,
-                    fileCount: dayFiles.count,
-                    totalSize: dayFiles.reduce(0) { $0 + $1.fileSize }
-                ))
+                if !skipDayFolder {
+                    dayChildren.append(FileSafeTargetFolder(
+                        relativePath: dayPath,
+                        displayName: dayDisplayName,
+                        fileCount: dayFiles.count,
+                        totalSize: dayFiles.reduce(0) { $0 + $1.fileSize }
+                    ))
+                }
             }
         }
 
@@ -391,26 +461,28 @@ class FileSafeStructureBuilder {
                 useTimestamp: projectConfig.useTimestampAssignment
             )
 
+            let isMultiDay = projectConfig.isMultiDayShoot
             for day in cardConfig.shootDays {
                 let dayFiles = filesByDay[day.id] ?? []
+                let dayDisplayName = day.displayName(isMultiDay: isMultiDay)
                 var personChildren: [FileSafeTargetFolder] = []
 
                 if projectConfig.audioPersons.isEmpty {
-                    let dayPath = "\(basePath)/\(day.displayName)"
+                    let dayPath = "\(basePath)/\(dayDisplayName)"
                     let fullPath = "\(projectPath)/\(dayPath)"
 
                     for file in dayFiles {
                         mappings.append(FileSafeFileMapping(
                             source: file,
                             destinationPath: "\(fullPath)/\(file.fileName)",
-                            targetFolderName: day.displayName
+                            targetFolderName: dayDisplayName
                         ))
                     }
                 } else {
                     let filesPerPerson = distributeFilesOverLabels(files: dayFiles, labels: projectConfig.audioPersons)
                     for person in projectConfig.audioPersons {
                         let personFiles = filesPerPerson[person] ?? []
-                        let personPath = "\(basePath)/\(day.displayName)/\(person)"
+                        let personPath = "\(basePath)/\(dayDisplayName)/\(person)"
                         let fullPath = "\(projectPath)/\(personPath)"
 
                         for file in personFiles {
@@ -430,7 +502,7 @@ class FileSafeStructureBuilder {
                     }
 
                     if projectConfig.hasWildtrack {
-                        let wildtrackPath = "\(basePath)/\(day.displayName)/Wildtrack"
+                        let wildtrackPath = "\(basePath)/\(dayDisplayName)/Wildtrack"
                         personChildren.append(FileSafeTargetFolder(
                             relativePath: wildtrackPath,
                             displayName: "Wildtrack",
@@ -441,8 +513,8 @@ class FileSafeStructureBuilder {
                 }
 
                 children.append(FileSafeTargetFolder(
-                    relativePath: "\(basePath)/\(day.displayName)",
-                    displayName: day.displayName,
+                    relativePath: "\(basePath)/\(dayDisplayName)",
+                    displayName: dayDisplayName,
                     children: personChildren
                 ))
             }
@@ -525,7 +597,7 @@ class FileSafeStructureBuilder {
 
             for day in cardConfig.shootDays {
                 let dayFiles = filesByDay[day.id] ?? []
-                let dayBasePath = "\(basePath)/\(day.displayName)"
+                let dayBasePath = "\(basePath)/\(day.displayName(isMultiDay: true))"
                 let (dayTree, dayMappings) = buildSingleDayPhotoStructure(
                     basePath: dayBasePath,
                     projectPath: projectPath,

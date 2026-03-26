@@ -18,11 +18,25 @@ struct ProjectSelectorView: View {
 
     // MARK: - Computed
 
-    /// Folder-projecten zonder NLE-actieve (voorkom duplicaten)
+    /// Template-mapnamen die geen echte projecten zijn
+    private static let templateFolderBlocklist: Set<String> = [
+        "adobe", "footage", "audio", "graphics", "subs", "documents",
+        "exports", "vfx", "sfx", "visuals", "music", "materiaal",
+        "vormgeving", "muziek", "subtitles", "export", "photos",
+        "stills", "production_audio", "foto", "video"
+    ]
+
+    /// Folder-projecten zonder NLE-actieve en zonder template-mappen
     private var nonNLEProjects: [ProjectInfo] {
         let nleIDs = Set(appState.nleActiveProjects.map(\.id))
         return appState.allFolderProjects
             .filter { !nleIDs.contains($0.id) }
+            .filter { project in
+                let normalized = project.name.lowercased()
+                    .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespaces)
+                return !Self.templateFolderBlocklist.contains(normalized)
+            }
             .sorted { $0.lastModified > $1.lastModified }
     }
 

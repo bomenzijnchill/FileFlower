@@ -141,7 +141,13 @@ class DirectClassifier {
     // MARK: - Video Classification
     
     private func classifyVideo(filename: String, lower: String, metadata: DownloadMetadata?, originUrl: String?) -> DirectClassificationResult {
-        
+
+        // 0. Check voor camera/telefoon footage patronen (IMG_, MVI_, VID_, DCIM, DSC, GoPro, DJI)
+        let cameraPatterns = ["img_", "mvi_", "mov_", "vid_", "dsc_", "dscf", "gopr", "gh0", "dji_", "a7s", "a7r", "a7m", "a7c", "bmpcc"]
+        if cameraPatterns.contains(where: { lower.hasPrefix($0) }) {
+            return DirectClassificationResult(assetType: .footage, confidence: .high, reason: "Camera/phone footage pattern")
+        }
+
         // 1. Check origin URL voor stock footage platforms
         if let origin = originUrl?.lowercased() {
             for platform in stockFootagePlatforms {
