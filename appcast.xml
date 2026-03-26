@@ -9,6 +9,30 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 2.1.1</title>
+            <sparkle:version>30</sparkle:version>
+            <sparkle:shortVersionString>2.1.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>FileFlower 2.1.1</h2>
+                <ul>
+                    <li><strong>FileSafe</strong> — Bestaande mapherkenning (FOOTAGE etc.), duplicaat detectie fix, datum subfolder toggle, bewerkbare shoot date, batch subfolder assignment</li>
+                    <li><strong>Footage type</strong> — Nieuw asset type voor camera/telefoon bestanden (IMG_, DJI_, GoPro, Sony)</li>
+                    <li><strong>Queue</strong> — Custom subfolder invoer, QuickLook met spatiebalk, subfolder in project picker</li>
+                    <li><strong>NLE detectie</strong> — Projecten buiten geconfigureerde roots worden nu correct herkend</li>
+                    <li><strong>UI verbeteringen</strong> — Premiere project highlight, template folder filter, help tooltips, localisatie fixes</li>
+                </ul>
+            ]]></description>
+            <pubDate>Wed, 26 Mar 2026 18:00:00 +0100</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v2.1.1/FileFlower.dmg"
+                sparkle:edSignature="g6zwuaa8ou3q89joUu9d9LPK9ven3EY98dEh0Kh9yCD7DoSOtZ+ayZSvv/Gr+zPzYdMMWgj5FcEPPAPk0Rm9Cg=="
+                length="6384994"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 2.1.0</title>
             <sparkle:version>29</sparkle:version>
             <sparkle:shortVersionString>2.1.0</sparkle:shortVersionString>
