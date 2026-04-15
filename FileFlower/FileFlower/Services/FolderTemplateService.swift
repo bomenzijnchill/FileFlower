@@ -172,19 +172,30 @@ class FolderTemplateService {
             return nil
         }
 
-        // Parse de mapping
-        let mapping = output["mapping"] as? [String: String] ?? [:]
+        // Parse de mapping — belangrijk: gebruik [String: Any] want de AI retourneert
+        // null-waarden voor categorieën die hij niet kan matchen. `as? [String: String]`
+        // zou falen zodra één waarde null is, waardoor ALLE mappings verloren gaan.
+        let mappingAny = output["mapping"] as? [String: Any] ?? [:]
         let description = output["description"] as? String
 
+        func stringValue(_ key: String) -> String? {
+            guard let raw = mappingAny[key] else { return nil }
+            // NSNull (JSON null) → nil
+            if raw is NSNull { return nil }
+            guard let str = raw as? String else { return nil }
+            let trimmed = str.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
         return FolderTypeMapping(
-            musicPath: mapping["Music"],
-            sfxPath: mapping["SFX"],
-            voPath: mapping["VO"],
-            graphicsPath: mapping["Graphic"],
-            motionGraphicsPath: mapping["MotionGraphic"],
-            stockFootagePath: mapping["StockFootage"],
-            rawFootagePath: mapping["RawFootage"],
-            photoPath: mapping["Photo"],
+            musicPath: stringValue("Music"),
+            sfxPath: stringValue("SFX"),
+            voPath: stringValue("VO"),
+            graphicsPath: stringValue("Graphic"),
+            motionGraphicsPath: stringValue("MotionGraphic"),
+            stockFootagePath: stringValue("StockFootage"),
+            rawFootagePath: stringValue("RawFootage"),
+            photoPath: stringValue("Photo"),
             description: description,
             analyzedAt: Date()
         )

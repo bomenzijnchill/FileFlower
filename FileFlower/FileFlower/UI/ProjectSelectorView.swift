@@ -13,6 +13,14 @@ struct ProjectSelectorView: View {
     @State private var selectedRoot = ""
     @State private var createError: String?
 
+    // Search
+    @State private var searchText: String = ""
+
+    // Open-project state per rij
+    @State private var projectFilesByID: [UUID: [URL]] = [:]
+    @State private var scanningProjectID: UUID? = nil
+    @State private var expandedProjectID: UUID? = nil
+
     /// Auto-refresh timer
     private let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
@@ -40,15 +48,38 @@ struct ProjectSelectorView: View {
             .sorted { $0.lastModified > $1.lastModified }
     }
 
+    /// Trim + check of we aan het zoeken zijn
+    private var trimmedSearch: String {
+        searchText.trimmingCharacters(in: .whitespaces)
+    }
+
+    private var isSearching: Bool {
+        !trimmedSearch.isEmpty
+    }
+
+    /// NLE-actieve projecten, gefilterd op zoekterm
+    private var filteredNLEProjects: [ProjectInfo] {
+        let projects = appState.nleActiveProjects
+        guard isSearching else { return projects }
+        return projects.filter { $0.name.localizedCaseInsensitiveContains(trimmedSearch) }
+    }
+
+    /// Folder-projecten gefilterd op zoekterm
+    private var filteredNonNLEProjects: [ProjectInfo] {
+        guard isSearching else { return nonNLEProjects }
+        return nonNLEProjects.filter { $0.name.localizedCaseInsensitiveContains(trimmedSearch) }
+    }
+
     private var visibleProjects: [ProjectInfo] {
-        if showAllProjects {
-            return nonNLEProjects
+        // Bij zoeken negeren we de top-10 cap
+        if isSearching || showAllProjects {
+            return filteredNonNLEProjects
         }
-        return Array(nonNLEProjects.prefix(10))
+        return Array(filteredNonNLEProjects.prefix(10))
     }
 
     private var hasMoreProjects: Bool {
-        nonNLEProjects.count > 10
+        !isSearching && filteredNonNLEProjects.count > 10
     }
 
     // MARK: - Body
@@ -56,6 +87,7 @@ struct ProjectSelectorView: View {
     var body: some View {
         Button {
             showAllProjects = false
+            showingNewProject = false
             showingProjectList.toggle()
         } label: {
             HStack(spacing: 0) {
@@ -81,11 +113,12 @@ struct ProjectSelectorView: View {
             )
         }
         .buttonStyle(.plain)
-        .popover(isPresented: $showingProjectList) {
-            projectListPopover
-        }
-        .popover(isPresented: $showingNewProject) {
-            newProjectPopover
+        .popover(isPresented: $showingProjectList, arrowEdge: .bottom) {
+            if showingNewProject {
+                newProjectPopover
+            } else {
+                projectListPopover
+            }
         }
         .onReceive(refreshTimer) { _ in
             Task { await appState.refreshRecentProjects() }
@@ -96,21 +129,49 @@ struct ProjectSelectorView: View {
 
     private var projectListPopover: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Zoekveld
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                TextField(String(localized: "project.search_placeholder"), text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+
+            Divider()
+
             // NLE-actieve projecten (bovenaan)
-            if !appState.nleActiveProjects.isEmpty {
-                ForEach(appState.nleActiveProjects) { project in
+            if !filteredNLEProjects.isEmpty {
+                ForEach(filteredNLEProjects) { project in
                     projectRow(project, icon: "film")
                 }
 
-                Divider()
-                    .padding(.vertical, 4)
+                if !visibleProjects.isEmpty {
+                    Divider()
+                        .padding(.vertical, 4)
+                }
             }
 
             // Folder-projecten
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if visibleProjects.isEmpty && appState.nleActiveProjects.isEmpty {
-                        Text(String(localized: "project.no_projects"))
+                    if visibleProjects.isEmpty && filteredNLEProjects.isEmpty {
+                        Text(isSearching
+                             ? String(format: String(localized: "project.no_search_results"), trimmedSearch)
+                             : String(localized: "project.no_projects"))
                             .font(.system(size: 12))
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 12)
@@ -121,7 +182,7 @@ struct ProjectSelectorView: View {
                         }
                     }
 
-                    // Show more
+                    // Show more (alleen wanneer niet aan het zoeken)
                     if hasMoreProjects && !showAllProjects {
                         Button {
                             withAnimation { showAllProjects = true }
@@ -146,7 +207,6 @@ struct ProjectSelectorView: View {
 
             // Nieuw project aanmaken
             Button {
-                showingProjectList = false
                 newProjectName = ""
                 createError = nil
                 if let firstRoot = appState.config.projectRoots.first {
@@ -166,49 +226,184 @@ struct ProjectSelectorView: View {
             }
             .buttonStyle(.plain)
         }
-        .frame(width: 260)
+        .frame(width: 340)
         .padding(.vertical, 6)
     }
 
     // MARK: - Project Row
 
     private func projectRow(_ project: ProjectInfo, icon: String) -> some View {
-        Button {
-            appState.activeProject = project
-            showingProjectList = false
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
+        HStack(spacing: 4) {
+            // Naam-knop: klik om actief project te wisselen
+            Button {
+                appState.activeProject = project
+                showingProjectList = false
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: icon)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .frame(width: 16)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(project.name)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+
+                        Text(displayPath(for: project))
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(project.rootPath)
+
+            // Open folder
+            Button {
+                openFolder(for: project)
+            } label: {
+                Image(systemName: "folder")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
-                    .frame(width: 16)
+                    .frame(width: 22, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "project.open_folder"))
 
-                Text(project.name)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+            // Open project
+            Button {
+                handleOpenProject(project)
+            } label: {
+                Image(systemName: scanningProjectID == project.id ? "hourglass" : "play.circle")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .frame(width: 22, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "project.open_project"))
+            .popover(isPresented: Binding(
+                get: { expandedProjectID == project.id },
+                set: { if !$0 { expandedProjectID = nil } }
+            ), arrowEdge: .trailing) {
+                projectFilesPopover(for: project)
+            }
 
-                Spacer()
-
+            // Checkmark placeholder voor uitlijning
+            Group {
                 if appState.activeProject?.id == project.id {
                     Image(systemName: "checkmark")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.accentColor)
+                } else {
+                    Color.clear
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
+            .frame(width: 16)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+    }
+
+    /// Abbreviate home directory in project path for compact display
+    private func displayPath(for project: ProjectInfo) -> String {
+        let path = project.rootPath
+        let home = NSHomeDirectory()
+        if path.hasPrefix(home) {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
+    }
+
+    // MARK: - Project Files Popover (voor "Open project" met meerdere bestanden)
+
+    private func projectFilesPopover(for project: ProjectInfo) -> some View {
+        NLEProjectFilesPopover(
+            files: projectFilesByID[project.id] ?? [],
+            emptyMessage: String(localized: "project.no_project_file"),
+            onPick: { url in
+                openProjectFile(url)
+                expandedProjectID = nil
+                showingProjectList = false
+            }
+        )
+    }
+
+    // MARK: - Actions: Open Folder / Open Project
+
+    private func openFolder(for project: ProjectInfo) {
+        let fileManager = FileManager.default
+        // Primair: rootPath (de projectmap zelf)
+        if fileManager.fileExists(atPath: project.rootPath) {
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: project.rootPath)
+            return
+        }
+        // Fallback: parent van projectPath
+        let fallback = URL(fileURLWithPath: project.projectPath).deletingLastPathComponent().path
+        if fileManager.fileExists(atPath: fallback) {
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: fallback)
+        }
+    }
+
+    private func openProjectFile(_ url: URL) {
+        NSWorkspace.shared.open(url)
+        // Extra zekerheid: breng NLE naar voren wanneer al draaiend
+        if let nle = NLEType.from(projectPath: url.path) {
+            NLEChecker.shared.bringToFront(nle)
+        }
+    }
+
+    private func handleOpenProject(_ project: ProjectInfo) {
+        scanningProjectID = project.id
+        let projectID = project.id
+        let rootPath = project.rootPath
+        Task {
+            let files = await ProjectScanner.shared.findProjectFiles(in: rootPath)
+            await MainActor.run {
+                projectFilesByID[projectID] = files
+                // Enkel onze eigen spinner uitzetten
+                if scanningProjectID == projectID {
+                    scanningProjectID = nil
+                }
+
+                if files.count == 1 {
+                    openProjectFile(files[0])
+                    showingProjectList = false
+                } else {
+                    // 0 of >1: toon popover (leeg = "no project file", meer = kies)
+                    expandedProjectID = projectID
+                }
+            }
+        }
     }
 
     // MARK: - New Project Popover
 
     private var newProjectPopover: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(String(localized: "project.new"))
-                .font(.system(size: 13, weight: .semibold))
+            // Header met back-button
+            HStack(spacing: 6) {
+                Button {
+                    showingNewProject = false
+                    createError = nil
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+
+                Text(String(localized: "project.new"))
+                    .font(.system(size: 13, weight: .semibold))
+            }
 
             // Root selector (als er meerdere roots zijn)
             if appState.config.projectRoots.count > 1 {
@@ -270,6 +465,7 @@ struct ProjectSelectorView: View {
         do {
             let _ = try appState.createNewProject(name: name, inRoot: root)
             showingNewProject = false
+            showingProjectList = false
         } catch {
             createError = error.localizedDescription
         }

@@ -59,7 +59,7 @@ class SharedConfigReader {
             let decoder = JSONDecoder()
             let config = try decoder.decode(DeployConfig.self, from: data)
             #if DEBUG
-            print("SharedConfigReader: Loaded deploy config (preset: \(config.folderStructurePreset.rawValue), hasTemplate: \(config.customFolderTemplate != nil))")
+            print("SharedConfigReader: Loaded deploy config (preset: \(config.folderStructurePreset.rawValue), hasLegacy: \(config.customFolderTemplate != nil), hasActive: \(config.activeTemplate != nil))")
             #endif
             return config
         } catch {

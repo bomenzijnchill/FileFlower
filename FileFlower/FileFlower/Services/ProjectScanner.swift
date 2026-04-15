@@ -129,6 +129,23 @@ class ProjectScanner {
         return projects
     }
 
+    // MARK: - Project File Discovery
+
+    /// Zoek alle .prproj/.drp bestanden onder een projectmap.
+    /// Gebruikt dezelfde recursieve scan als scanRecentProjects, inclusief autosave-filter en
+    /// Auto-Save/Backup map-skip. Gesorteerd op lastModified aflopend.
+    func findProjectFiles(in projectRoot: String) async -> [URL] {
+        let rootURL: URL
+        if let url = URL(string: projectRoot), url.scheme != nil {
+            rootURL = url
+        } else {
+            rootURL = URL(fileURLWithPath: projectRoot)
+        }
+
+        let projects = await findProjectsWithTimeout(in: rootURL, timeout: 10)
+        return projects.map { URL(fileURLWithPath: $0.projectPath) }
+    }
+
     // MARK: - Folder-based Project Scanning
 
     /// Scan alle top-level mappen in de projectroots als projecten, ongeacht of ze .prproj/.drp bevatten.

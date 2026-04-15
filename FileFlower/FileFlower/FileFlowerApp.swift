@@ -214,21 +214,60 @@ class AppState: ObservableObject {
             #endif
 
             let targetURL = URL(fileURLWithPath: targetPath)
-            let deployConfig = DeployConfig(
-                folderStructurePreset: self.config.folderStructurePreset,
-                customFolderTemplate: self.config.customFolderTemplate
-            )
 
+            // Nieuwe flow: als een default template is gekozen, gebruik die
+            if let template = TemplateDeployFlow.activeTemplate(for: self.config) {
+                self.deployWithTemplate(template: template, targetURL: targetURL)
+            } else {
+                // Legacy flow (preset-gebaseerd)
+                let deployConfig = DeployConfig(
+                    folderStructurePreset: self.config.folderStructurePreset,
+                    customFolderTemplate: self.config.customFolderTemplate
+                )
+                do {
+                    let count = try TemplateDeployer.deploy(to: targetURL, config: deployConfig)
+                    #if DEBUG
+                    print("AppState: \(count) mappen aangemaakt in \(targetPath)")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("AppState: Deploy error: \(error.localizedDescription)")
+                    #endif
+                }
+            }
+        }
+    }
+
+    /// Deploy een template — prompt voor parameters als nodig, anders silent met defaults.
+    private func deployWithTemplate(template: FolderStructureTemplate, targetURL: URL) {
+        let executeDeploy: ([String: String]) -> Void = { values in
             do {
-                let count = try TemplateDeployer.deploy(to: targetURL, config: deployConfig)
+                let count = try TemplateDeployer.deploy(to: targetURL, template: template, values: values)
                 #if DEBUG
-                print("AppState: \(count) mappen aangemaakt in \(targetPath)")
+                print("AppState: Template '\(template.name)' deployed \(count) mappen in \(targetURL.path)")
                 #endif
             } catch {
                 #if DEBUG
-                print("AppState: Deploy error: \(error.localizedDescription)")
+                print("AppState: Template deploy error: \(error.localizedDescription)")
                 #endif
             }
+        }
+
+        if TemplateDeployFlow.needsPrompt(for: template) {
+            DispatchQueue.main.async {
+                let controller = ParameterValueWindowController(
+                    templateName: template.name,
+                    parameters: template.parameters,
+                    onResult: { values in
+                        if let values = values {
+                            executeDeploy(values)
+                        }
+                    }
+                )
+                controller.show()
+            }
+        } else {
+            executeDeploy(TemplateDeployFlow.defaultValues(for: template))
         }
     }
 
@@ -474,18 +513,27 @@ class AppState: ObservableObject {
     ]
 
     /// Vind het echte project-pad vanuit een NLE bestandspad.
-    /// Als het .prproj in een template-submap zit (bijv. /project/ADOBE/file.prproj),
-    /// loop omhoog tot we een niet-template map vinden.
+    /// Primair: zoek welke project root het pad bevat → eerste kind = project.
+    /// Fallback: klim omhoog door template-mappen (voor projecten buiten roots).
     private func resolveProjectRoot(from nleFilePath: String) -> (projectPath: String, projectName: String) {
-        var dir = URL(fileURLWithPath: nleFilePath).deletingLastPathComponent()
+        // Primair: project root anchoring
+        for root in config.projectRoots where !root.isEmpty {
+            let rootPath = root.hasSuffix("/") ? root : root + "/"
+            if nleFilePath.hasPrefix(rootPath) {
+                let relativePath = String(nleFilePath.dropFirst(rootPath.count))
+                if let projectName = relativePath.components(separatedBy: "/").first, !projectName.isEmpty {
+                    let projectPath = rootPath + projectName
+                    return (projectPath, projectName)
+                }
+            }
+        }
 
-        // Loop maximaal 3 niveaus omhoog door template-mappen
+        // Fallback: klim omhoog door template-mappen
+        var dir = URL(fileURLWithPath: nleFilePath).deletingLastPathComponent()
         for _ in 0..<3 {
-            let folderName = dir.lastPathComponent
-            let normalized = folderName.lowercased()
+            let normalized = dir.lastPathComponent.lowercased()
                 .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
                 .trimmingCharacters(in: .whitespaces)
-
             if Self.templateFolderNames.contains(normalized) {
                 dir = dir.deletingLastPathComponent()
             } else {
@@ -578,37 +626,31 @@ class AppState: ObservableObject {
         }
     }
 
-    /// Update het actieve project op basis van beschikbare informatie
+    /// Update het actieve project op basis van beschikbare informatie.
+    /// Regel: een NLE-actief project heeft altijd voorrang boven folder-projecten,
+    /// mits het nog niet eerder auto-geselecteerd is (anti-flap bij handmatige switch).
     func updateActiveProject() {
-        // 1. Als Premiere daadwerkelijk open is EN het is een NIEUW NLE project
-        if let activeProjectPath = jobServer.activeProjectPath,
-           jobServer.isActiveProjectFresh,
-           activeProjectPath != lastAutoSelectedNLEPath {
-            activeProject = findOrCreateNLEProject(nleFilePath: activeProjectPath)
-            lastAutoSelectedNLEPath = activeProjectPath
+        // 1. NLE-actief project heeft voorrang (Premiere/Resolve daadwerkelijk open)
+        if let nleProject = nleActiveProjects.first,
+           nleProject.projectPath != lastAutoSelectedNLEPath {
+            activeProject = nleProject
+            lastAutoSelectedNLEPath = nleProject.projectPath
             return
         }
-        // 2. Als Resolve daadwerkelijk open is EN het is een NIEUW NLE project
-        if let resolveProjectPath = jobServer.resolveActiveProjectPath,
-           jobServer.isResolveActiveProjectFresh,
-           resolveProjectPath != lastAutoSelectedNLEPath {
-            activeProject = findOrCreateNLEProject(nleFilePath: resolveProjectPath)
-            lastAutoSelectedNLEPath = resolveProjectPath
-            return
-        }
-        // 3. Meest recent gewijzigd folder-project (alleen als er nog geen actief project is)
+        // 2. Meest recent gewijzigd folder-project (alleen als er nog geen actief project is)
         if activeProject == nil, let first = allFolderProjects.first {
             activeProject = first
         }
-        // 4. Fallback naar recentProjects als allFolderProjects leeg is
+        // 3. Fallback naar recentProjects als allFolderProjects leeg is
         if activeProject == nil, let first = recentProjects.first {
             activeProject = first
         }
-        // 5. Zorg dat het actieve project nog in een van de lijsten zit
+        // 4. Zorg dat het actieve project nog in een van de lijsten zit
         if let active = activeProject,
            !allFolderProjects.contains(where: { $0.id == active.id }),
-           !recentProjects.contains(where: { $0.id == active.id }) {
-            activeProject = allFolderProjects.first ?? recentProjects.first
+           !recentProjects.contains(where: { $0.id == active.id }),
+           !nleActiveProjects.contains(where: { $0.id == active.id }) {
+            activeProject = nleActiveProjects.first ?? allFolderProjects.first ?? recentProjects.first
         }
     }
 
@@ -770,43 +812,45 @@ class AppState: ObservableObject {
 
         recentProjects = Array(projects.prefix(config.recentProjectsCacheSize))
 
-        // Stap 5: Bepaal NLE-actieve projecten (alleen als Premiere/Resolve daadwerkelijk draait)
+        // Stap 5: Bepaal NLE-actieve projecten.
+        // Primair: CEP-plugin (Premiere) / Python-bridge (Resolve).
+        // Fallback: wanneer de NLE draait maar geen plugin-data stuurt, kies het meest recente
+        // project volgens Spotlight (kMDItemLastUsedDate).
         var nleProjects: [ProjectInfo] = []
-        if let premierePath = jobServer.activeProjectPath, jobServer.isActiveProjectFresh {
-            let premiereProjectDir = URL(fileURLWithPath: premierePath).deletingLastPathComponent().path
-            if let folderProject = allFolderProjects.first(where: { $0.projectPath == premiereProjectDir }) {
-                nleProjects.append(folderProject)
-            } else if let nleProject = recentProjects.first(where: { $0.projectPath == premierePath }) {
-                nleProjects.append(nleProject)
-            } else {
-                // NLE project niet in bekende roots → maak tijdelijk ProjectInfo
-                let projectName = URL(fileURLWithPath: premiereProjectDir).lastPathComponent
-                nleProjects.append(ProjectInfo(
-                    name: projectName,
-                    rootPath: URL(fileURLWithPath: premiereProjectDir).deletingLastPathComponent().path,
-                    projectPath: premiereProjectDir,
-                    lastModified: Date().timeIntervalSince1970
-                ))
+
+        // Premiere Pro
+        let premierePath: String? = {
+            if let path = jobServer.activeProjectPath, jobServer.isActiveProjectFresh {
+                return path
+            }
+            if NLEChecker.shared.isRunning(.premiere),
+               let spotlightPath = PremiereRecentProjectsReader.getRecentProjects(limit: 1).first?.projectPath {
+                return spotlightPath
+            }
+            return nil
+        }()
+        if let premierePath = premierePath {
+            nleProjects.append(findOrCreateNLEProject(nleFilePath: premierePath))
+        }
+
+        // DaVinci Resolve
+        let resolvePath: String? = {
+            if let path = jobServer.resolveActiveProjectPath, jobServer.isResolveActiveProjectFresh {
+                return path
+            }
+            if NLEChecker.shared.isRunning(.resolve),
+               let spotlightPath = ResolveRecentProjectsReader.getRecentProjects(limit: 1).first?.projectPath {
+                return spotlightPath
+            }
+            return nil
+        }()
+        if let resolvePath = resolvePath {
+            let project = findOrCreateNLEProject(nleFilePath: resolvePath)
+            if !nleProjects.contains(where: { $0.id == project.id }) {
+                nleProjects.append(project)
             }
         }
-        if let resolvePath = jobServer.resolveActiveProjectPath, jobServer.isResolveActiveProjectFresh {
-            let resolveProjectDir = URL(fileURLWithPath: resolvePath).deletingLastPathComponent().path
-            if let folderProject = allFolderProjects.first(where: { $0.projectPath == resolveProjectDir }),
-               !nleProjects.contains(where: { $0.id == folderProject.id }) {
-                nleProjects.append(folderProject)
-            } else if let nleProject = recentProjects.first(where: { $0.projectPath == resolvePath }),
-                      !nleProjects.contains(where: { $0.id == nleProject.id }) {
-                nleProjects.append(nleProject)
-            } else if !nleProjects.contains(where: { $0.projectPath == resolveProjectDir }) {
-                let projectName = URL(fileURLWithPath: resolveProjectDir).lastPathComponent
-                nleProjects.append(ProjectInfo(
-                    name: projectName,
-                    rootPath: URL(fileURLWithPath: resolveProjectDir).deletingLastPathComponent().path,
-                    projectPath: resolveProjectDir,
-                    lastModified: Date().timeIntervalSince1970
-                ))
-            }
-        }
+
         nleActiveProjects = nleProjects
 
         updateActiveProject()
@@ -950,9 +994,13 @@ class AppState: ObservableObject {
     /// Sync de actieve folder preset en template naar de App Group shared container,
     /// zodat de Finder Sync Extension hier bij kan.
     private func syncDeployConfigToSharedContainer() {
+        let activeTemplate = TemplateDeployFlow.activeTemplate(for: config)
         let deployConfig = DeployConfig(
             folderStructurePreset: config.folderStructurePreset,
-            customFolderTemplate: config.customFolderTemplate
+            customFolderTemplate: config.customFolderTemplate,
+            activeTemplate: activeTemplate,
+            // Parameters worden pas op deploy-tijd ingevuld; extensie krijgt de raw template mee.
+            resolvedParameters: nil
         )
         SharedConfigReader.saveDeployConfig(deployConfig)
     }

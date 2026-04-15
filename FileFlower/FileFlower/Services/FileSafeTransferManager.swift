@@ -20,7 +20,8 @@ class FileSafeTransferManager: ObservableObject {
         projectPath: String,
         footagePath: String?,
         projectConfig: FileSafeProjectConfig,
-        skippedCount: Int = 0
+        skippedCount: Int = 0,
+        isNewProject: Bool = false
     ) -> UUID {
         let transfer = FileSafeTransfer(
             projectName: projectName,
@@ -28,7 +29,8 @@ class FileSafeTransferManager: ObservableObject {
             projectPath: projectPath,
             footagePath: footagePath,
             totalCount: mappings.count,
-            skippedCount: skippedCount
+            skippedCount: skippedCount,
+            isNewProject: isNewProject
         )
 
         transfers.append(transfer)
@@ -76,6 +78,7 @@ class FileSafeTransfer: ObservableObject, Identifiable {
     let footagePath: String?
     let startTime: Date
     let skippedCount: Int  // Aantal overgeslagen duplicaten
+    let isNewProject: Bool  // True als FileSafe een nieuwe projectmap heeft aangemaakt
 
     // Published progress state
     @Published var progress: Double = 0
@@ -112,7 +115,8 @@ class FileSafeTransfer: ObservableObject, Identifiable {
         projectPath: String,
         footagePath: String?,
         totalCount: Int,
-        skippedCount: Int = 0
+        skippedCount: Int = 0,
+        isNewProject: Bool = false
     ) {
         self.id = UUID()
         self.projectName = projectName
@@ -122,6 +126,7 @@ class FileSafeTransfer: ObservableObject, Identifiable {
         self.startTime = Date()
         self.totalCount = totalCount
         self.skippedCount = skippedCount
+        self.isNewProject = isNewProject
     }
 
     // MARK: - Copy starten
@@ -201,14 +206,19 @@ class FileSafeTransfer: ObservableObject, Identifiable {
             self.progress = 1.0
             self.report = report
 
-            // Sla verificatielog op (JSON + TXT)
-            try? FileSafeCopyEngine.writeLog(report, to: self.projectPath)
-            try? FileSafeCopyEngine.writeTxtReport(report, to: self.projectPath, footagePath: self.footagePath)
-
-            // Sla project config op
+            // I/O voor log/txt/config naar achtergrond zodat UI direct door kan transitionen.
+            // Zonder deze detach zit de report-screen overgang te wachten op TXT-rendering
+            // voor 25+ files op traag volume → hangt enkele seconden op 100%.
+            let capturedProjectPath = self.projectPath
+            let capturedFootagePath = self.footagePath
             var updatedConfig = projectConfig
             updatedConfig.lastUpdated = Date()
-            try? updatedConfig.save(to: self.projectPath)
+
+            Task.detached(priority: .utility) {
+                try? FileSafeCopyEngine.writeLog(report, to: capturedProjectPath)
+                try? FileSafeCopyEngine.writeTxtReport(report, to: capturedProjectPath, footagePath: capturedFootagePath)
+                try? updatedConfig.save(to: capturedProjectPath)
+            }
         }
     }
 

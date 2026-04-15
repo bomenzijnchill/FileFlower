@@ -356,12 +356,31 @@ struct FileSafeCardConfig: Codable {
     // Bins per categorie (vervangt SubfolderListEditor in UI)
     var videoBins: [FileSafeSubfolderBin]
     var photoBins: [FileSafeSubfolderBin]
+    var audioBins: [FileSafeSubfolderBin]
 
     // Per-file toewijzing: fileId → bin name (bestanden zonder entry → direct in dag-map)
     var fileSubfolderMap: [UUID: String]
 
     // Single-day: optioneel datum-subfolder
     var useDateSubfolder: Bool
+
+    // Door gebruiker ingevoegde extra submappen per categorie (via Path Builder)
+    var insertedSubfolders: [String: [String]]
+
+    // Folder overrides (gebruiker kan via interactief pad een andere map kiezen)
+    var footageFolderOverride: String?
+    var audioFolderOverride: String?
+    var photoFolderOverride: String?
+
+    // Volledige custom pad-segmenten per categorie (gezet door Path Builder)
+    // Key = "video"/"photo"/"audio", Value = array van mapnamen tussen category base en dagfolder
+    // Bijv. ["01_FOOTAGE"] of ["ASSETS", "RAW"] als de gebruiker extra mappen heeft ingevoegd
+    var customPathOverride: [String: [String]]
+
+    // Extra submappen die NA het dagmap-segment komen, vóór binName/fileName.
+    // Key = "video"/"photo"/"audio". Gezet door Path Builder als gebruiker "+" klikt
+    // tussen dag en bestand/bin.
+    var postDaySubfolders: [String: [String]]
 
     static func defaultFor(scanResult: FileSafeScanResult, projectConfig: FileSafeProjectConfig) -> FileSafeCardConfig {
         var days: [FileSafeShootDay] = []
@@ -396,6 +415,15 @@ struct FileSafeCardConfig: Codable {
                 .map { FileSafeSubfolderBin(name: $0) }
         }
 
+        // Als er audio personen zijn gedefinieerd, gebruik die als default audio bins
+        var audioBins: [FileSafeSubfolderBin] = []
+        if !projectConfig.audioPersons.isEmpty {
+            audioBins = projectConfig.audioPersons
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .map { FileSafeSubfolderBin(name: $0) }
+        }
+
         return FileSafeCardConfig(
             shootDays: days,
             dateOverride: nil,
@@ -405,8 +433,15 @@ struct FileSafeCardConfig: Codable {
             photoSubfolders: [],
             videoBins: videoBins,
             photoBins: [],
+            audioBins: audioBins,
             fileSubfolderMap: [:],
-            useDateSubfolder: false
+            useDateSubfolder: false,
+            insertedSubfolders: [:],
+            footageFolderOverride: nil,
+            audioFolderOverride: nil,
+            photoFolderOverride: nil,
+            customPathOverride: [:],
+            postDaySubfolders: [:]
         )
     }
 
@@ -428,6 +463,11 @@ struct FileSafeCardConfig: Codable {
     /// Effectieve foto bin namen (lege namen verwijderd)
     var effectivePhotoBinNames: [String] {
         photoBins.map { $0.name.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// Effectieve audio bin namen (lege namen verwijderd)
+    var effectiveAudioBinNames: [String] {
+        audioBins.map { $0.name.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
     /// Aantal bestanden in een specifieke bin
@@ -458,8 +498,10 @@ struct FileSafeCardConfig: Codable {
 
     enum CodingKeys: String, CodingKey {
         case shootDays, dateOverride, volumePath, volumeName
-        case videoSubfolders, photoSubfolders, videoBins, photoBins
-        case fileSubfolderMap, useDateSubfolder
+        case videoSubfolders, photoSubfolders, videoBins, photoBins, audioBins
+        case fileSubfolderMap, useDateSubfolder, insertedSubfolders
+        case footageFolderOverride, audioFolderOverride, photoFolderOverride
+        case customPathOverride, postDaySubfolders
     }
 }
 
@@ -474,8 +516,15 @@ extension FileSafeCardConfig {
         photoSubfolders = try c.decode([String].self, forKey: .photoSubfolders)
         videoBins = try c.decodeIfPresent([FileSafeSubfolderBin].self, forKey: .videoBins) ?? []
         photoBins = try c.decodeIfPresent([FileSafeSubfolderBin].self, forKey: .photoBins) ?? []
+        audioBins = try c.decodeIfPresent([FileSafeSubfolderBin].self, forKey: .audioBins) ?? []
         fileSubfolderMap = try c.decodeIfPresent([UUID: String].self, forKey: .fileSubfolderMap) ?? [:]
         useDateSubfolder = try c.decodeIfPresent(Bool.self, forKey: .useDateSubfolder) ?? false
+        insertedSubfolders = try c.decodeIfPresent([String: [String]].self, forKey: .insertedSubfolders) ?? [:]
+        footageFolderOverride = try c.decodeIfPresent(String.self, forKey: .footageFolderOverride)
+        audioFolderOverride = try c.decodeIfPresent(String.self, forKey: .audioFolderOverride)
+        photoFolderOverride = try c.decodeIfPresent(String.self, forKey: .photoFolderOverride)
+        customPathOverride = try c.decodeIfPresent([String: [String]].self, forKey: .customPathOverride) ?? [:]
+        postDaySubfolders = try c.decodeIfPresent([String: [String]].self, forKey: .postDaySubfolders) ?? [:]
     }
 }
 
@@ -608,14 +657,33 @@ struct FileSafeTargetFolder: Identifiable {
     var fileCount: Int
     var totalSize: Int64
     var children: [FileSafeTargetFolder]
+    var files: [FileSafeSourceFile]
 
-    init(relativePath: String, displayName: String, fileCount: Int = 0, totalSize: Int64 = 0, children: [FileSafeTargetFolder] = []) {
+    /// Bestaat deze map al op disk (bestaande project structuur)
+    var isExisting: Bool
+    /// Wordt deze map door FileSafe aangeraakt (nieuwe map of krijgt bestanden)
+    /// Non-affected nodes worden grijs weergegeven in de preview
+    var isAffected: Bool
+
+    init(
+        relativePath: String,
+        displayName: String,
+        fileCount: Int = 0,
+        totalSize: Int64 = 0,
+        children: [FileSafeTargetFolder] = [],
+        files: [FileSafeSourceFile] = [],
+        isExisting: Bool = false,
+        isAffected: Bool = true
+    ) {
         self.id = UUID()
         self.relativePath = relativePath
         self.displayName = displayName
         self.fileCount = fileCount
         self.totalSize = totalSize
         self.children = children
+        self.files = Array(files.prefix(10))
+        self.isExisting = isExisting
+        self.isAffected = isAffected
     }
 
     var totalFileCount: Int {
@@ -634,4 +702,45 @@ struct FileSafeFileMapping {
     let destinationPath: String
     let targetFolderName: String
     var isDuplicate: Bool = false  // Bestand bestaat al in project (naam + grootte match)
+}
+
+// MARK: - Interactive Path Segments
+
+enum PathSegmentType {
+    case projectName
+    case categoryFolder
+    case dayFolder
+    case binName
+    case subfolder
+    case fileName
+}
+
+struct PathSegment: Identifiable {
+    let id = UUID()
+    let type: PathSegmentType
+    let value: String
+    let category: FileSafeFileCategory?
+    let existsOnDisk: Bool
+
+    /// Alleen niet-bestaande mappen zijn bewerkbaar (naam veranderen / verwijderen)
+    /// CategoryFolder ook editable als het een door FF aangemaakte (niet-bestaande) map is
+    var isNameEditable: Bool {
+        !existsOnDisk && (type == .dayFolder || type == .binName || type == .subfolder || type == .categoryFolder)
+    }
+
+    /// Heeft een dropdown met map-alternatieven op dat filesystem niveau
+    var hasAlternatives: Bool { existsOnDisk && (type == .categoryFolder || type == .subfolder) }
+
+    /// Kan er na dit segment een subfolder ingevoegd worden?
+    var isInsertable: Bool { type == .categoryFolder || type == .dayFolder || type == .binName }
+
+    /// Legacy compat
+    var isEditable: Bool { isNameEditable || hasAlternatives }
+
+    init(type: PathSegmentType, value: String, category: FileSafeFileCategory? = nil, existsOnDisk: Bool = false) {
+        self.type = type
+        self.value = value
+        self.category = category
+        self.existsOnDisk = existsOnDisk
+    }
 }

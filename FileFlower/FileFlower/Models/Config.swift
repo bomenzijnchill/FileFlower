@@ -31,7 +31,9 @@ struct Config: Codable {
     var autoAddActiveProjectRoot: Bool     // Voeg automatisch de root toe van een open Premiere project
     var useClaudeClassification: Bool        // Of Claude API classificatie ingeschakeld is
     var folderStructurePreset: FolderStructurePreset  // Voorkeursindeling van mappen
-    var customFolderTemplate: CustomFolderTemplate?   // Template mappenstructuur voor .custom preset
+    var customFolderTemplate: CustomFolderTemplate?   // Legacy — behouden voor migratie, in nieuwe flow in folderTemplates[0]
+    var folderTemplates: [FolderStructureTemplate]    // Post Haste-stijl templates (meerdere, door gebruiker gedefinieerd)
+    var defaultTemplateId: UUID?                      // Welke template is default (voor nieuwe projecten)
     var cloudStorageWebsites: [String]              // Cloud storage websites (Dropbox, Google Drive)
     var loadFolderPresets: [LoadFolderPreset]        // Veelgebruikte mappen voor snelle import
     var bringResolveToFront: Bool              // Breng DaVinci Resolve naar voren na import
@@ -101,6 +103,8 @@ struct Config: Codable {
         useClaudeClassification: false,
         folderStructurePreset: .standard,
         customFolderTemplate: nil,
+        folderTemplates: [],
+        defaultTemplateId: nil,
         cloudStorageWebsites: defaultCloudStorageWebsites,
         loadFolderPresets: [],
         bringResolveToFront: true,
@@ -144,6 +148,8 @@ struct Config: Codable {
         useClaudeClassification: Bool = false,
         folderStructurePreset: FolderStructurePreset = .standard,
         customFolderTemplate: CustomFolderTemplate? = nil,
+        folderTemplates: [FolderStructureTemplate] = [],
+        defaultTemplateId: UUID? = nil,
         cloudStorageWebsites: [String] = defaultCloudStorageWebsites,
         loadFolderPresets: [LoadFolderPreset] = [],
         bringResolveToFront: Bool = true,
@@ -184,6 +190,8 @@ struct Config: Codable {
         self.useClaudeClassification = useClaudeClassification
         self.folderStructurePreset = folderStructurePreset
         self.customFolderTemplate = customFolderTemplate
+        self.folderTemplates = folderTemplates
+        self.defaultTemplateId = defaultTemplateId
         self.cloudStorageWebsites = cloudStorageWebsites
         self.loadFolderPresets = loadFolderPresets
         self.bringResolveToFront = bringResolveToFront
@@ -237,6 +245,30 @@ struct Config: Codable {
         useClaudeClassification = try container.decodeIfPresent(Bool.self, forKey: .useClaudeClassification) ?? false
         folderStructurePreset = try container.decodeIfPresent(FolderStructurePreset.self, forKey: .folderStructurePreset) ?? .standard
         customFolderTemplate = try container.decodeIfPresent(CustomFolderTemplate.self, forKey: .customFolderTemplate)
+
+        // Nieuwe template-velden met migratie vanaf legacy customFolderTemplate
+        let decodedTemplates = try container.decodeIfPresent([FolderStructureTemplate].self, forKey: .folderTemplates) ?? []
+        let decodedDefaultId = try container.decodeIfPresent(UUID.self, forKey: .defaultTemplateId)
+
+        if decodedTemplates.isEmpty, let legacy = customFolderTemplate {
+            // Migreer legacy custom template naar één entry in de nieuwe lijst
+            let migratedName = URL(fileURLWithPath: legacy.sourcePath).lastPathComponent
+            let migrated = FolderStructureTemplate(
+                name: migratedName.isEmpty ? "Migrated Template" : migratedName,
+                folderTree: legacy.folderTree,
+                parameters: [],
+                mapping: legacy.mapping,
+                sourcePath: legacy.sourcePath,
+                createdAt: legacy.createdAt,
+                lastUpdatedAt: legacy.lastUpdatedAt
+            )
+            folderTemplates = [migrated]
+            defaultTemplateId = decodedDefaultId ?? migrated.id
+        } else {
+            folderTemplates = decodedTemplates
+            defaultTemplateId = decodedDefaultId
+        }
+
         cloudStorageWebsites = try container.decodeIfPresent([String].self, forKey: .cloudStorageWebsites) ?? Config.defaultCloudStorageWebsites
         loadFolderPresets = try container.decodeIfPresent([LoadFolderPreset].self, forKey: .loadFolderPresets) ?? []
         bringResolveToFront = try container.decodeIfPresent(Bool.self, forKey: .bringResolveToFront) ?? true
@@ -281,6 +313,8 @@ struct Config: Codable {
         try container.encode(useClaudeClassification, forKey: .useClaudeClassification)
         try container.encode(folderStructurePreset, forKey: .folderStructurePreset)
         try container.encodeIfPresent(customFolderTemplate, forKey: .customFolderTemplate)
+        try container.encode(folderTemplates, forKey: .folderTemplates)
+        try container.encodeIfPresent(defaultTemplateId, forKey: .defaultTemplateId)
         try container.encode(cloudStorageWebsites, forKey: .cloudStorageWebsites)
         try container.encode(loadFolderPresets, forKey: .loadFolderPresets)
         try container.encode(bringResolveToFront, forKey: .bringResolveToFront)
@@ -323,6 +357,8 @@ struct Config: Codable {
         case useClaudeClassification
         case folderStructurePreset
         case customFolderTemplate
+        case folderTemplates
+        case defaultTemplateId
         case cloudStorageWebsites
         case loadFolderPresets
         case bringResolveToFront

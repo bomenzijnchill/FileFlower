@@ -19,6 +19,7 @@ class TemplateDeployer {
         case noConfigAvailable
         case invalidTargetDirectory
         case folderCreationFailed(String)
+        case missingRequiredParameter(String)
 
         var errorDescription: String? {
             switch self {
@@ -28,6 +29,8 @@ class TemplateDeployer {
                 return "Target directory is not valid or does not exist"
             case .folderCreationFailed(let path):
                 return "Failed to create folder: \(path)"
+            case .missingRequiredParameter(let name):
+                return "Required parameter is missing: \(name)"
             }
         }
     }
@@ -46,6 +49,13 @@ class TemplateDeployer {
             throw DeployError.invalidTargetDirectory
         }
 
+        // Nieuwe template-flow heeft voorrang als een activeTemplate is meegestuurd
+        if let template = config.activeTemplate {
+            return try deploy(to: targetDirectory,
+                              template: template,
+                              values: config.resolvedParameters ?? [:])
+        }
+
         switch config.folderStructurePreset {
         case .standard:
             return try deployStandardTemplate(to: targetDirectory)
@@ -59,6 +69,50 @@ class TemplateDeployer {
         case .flat:
             // Flat preset: geen mappen nodig
             return 0
+        }
+    }
+
+    /// Deploy een FolderStructureTemplate met ingevulde parameter-waarden.
+    /// Resolveert placeholders in folder-namen en valideert required parameters.
+    static func deploy(to targetDirectory: URL,
+                       template: FolderStructureTemplate,
+                       values: [String: String]) throws -> Int {
+        let fileManager = FileManager.default
+
+        var isDir: ObjCBool = false
+        guard fileManager.fileExists(atPath: targetDirectory.path, isDirectory: &isDir),
+              isDir.boolValue else {
+            throw DeployError.invalidTargetDirectory
+        }
+
+        // Valideer required parameters
+        for param in template.parameters where param.cannotBeEmpty {
+            let value = values[param.title] ?? ""
+            if value.trimmingCharacters(in: .whitespaces).isEmpty
+                && param.defaultValue.trimmingCharacters(in: .whitespaces).isEmpty {
+                throw DeployError.missingRequiredParameter(param.title)
+            }
+        }
+
+        let resolvedTree = TemplatePlaceholderResolver.resolve(
+            tree: template.folderTree,
+            parameters: template.parameters,
+            values: values
+        )
+
+        var count = 0
+        try createTree(resolvedTree, in: targetDirectory, count: &count)
+        return count
+    }
+
+    private static func createTree(_ node: FolderNode, in parent: URL, count: inout Int) throws {
+        for child in node.children {
+            let childURL = parent.appendingPathComponent(child.name, isDirectory: true)
+            if !FileManager.default.fileExists(atPath: childURL.path) {
+                try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: true)
+                count += 1
+            }
+            try createTree(child, in: childURL, count: &count)
         }
     }
 

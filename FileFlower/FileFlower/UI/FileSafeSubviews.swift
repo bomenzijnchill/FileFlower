@@ -329,10 +329,15 @@ struct FileSafeProjectSelectView: View {
                         .foregroundColor(.secondary)
                         .padding(.vertical, 8)
                 } else {
-                    // NLE project bovenaan als het niet in de lijst staat
-                    if let nlePath = activeNLEProjectFolder,
-                       !projects.contains(where: { $0.path == nlePath }) {
+                    // NLE project altijd bovenaan tonen
+                    if let nlePath = activeNLEProjectFolder {
                         let nleName = URL(fileURLWithPath: nlePath).lastPathComponent
+                        // Path normaliseren om symlink- en trailing-slash-verschillen te ontwijken
+                        // (mirrors JobServer.normalizePath semantics).
+                        let normalizedNLE = URL(fileURLWithPath: nlePath).standardizedFileURL.path
+                        let isExternal = !projects.contains(where: {
+                            URL(fileURLWithPath: $0.path).standardizedFileURL.path == normalizedNLE
+                        })
                         Button(action: { selectedProjectPath = nlePath }) {
                             HStack(spacing: 8) {
                                 Image(systemName: "folder.fill")
@@ -351,9 +356,16 @@ struct FileSafeProjectSelectView: View {
                                             .clipShape(Capsule())
                                             .foregroundColor(.green)
                                     }
-                                    Text(String(localized: "filesafe.project.external"))
+                                    Text(displayPath(nlePath))
                                         .font(.system(size: 10))
                                         .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    if isExternal {
+                                        Text(String(localized: "filesafe.project.external"))
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.secondary)
+                                    }
                                 }
                                 Spacer()
                                 if selectedProjectPath == nlePath {
@@ -377,8 +389,14 @@ struct FileSafeProjectSelectView: View {
                         Divider().padding(.vertical, 4)
                     }
 
-                    ForEach(projects) { project in
-                        let isNLEActive = activeNLEProjectFolder == project.path
+                    // Overige projecten (exclusief NLE project) — normalized om duplicaten te voorkomen
+                    let normalizedActiveNLE = activeNLEProjectFolder.map {
+                        URL(fileURLWithPath: $0).standardizedFileURL.path
+                    }
+                    ForEach(projects.filter {
+                        URL(fileURLWithPath: $0.path).standardizedFileURL.path != normalizedActiveNLE
+                    }) { project in
+                        let isNLEActive = false // al bovenaan getoond
                         Button(action: { selectedProjectPath = project.path }) {
                             HStack(spacing: 8) {
                                 // Star toggle
@@ -408,6 +426,12 @@ struct FileSafeProjectSelectView: View {
                                                 .foregroundColor(.green)
                                         }
                                     }
+
+                                    Text(displayPath(project.path))
+                                        .font(.system(size: 10))
+                                        .foregroundColor(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
 
                                     if let date = project.modificationDate {
                                         Text(date, style: .relative)
@@ -463,6 +487,18 @@ struct FileSafeProjectSelectView: View {
     /// Active NLE project folder path (Premiere/Resolve)
     /// Resolve het echte project-pad door template-submappen heen te kijken
     private func resolveNLEProjectRoot(from nleFilePath: String) -> String {
+        // Primair: project root anchoring
+        for root in appState.config.projectRoots where !root.isEmpty {
+            let rootPath = root.hasSuffix("/") ? root : root + "/"
+            if nleFilePath.hasPrefix(rootPath) {
+                let relativePath = String(nleFilePath.dropFirst(rootPath.count))
+                if let projectName = relativePath.components(separatedBy: "/").first, !projectName.isEmpty {
+                    return rootPath + projectName
+                }
+            }
+        }
+
+        // Fallback: klim omhoog door template-mappen
         var dir = URL(fileURLWithPath: nleFilePath).deletingLastPathComponent()
         for _ in 0..<3 {
             let normalized = dir.lastPathComponent.lowercased()
@@ -478,11 +514,31 @@ struct FileSafeProjectSelectView: View {
     }
 
     private var activeNLEProjectFolder: String? {
+        // Primair: vers NLE project
         if let premierePath = JobServer.shared.activeProjectPath, JobServer.shared.isActiveProjectFresh {
-            return resolveNLEProjectRoot(from: premierePath)
+            let resolved = resolveNLEProjectRoot(from: premierePath)
+            #if DEBUG
+            print("FileSafe: Premiere path (fresh): \(premierePath) → resolved: \(resolved)")
+            #endif
+            return resolved
         }
         if let resolvePath = JobServer.shared.resolveActiveProjectPath, JobServer.shared.isResolveActiveProjectFresh {
             return resolveNLEProjectRoot(from: resolvePath)
+        }
+        // Secondair: niet-vers maar wel bekend NLE project (heartbeat kan vertraagd zijn)
+        if let premierePath = JobServer.shared.activeProjectPath {
+            let resolved = resolveNLEProjectRoot(from: premierePath)
+            #if DEBUG
+            print("FileSafe: Premiere path (stale): \(premierePath) → resolved: \(resolved)")
+            #endif
+            return resolved
+        }
+        if let resolvePath = JobServer.shared.resolveActiveProjectPath {
+            return resolveNLEProjectRoot(from: resolvePath)
+        }
+        // Fallback: AppState's activeProject
+        if let active = appState.activeProject {
+            return active.projectPath
         }
         return nil
     }
@@ -602,6 +658,12 @@ struct FileSafeProjectSelectView: View {
             .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
             .map { $0.path }
             .sorted()
+    }
+
+    /// Kort home-pad af tot `~/...` voor compacte weergave onder projectnamen.
+    private func displayPath(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
     }
 }
 
@@ -746,10 +808,21 @@ struct FileSafeProjectConfigView: View {
             SectionHeader(title: String(localized: "filesafe.projectconfig.general"), icon: "gearshape")
 
             // Multi-day toggle
-            Toggle(String(localized: "filesafe.projectconfig.multiday"), isOn: $config.isMultiDayShoot)
-                .font(.system(size: 12))
-                .toggleStyle(.switch)
-                .controlSize(.small)
+            HStack {
+                Toggle(String(localized: "filesafe.projectconfig.multiday"), isOn: $config.isMultiDayShoot)
+                    .font(.system(size: 12))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                FileSafeHelpButton(text: String(localized: "filesafe.help.multiday"))
+            }
+
+            // Auto-detected multi-day info
+            if config.isMultiDayShoot && scanResult.uniqueCalendarDays.count > 1 {
+                Text(String(localized: "filesafe.projectconfig.multiday_auto \(scanResult.uniqueCalendarDays.count)"))
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .italic()
+            }
 
             // Date source picker (alleen bij multi-day)
             if config.isMultiDayShoot {
@@ -778,10 +851,13 @@ struct FileSafeProjectConfigView: View {
             )
 
             // Multiple cameras toggle
-            Toggle(String(localized: "filesafe.projectconfig.multicam"), isOn: $config.hasMultipleCameras)
-                .font(.system(size: 12))
-                .toggleStyle(.switch)
-                .controlSize(.small)
+            HStack {
+                Toggle(String(localized: "filesafe.projectconfig.multicam"), isOn: $config.hasMultipleCameras)
+                    .font(.system(size: 12))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                FileSafeHelpButton(text: String(localized: "filesafe.help.multicam"))
+            }
 
             if !config.hasMultipleCameras {
                 Text(String(localized: "filesafe.projectconfig.multicam.hint"))
@@ -844,12 +920,6 @@ struct FileSafeProjectConfigView: View {
                 title: String(localized: "filesafe.projectconfig.photos"),
                 icon: "photo",
                 badge: "\(scanResult.photoCount)"
-            )
-
-            TagInputView(
-                title: String(localized: "filesafe.projectconfig.categories"),
-                placeholder: String(localized: "filesafe.projectconfig.categories.placeholder"),
-                tags: $config.photoCategories
             )
 
             Toggle(String(localized: "filesafe.projectconfig.split_raw"), isOn: $config.splitRawJpeg)
@@ -951,39 +1021,26 @@ struct FileSafeCardConfigView: View {
                     // Detected info banner
                     detectedInfoBanner
 
-                    // Bestaande footage waarschuwing
-                    if footageFolderInfo.found {
+                    // Duplicaten waarschuwing (alleen als er bestanden zijn die al in het project staan)
+                    if !duplicateFileNames.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(spacing: 8) {
-                                Image(systemName: "info.circle.fill")
-                                    .foregroundColor(.blue)
+                                Image(systemName: "doc.on.doc.fill")
+                                    .foregroundColor(.orange)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(String(localized: "filesafe.cardconfig.existing_footage_title"))
+                                    Text(String(localized: "filesafe.cardconfig.duplicates_found \(duplicateFileNames.count)"))
                                         .font(.system(size: 12, weight: .medium))
-                                    Text(String(localized: "filesafe.cardconfig.existing_footage_detail \(footageFolderInfo.folderName) \(footageFolderInfo.fileCount)"))
+                                    Text(String(localized: "filesafe.cardconfig.duplicates_will_skip"))
                                         .font(.system(size: 11))
                                         .foregroundColor(.secondary)
                                 }
                                 Spacer()
                             }
-
-                            // Duplicaten melding
-                            if !duplicateFileNames.isEmpty {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "doc.on.doc.fill")
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.orange)
-                                    Text(String(localized: "filesafe.cardconfig.duplicates_found \(duplicateFileNames.count)"))
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(.orange)
-                                }
-                                .padding(.leading, 28)
-                            }
                         }
                         .padding(10)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(duplicateFileNames.isEmpty ? Color.blue.opacity(0.1) : Color.orange.opacity(0.1))
+                                .fill(Color.orange.opacity(0.1))
                         )
                     }
 
@@ -992,6 +1049,27 @@ struct FileSafeCardConfigView: View {
                         multiDaySection
                     } else {
                         singleDaySection
+                    }
+
+                    // Path Editor (boven de bin-editors zodat gebruiker eerst het pad bepaalt)
+                    FileSafePathPreview(
+                        projectConfig: projectConfig,
+                        cardConfig: $cardConfig,
+                        scanResult: scanResult,
+                        folderPreset: folderPreset,
+                        customTemplate: customTemplate,
+                        projectPath: projectPath
+                    )
+
+                    // Section header: "Specific files in subfolders"
+                    if scanResult.hasVideo || scanResult.hasAudio || scanResult.hasPhoto {
+                        HStack {
+                            Text(String(localized: "filesafe.cardconfig.specific_files"))
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                        }
+                        .padding(.top, 8)
                     }
 
                     // Video bins + bestandsbrowser
@@ -1003,6 +1081,19 @@ struct FileSafeCardConfigView: View {
                             isMultiDay: projectConfig.isMultiDayShoot,
                             useTimestamp: projectConfig.useTimestampAssignment,
                             bins: $cardConfig.videoBins,
+                            fileSubfolderMap: $cardConfig.fileSubfolderMap
+                        )
+                    }
+
+                    // Audio bins + bestandsbrowser
+                    if scanResult.hasAudio {
+                        FileSafeCategoryBinEditor(
+                            category: .audio,
+                            files: scanResult.audioFiles,
+                            shootDays: cardConfig.shootDays,
+                            isMultiDay: projectConfig.isMultiDayShoot,
+                            useTimestamp: projectConfig.useTimestampAssignment,
+                            bins: $cardConfig.audioBins,
                             fileSubfolderMap: $cardConfig.fileSubfolderMap
                         )
                     }
@@ -1019,16 +1110,6 @@ struct FileSafeCardConfigView: View {
                             fileSubfolderMap: $cardConfig.fileSubfolderMap
                         )
                     }
-
-                    // Live path preview
-                    FileSafePathPreview(
-                        projectConfig: projectConfig,
-                        cardConfig: cardConfig,
-                        scanResult: scanResult,
-                        folderPreset: folderPreset,
-                        customTemplate: customTemplate,
-                        projectPath: projectPath
-                    )
                 }
                 .padding(16)
             }
@@ -1045,6 +1126,32 @@ struct FileSafeCardConfigView: View {
         }
         .onAppear {
             scanForExistingFootage()
+            triggerAIAnalysisIfNeeded()
+        }
+    }
+
+    /// Trigger AI analyse als er een API key is en de keyword-scan niets vond
+    private func triggerAIAnalysisIfNeeded() {
+        guard let path = projectPath else { return }
+        guard ClaudeClassificationStrategy.loadAPIKey() != nil else { return }
+        guard !footageFolderInfo.found else { return } // Keyword scan vond al iets
+
+        Task {
+            if let result = await FolderStructureAnalyzer.shared.analyze(projectPath: path) {
+                await MainActor.run {
+                    // Cache in de builder voor gebruik bij resolveBasePaths
+                    FileSafeStructureBuilder.shared.aiAnalysisCache[path] = result
+                    // Update de UI als er een footage pad gevonden is
+                    if let footagePath = result.rawFootagePath {
+                        let footageURL = URL(fileURLWithPath: path).appendingPathComponent(footagePath)
+                        if FileManager.default.fileExists(atPath: footageURL.path) {
+                            footageFolderInfo = (true, footagePath, 0)
+                            // Hertel de duplicaat scan met het gevonden pad
+                            scanForExistingFootage()
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1064,8 +1171,14 @@ struct FileSafeCardConfigView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "calendar")
                         .font(.system(size: 11))
-                    Text(String(localized: "filesafe.cardconfig.material_from \(dateFormatter.string(from: earliest))"))
-                        .font(.system(size: 11))
+                    if let latest = scanResult.latestDate,
+                       !Calendar.current.isDate(earliest, inSameDayAs: latest) {
+                        Text(String(localized: "filesafe.cardconfig.material_from \(dateFormatter.string(from: earliest))") + " – \(dateFormatter.string(from: latest))")
+                            .font(.system(size: 11))
+                    } else {
+                        Text(String(localized: "filesafe.cardconfig.material_from \(dateFormatter.string(from: earliest))"))
+                            .font(.system(size: 11))
+                    }
                 }
                 .foregroundColor(.secondary)
             }
@@ -1084,9 +1197,20 @@ struct FileSafeCardConfigView: View {
 
             ForEach(cardConfig.shootDays.indices, id: \.self) { index in
                 HStack {
-                    Text(String(localized: "filesafe.cardconfig.day \(index + 1)"))
-                        .font(.system(size: 12))
+                    // Bewerkbare dagnaam (standaard: "Day 1_13032026")
+                    TextField(
+                        cardConfig.shootDays[index].displayName(isMultiDay: true),
+                        text: Binding(
+                            get: { cardConfig.shootDays[index].label ?? "" },
+                            set: { cardConfig.shootDays[index].label = $0.isEmpty ? nil : $0 }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                    .frame(maxWidth: 200)
+
                     Spacer()
+
                     DatePicker("", selection: Binding(
                         get: { cardConfig.shootDays[index].date ?? Date() },
                         set: { cardConfig.shootDays[index].date = $0 }
@@ -1287,10 +1411,22 @@ struct FileSafeCategoryBinEditor: View {
         VStack(alignment: .leading, spacing: 12) {
             // Section header
             SectionHeader(
-                title: category == .video
-                    ? String(localized: "filesafe.cardconfig.video_subfolders")
-                    : String(localized: "filesafe.cardconfig.photo_subfolders"),
-                icon: category == .video ? "video" : "photo",
+                title: {
+                    switch category {
+                    case .video: return String(localized: "filesafe.cardconfig.video_subfolders")
+                    case .audio: return String(localized: "filesafe.cardconfig.audio_subfolders")
+                    case .photo: return String(localized: "filesafe.cardconfig.photo_subfolders")
+                    case .other: return ""
+                    }
+                }(),
+                icon: {
+                    switch category {
+                    case .video: return "video"
+                    case .audio: return "waveform"
+                    case .photo: return "photo"
+                    case .other: return "doc"
+                    }
+                }(),
                 badge: "\(files.count)",
                 helpText: String(localized: "filesafe.help.bins")
             )
@@ -1677,7 +1813,14 @@ struct FileSafeThumbnailView: View {
                     .fill(Color(.controlBackgroundColor))
                     .frame(width: size, height: size)
                     .overlay(
-                        Image(systemName: category == .video ? "film" : "photo")
+                        Image(systemName: {
+                            switch category {
+                            case .video: return "film"
+                            case .audio: return "waveform"
+                            case .photo: return "photo"
+                            case .other: return "doc"
+                            }
+                        }())
                             .font(.system(size: size * 0.4))
                             .foregroundColor(.secondary.opacity(0.5))
                     )
@@ -1813,11 +1956,641 @@ struct FileSafeFileRow: View {
     }
 }
 
+// MARK: - Interactive Path Segment
+
+struct FileSafeInteractivePathSegment: View {
+    let segment: PathSegment
+    let projectPath: String?
+    let parentRelativePath: String?
+    let onValueChange: (String) -> Void
+    var onDelete: (() -> Void)? = nil
+    var dragPayload: String? = nil
+    var onDropSegment: ((String) -> Void)? = nil
+
+    @State private var editingName = ""
+    @State private var isEditing = false
+    @State private var isDropTarget = false
+
+    /// Werkelijke submappen op dit filesystem-niveau
+    private var alternatives: [String] {
+        guard let projectPath = projectPath,
+              let parentRelative = parentRelativePath else { return [] }
+        let parentURL = URL(fileURLWithPath: projectPath).appendingPathComponent(parentRelative)
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: parentURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        return contents
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .map { $0.lastPathComponent }
+            .sorted()
+    }
+
+    /// Absoluut pad waar de alternatieven van dit segment leven (parent-folder).
+    /// Wordt door de dropdown gebruikt voor lazy drill-down.
+    private var dropdownBasePath: String? {
+        guard let projectPath = projectPath else { return nil }
+        let parent = parentRelativePath ?? ""
+        if parent.isEmpty { return projectPath }
+        return (projectPath as NSString).appendingPathComponent(parent)
+    }
+
+    var body: some View {
+        if segment.hasAlternatives {
+            // MODE A: Bestaande map met dropdown via AppKit NSMenu
+            PathSegmentDropdown(
+                value: segment.value,
+                alternatives: alternatives,
+                basePath: dropdownBasePath,
+                onValueChange: onValueChange
+            )
+
+        } else if segment.isNameEditable {
+            // MODE B: Nieuwe map (oranje, bewerkbaar + verwijderbaar)
+            if isEditing {
+                TextField(segment.value, text: $editingName)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12, design: .monospaced))
+                    .frame(width: 160)
+                    .onSubmit {
+                        if !editingName.trimmingCharacters(in: .whitespaces).isEmpty {
+                            onValueChange(editingName.trimmingCharacters(in: .whitespaces))
+                        }
+                        isEditing = false
+                    }
+                    .onAppear { editingName = segment.value }
+            } else {
+                editableSegmentRow
+                    .modifier(SegmentDragDropModifier(
+                        dragPayload: dragPayload,
+                        onDropPayload: onDropSegment,
+                        isDropTarget: $isDropTarget
+                    ))
+            }
+
+        } else {
+            // MODE C: Vast segment (projectnaam, bestandsnaam, bestaande map zonder alternatieven)
+            Text(segment.value)
+                .font(.system(size: 12, design: .monospaced))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(segment.type == .projectName
+                              ? Color.green.opacity(0.1)
+                              : Color(.controlBackgroundColor).opacity(0.5))
+                )
+        }
+    }
+
+    /// Rij voor Mode B (editable segment) — rename-knop + optionele delete-knop
+    private var editableSegmentRow: some View {
+        HStack(spacing: 3) {
+            Button(action: {
+                editingName = segment.value
+                isEditing = true
+            }) {
+                Text(segment.value)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .padding(.leading, 10)
+                    .padding(.trailing, onDelete != nil ? 4 : 10)
+                    .padding(.vertical, 5)
+            }
+            .buttonStyle(.plain)
+
+            if let onDelete = onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.orange.opacity(0.75))
+                        .padding(.trailing, 6)
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "filesafe.pathviewer.remove_folder"))
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isDropTarget ? Color.accentColor.opacity(0.25) : Color.orange.opacity(0.2))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isDropTarget ? Color.accentColor : Color.orange.opacity(0.4),
+                        lineWidth: isDropTarget ? 1.5 : 0.5)
+        )
+    }
+}
+
+// MARK: - Segment Drag/Drop Modifier
+
+/// Past `.draggable` + `.dropDestination` conditioneel toe — alleen als er een
+/// payload en drop callback zijn meegegeven. Gebruikt door editable path-segments
+/// voor reordering binnen dezelfde categorie + positie (pre-day / post-day).
+struct SegmentDragDropModifier: ViewModifier {
+    let dragPayload: String?
+    let onDropPayload: ((String) -> Void)?
+    @Binding var isDropTarget: Bool
+
+    func body(content: Content) -> some View {
+        if let payload = dragPayload, let onDrop = onDropPayload {
+            content
+                .draggable(payload)
+                .dropDestination(for: String.self) { items, _ in
+                    guard let item = items.first else { return false }
+                    onDrop(item)
+                    return true
+                } isTargeted: { targeted in
+                    isDropTarget = targeted
+                }
+        } else {
+            content
+        }
+    }
+}
+
+// MARK: - Path Insert Button (standalone, geen ForEach popover problemen)
+
+/// Betrouwbare segment dropdown die AppKit NSMenu toont voor map-alternatieven
+struct PathSegmentDropdown: NSViewRepresentable {
+    let value: String
+    let alternatives: [String]
+    /// Absoluut pad van de map waar de alternatieven leven (parent-folder van dit segment).
+    /// Nodig voor lazy drill-down submenus naar diepere niveaus.
+    let basePath: String?
+    /// Wordt aangeroepen met de nieuwe waarde — kan multi-segment zijn ("01_Raw/02_Reels")
+    /// na drill-down. handleSegmentChange splitst en flattent multi-segment values.
+    let onValueChange: (String) -> Void
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton()
+        button.bezelStyle = .inline
+        button.title = value + " ▾"
+        button.font = NSFont.monospacedSystemFont(ofSize: 12, weight: .medium)
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.showMenu(_:))
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        return button
+    }
+
+    func updateNSView(_ nsView: NSButton, context: Context) {
+        nsView.title = value + " ▾"
+        context.coordinator.value = value
+        context.coordinator.alternatives = alternatives
+        context.coordinator.basePath = basePath
+        context.coordinator.onValueChange = onValueChange
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(value: value, alternatives: alternatives, basePath: basePath, onValueChange: onValueChange)
+    }
+
+    class Coordinator: NSObject, NSMenuDelegate {
+        var value: String
+        var alternatives: [String]
+        var basePath: String?
+        var onValueChange: (String) -> Void
+
+        /// Cache van disk children per absoluut pad (vermijd herhaalde I/O bij hover)
+        private var childrenCache: [String: [String]] = [:]
+        /// Map: submenu → (absoluut pad, relatief pad t.o.v. dit segment-niveau)
+        private var menuPathMap: [ObjectIdentifier: (abs: String, rel: String)] = [:]
+        /// Submenus die al gevuld zijn (vermijd dubbele populatie bij re-open)
+        private var populatedMenus: Set<ObjectIdentifier> = []
+
+        init(value: String, alternatives: [String], basePath: String?, onValueChange: @escaping (String) -> Void) {
+            self.value = value
+            self.alternatives = alternatives
+            self.basePath = basePath
+            self.onValueChange = onValueChange
+        }
+
+        @objc func showMenu(_ sender: NSButton) {
+            // Reset state per menu-open — folders kunnen op disk gewijzigd zijn
+            childrenCache.removeAll()
+            menuPathMap.removeAll()
+            populatedMenus.removeAll()
+
+            let menu = NSMenu()
+            menu.delegate = self
+
+            // Top-level acties: Rename + New folder
+            let renameItem = NSMenuItem(
+                title: String(localized: "filesafe.pathviewer.rename_action"),
+                action: #selector(renameTapped(_:)),
+                keyEquivalent: ""
+            )
+            renameItem.target = self
+            renameItem.image = NSImage(systemSymbolName: "pencil", accessibilityDescription: nil)
+            menu.addItem(renameItem)
+
+            let newItem = NSMenuItem(
+                title: String(localized: "filesafe.pathviewer.new_folder_action"),
+                action: #selector(newFolderTapped(_:)),
+                keyEquivalent: ""
+            )
+            newItem.target = self
+            newItem.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+            menu.addItem(newItem)
+
+            menu.addItem(.separator())
+
+            // Sibling alternatieven met lazy drill-down submenus
+            for alt in alternatives {
+                let item = NSMenuItem(title: alt, action: #selector(itemSelected(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = alt
+                item.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)
+                if alt == value {
+                    item.state = .on
+                }
+
+                // Hang een leeg submenu op als deze map kinderen heeft (drill-down)
+                if let basePath = basePath {
+                    let childAbsPath = (basePath as NSString).appendingPathComponent(alt)
+                    if hasSubfolders(at: childAbsPath) {
+                        let submenu = NSMenu()
+                        submenu.delegate = self
+                        item.submenu = submenu
+                        menuPathMap[ObjectIdentifier(submenu)] = (abs: childAbsPath, rel: alt)
+                    }
+                }
+
+                menu.addItem(item)
+            }
+
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 2), in: sender)
+        }
+
+        // MARK: - NSMenuDelegate (lazy drill-down)
+
+        func menuNeedsUpdate(_ menu: NSMenu) {
+            let key = ObjectIdentifier(menu)
+            guard let (absPath, relPath) = menuPathMap[key] else { return }
+            // Vermijd dubbele populatie als gebruiker submenu opnieuw opent
+            if populatedMenus.contains(key) { return }
+            populatedMenus.insert(key)
+            menu.removeAllItems()
+
+            let children = childrenAt(absPath: absPath)
+            if children.isEmpty {
+                let emptyItem = NSMenuItem(
+                    title: String(localized: "filesafe.pathviewer.empty_folder"),
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                emptyItem.isEnabled = false
+                menu.addItem(emptyItem)
+                return
+            }
+
+            // Limiteer aantal kinderen om UI snappy te houden
+            let limited = Array(children.prefix(500))
+            for child in limited {
+                let item = NSMenuItem(title: child, action: #selector(itemSelected(_:)), keyEquivalent: "")
+                item.target = self
+                let childRelPath = (relPath as NSString).appendingPathComponent(child)
+                item.representedObject = childRelPath
+                item.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)
+
+                let childAbsPath = (absPath as NSString).appendingPathComponent(child)
+                if hasSubfolders(at: childAbsPath) {
+                    let submenu = NSMenu()
+                    submenu.delegate = self
+                    item.submenu = submenu
+                    menuPathMap[ObjectIdentifier(submenu)] = (abs: childAbsPath, rel: childRelPath)
+                }
+                menu.addItem(item)
+            }
+
+            if children.count > limited.count {
+                let truncated = NSMenuItem(
+                    title: "…",
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                truncated.isEnabled = false
+                menu.addItem(truncated)
+            }
+        }
+
+        private func childrenAt(absPath: String) -> [String] {
+            if let cached = childrenCache[absPath] { return cached }
+            let url = URL(fileURLWithPath: absPath)
+            let result: [String]
+            if let contents = try? FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) {
+                result = contents
+                    .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+                    .map { $0.lastPathComponent }
+                    .sorted()
+            } else {
+                result = []
+            }
+            childrenCache[absPath] = result
+            return result
+        }
+
+        private func hasSubfolders(at absPath: String) -> Bool {
+            !childrenAt(absPath: absPath).isEmpty
+        }
+
+        // MARK: - Acties
+
+        @objc func itemSelected(_ sender: NSMenuItem) {
+            if let folder = sender.representedObject as? String {
+                DispatchQueue.main.async {
+                    self.onValueChange(folder)
+                }
+            }
+        }
+
+        @objc func renameTapped(_ sender: NSMenuItem) {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "filesafe.pathviewer.rename_alert.title")
+            alert.informativeText = String(localized: "filesafe.pathviewer.rename_alert.message")
+            alert.addButton(withTitle: String(localized: "filesafe.pathviewer.rename_alert.confirm"))
+            alert.addButton(withTitle: String(localized: "filesafe.pathviewer.day_remove_confirm.cancel"))
+
+            let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+            textField.stringValue = value
+            alert.accessoryView = textField
+
+            // Schedule async — anders blokkeert het menu-tracking de modal
+            let currentValue = value
+            let callback = onValueChange
+            DispatchQueue.main.async {
+                if alert.runModal() == .alertFirstButtonReturn {
+                    let name = textField.stringValue.trimmingCharacters(in: .whitespaces)
+                    if !name.isEmpty && name != currentValue {
+                        callback(name)
+                    }
+                }
+            }
+        }
+
+        @objc func newFolderTapped(_ sender: NSMenuItem) {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "filesafe.pathviewer.new_folder_alert.title")
+            alert.informativeText = String(localized: "filesafe.pathviewer.new_folder_alert.message")
+            alert.addButton(withTitle: String(localized: "filesafe.pathviewer.new_folder_alert.add"))
+            alert.addButton(withTitle: String(localized: "filesafe.pathviewer.day_remove_confirm.cancel"))
+
+            let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+            textField.placeholderString = String(localized: "filesafe.pathviewer.folder_name.placeholder")
+            alert.accessoryView = textField
+
+            let callback = onValueChange
+            DispatchQueue.main.async {
+                if alert.runModal() == .alertFirstButtonReturn {
+                    let name = textField.stringValue.trimmingCharacters(in: .whitespaces)
+                    if !name.isEmpty {
+                        callback(name)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Betrouwbare insert-knop die een AppKit NSMenu toont (werkt altijd, ook in custom layouts)
+struct PathInsertButton: NSViewRepresentable {
+    let folders: [String]
+    let onSelectFolder: (String) -> Void
+    let onNewFolder: (String) -> Void
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = NSButton()
+        button.bezelStyle = .inline
+        button.isBordered = false
+        button.image = NSImage(systemSymbolName: "plus.circle.fill", accessibilityDescription: "Insert folder")
+        button.contentTintColor = .orange
+        button.imageScaling = .scaleProportionallyUpOrDown
+        // 13x13 past visueel bij 12pt monospaced "/" tekst (~14px cap height)
+        button.setFrameSize(NSSize(width: 13, height: 13))
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentHuggingPriority(.required, for: .vertical)
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.showMenu(_:))
+        return button
+    }
+
+    func updateNSView(_ nsView: NSButton, context: Context) {
+        context.coordinator.folders = folders
+        context.coordinator.onSelectFolder = onSelectFolder
+        context.coordinator.onNewFolder = onNewFolder
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(folders: folders, onSelectFolder: onSelectFolder, onNewFolder: onNewFolder)
+    }
+
+    class Coordinator: NSObject {
+        var folders: [String]
+        var onSelectFolder: (String) -> Void
+        var onNewFolder: (String) -> Void
+
+        init(folders: [String], onSelectFolder: @escaping (String) -> Void, onNewFolder: @escaping (String) -> Void) {
+            self.folders = folders
+            self.onSelectFolder = onSelectFolder
+            self.onNewFolder = onNewFolder
+        }
+
+        @objc func showMenu(_ sender: NSButton) {
+            let menu = NSMenu()
+
+            for folder in folders {
+                let item = NSMenuItem(title: folder, action: #selector(folderSelected(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = folder
+                item.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)
+                menu.addItem(item)
+            }
+
+            if !folders.isEmpty {
+                menu.addItem(.separator())
+            }
+
+            let newItem = NSMenuItem(title: "New folder...", action: #selector(newFolderSelected(_:)), keyEquivalent: "")
+            newItem.target = self
+            newItem.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+            menu.addItem(newItem)
+
+            // Positioneer het menu direct onder de knop
+            let point = NSPoint(x: 0, y: sender.bounds.height + 4)
+            menu.popUp(positioning: nil, at: point, in: sender)
+        }
+
+        @objc func folderSelected(_ sender: NSMenuItem) {
+            if let folder = sender.representedObject as? String {
+                DispatchQueue.main.async {
+                    self.onSelectFolder(folder)
+                }
+            }
+        }
+
+        @objc func newFolderSelected(_ sender: NSMenuItem) {
+            // Toon een alert met een tekstveld voor de nieuwe mapnaam
+            let alert = NSAlert()
+            alert.messageText = "Insert folder"
+            alert.informativeText = "Enter a name for the new folder:"
+            alert.addButton(withTitle: "Add")
+            alert.addButton(withTitle: "Cancel")
+
+            let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+            textField.placeholderString = "Folder name..."
+            alert.accessoryView = textField
+
+            if let window = NSApp.keyWindow {
+                alert.beginSheetModal(for: window) { response in
+                    if response == .alertFirstButtonReturn {
+                        let name = textField.stringValue.trimmingCharacters(in: .whitespaces)
+                        if !name.isEmpty {
+                            DispatchQueue.main.async {
+                                self.onNewFolder(name)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Interactive Path
+
+struct FileSafeInteractivePath: View {
+    let segments: [PathSegment]
+    let projectPath: String?
+    let onSegmentChange: (PathSegment, String) -> Void
+    var onInsertSegment: ((Int, String) -> Void)?
+    var onSegmentDelete: ((PathSegment) -> Void)?
+    /// Sleep-herorderen: (srcPayload, target segment).
+    /// Payload formaat: "FS_SEG|{category}|{position}|{value}" — de preview
+    /// parseert deze en beperkt reordering tot dezelfde category + positie.
+    var onSegmentReorder: ((String, PathSegment) -> Void)?
+    /// Optionele tekst die rechts van het pad wordt getoond (bv. "+ 12 files").
+    var trailingBadge: String? = nil
+
+
+    /// Haal submappen op van een bestaande map op het gegeven relatief pad
+    private func subfoldersAt(relativePath: String) -> [String] {
+        guard let projectPath = projectPath else { return [] }
+        let url: URL
+        if relativePath.isEmpty {
+            url = URL(fileURLWithPath: projectPath)
+        } else {
+            url = URL(fileURLWithPath: projectPath).appendingPathComponent(relativePath)
+        }
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+        return contents
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .map { $0.lastPathComponent }
+            .sorted()
+    }
+
+    /// Toon + knop vóór dagfolders, bestandsnamen, en bins
+    private func shouldShowInsertButton(beforeIndex index: Int) -> Bool {
+        guard index > 0, onInsertSegment != nil else { return false }
+        let curr = segments[index]
+        return curr.type == .dayFolder || curr.type == .fileName || curr.type == .binName
+    }
+
+    /// Bouw drag-payload voor een segment op basis van zijn positie t.o.v. de dagmap.
+    /// Payload formaat: "FS_SEG|{category}|{pre|post}|{value}"
+    /// Nil als segment niet editable is of geen category heeft.
+    private func dragPayload(for segment: PathSegment, at index: Int) -> String? {
+        guard segment.isNameEditable, let category = segment.category else { return nil }
+        let dayIdx = segments.firstIndex(where: { $0.type == .dayFolder })
+        let position: String
+        if let dayIdx = dayIdx, index > dayIdx {
+            position = "post"
+        } else {
+            position = "pre"
+        }
+        return "FS_SEG|\(category.rawValue)|\(position)|\(segment.value)"
+    }
+
+    var body: some View {
+        FlowLayout(spacing: 2) {
+            ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
+                if index > 0 {
+                    if shouldShowInsertButton(beforeIndex: index) {
+                        Text("/")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.secondary.opacity(0.4))
+
+                        // ⊕ invoeg-knop — gebruikt NSPopover via AppKit voor betrouwbaarheid
+                        PathInsertButton(
+                            folders: subfoldersAt(relativePath: parentPath(for: index) ?? ""),
+                            onSelectFolder: { folder in
+                                onInsertSegment?(index, folder)
+                            },
+                            onNewFolder: { name in
+                                onInsertSegment?(index, name)
+                            }
+                        )
+                        // Frame matched tekst hoogte (12pt mono ≈ 17pt line height)
+                        // zodat + visueel op baseline met "/" staat
+                        .frame(width: 16, height: 17)
+
+                        Text("/")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.secondary.opacity(0.4))
+                    } else {
+                        Text("/")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.secondary.opacity(0.4))
+                            .padding(.horizontal, 1)
+                    }
+                }
+
+                FileSafeInteractivePathSegment(
+                    segment: segment,
+                    projectPath: projectPath,
+                    parentRelativePath: parentPath(for: index),
+                    onValueChange: { newValue in
+                        onSegmentChange(segment, newValue)
+                    },
+                    onDelete: onSegmentDelete.map { callback in
+                        { callback(segment) }
+                    },
+                    dragPayload: dragPayload(for: segment, at: index),
+                    onDropSegment: onSegmentReorder.map { reorder in
+                        { payload in reorder(payload, segment) }
+                    }
+                )
+            }
+
+            if let badge = trailingBadge, !badge.isEmpty {
+                Text(badge)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 4)
+            }
+        }
+    }
+
+    private func parentPath(for index: Int) -> String? {
+        guard index > 0 else { return nil }
+        let parentSegments = segments.prefix(index).filter { $0.type != .projectName }
+        if parentSegments.isEmpty { return "" }
+        return parentSegments.map(\.value).joined(separator: "/")
+    }
+}
+
 // MARK: - Path Preview
 
 struct FileSafePathPreview: View {
     let projectConfig: FileSafeProjectConfig
-    let cardConfig: FileSafeCardConfig
+    @Binding var cardConfig: FileSafeCardConfig
     let scanResult: FileSafeScanResult
     let folderPreset: FolderStructurePreset
     let customTemplate: CustomFolderTemplate?
@@ -1965,25 +2738,549 @@ struct FileSafePathPreview: View {
         return paths.map { projectPrefix + "/" + $0 }
     }
 
+    /// Segmented paths for interactive editing — mirrors examplePaths logic but builds PathSegment arrays
+    private var segmentedPaths: [(segments: [PathSegment], isFolder: Bool, fileCount: Int)] {
+        var result: [(segments: [PathSegment], isFolder: Bool, fileCount: Int)] = []
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "ddMMyyyy"
+
+        let skipDayInPath = !projectConfig.isMultiDayShoot && !cardConfig.useDateSubfolder
+        let dayLabel: String
+        if skipDayInPath {
+            dayLabel = ""
+        } else if let firstDay = cardConfig.shootDays.first, let date = firstDay.date {
+            if projectConfig.isMultiDayShoot {
+                let localizedDay = String(localized: "filesafe.cardconfig.day \(1)")
+                dayLabel = "\(localizedDay)_\(dayFormatter.string(from: date))"
+            } else {
+                dayLabel = dayFormatter.string(from: date)
+            }
+        } else {
+            dayLabel = dayFormatter.string(from: Date())
+        }
+
+        let basePaths = FileSafeStructureBuilder.shared.resolveBasePaths(
+            preset: folderPreset,
+            customTemplate: customTemplate,
+            existingProjectPath: projectPath
+        )
+
+        let videoBase: String
+        let photoBase: String
+        if basePaths.photosInFootage && scanResult.hasVideo && scanResult.hasPhoto {
+            videoBase = "\(basePaths.footagePath)/Video"
+            photoBase = "\(basePaths.footagePath)/Photo"
+        } else {
+            videoBase = basePaths.footagePath
+            photoBase = basePaths.photoPath
+        }
+
+        // Helper: split een base path in segmenten, check of elke map op disk bestaat
+        func baseSegments(_ base: String, category: FileSafeFileCategory) -> [PathSegment] {
+            let parts = base.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+            var currentPath = projectPath ?? ""
+            return parts.map { part in
+                currentPath = (currentPath as NSString).appendingPathComponent(part)
+                let exists = FileManager.default.fileExists(atPath: currentPath)
+                return PathSegment(type: .categoryFolder, value: part, category: category, existsOnDisk: exists)
+            }
+        }
+
+        // Helper: bouw category segmenten op, inclusief eventuele customPathOverride
+        func buildCategorySegments(_ defaultBase: [PathSegment], category: FileSafeFileCategory) -> [PathSegment] {
+            let key = category.rawValue
+
+            // Als er een custom path override is, gebruik die in plaats van de default base
+            if let customPath = cardConfig.customPathOverride[key], !customPath.isEmpty {
+                var currentPath = projectPath ?? ""
+                return customPath.map { folder in
+                    currentPath = (currentPath as NSString).appendingPathComponent(folder)
+                    let exists = FileManager.default.fileExists(atPath: currentPath)
+                    return PathSegment(type: .categoryFolder, value: folder, category: category, existsOnDisk: exists)
+                }
+            }
+
+            // Geen override — gebruik default + eventuele insertedSubfolders
+            var result = defaultBase
+            if let inserted = cardConfig.insertedSubfolders[key] {
+                for folder in inserted {
+                    var checkPath = projectPath ?? ""
+                    for seg in result where seg.type != .projectName {
+                        checkPath = (checkPath as NSString).appendingPathComponent(seg.value)
+                    }
+                    checkPath = (checkPath as NSString).appendingPathComponent(folder)
+                    let exists = FileManager.default.fileExists(atPath: checkPath)
+                    result.append(PathSegment(type: .subfolder, value: folder, category: category, existsOnDisk: exists))
+                }
+            }
+            return result
+        }
+
+        // Helper: voeg dag-segment toe
+        func withDaySegment(_ base: [PathSegment]) -> [PathSegment] {
+            guard !dayLabel.isEmpty else { return base }
+            return base + [PathSegment(type: .dayFolder, value: dayLabel, existsOnDisk: false)]
+        }
+
+        // Helper: voeg postDaySubfolders toe ná de dagmap voor een specifieke categorie
+        func appendPostDayFolders(_ base: [PathSegment], category: FileSafeFileCategory) -> [PathSegment] {
+            let key = category.rawValue
+            guard let postDay = cardConfig.postDaySubfolders[key], !postDay.isEmpty else {
+                return base
+            }
+            // Bouw pad op voor existsOnDisk-check
+            var checkPath = projectPath ?? ""
+            for seg in base where seg.type != .projectName {
+                checkPath = (checkPath as NSString).appendingPathComponent(seg.value)
+            }
+            var result = base
+            for folder in postDay {
+                checkPath = (checkPath as NSString).appendingPathComponent(folder)
+                let exists = FileManager.default.fileExists(atPath: checkPath)
+                result.append(PathSegment(type: .subfolder, value: folder, category: category, existsOnDisk: exists))
+            }
+            return result
+        }
+
+        // Helper: combineer dag + postDay in één pas (gebruikt door video/photo/audio paths)
+        func withDayAndPostDay(_ base: [PathSegment], category: FileSafeFileCategory) -> [PathSegment] {
+            return appendPostDayFolders(withDaySegment(base), category: category)
+        }
+
+        let projectSegment = PathSegment(type: .projectName, value: projectConfig.projectName, existsOnDisk: true)
+
+        // Video segmented paths
+        if scanResult.hasVideo {
+            let videoBinNames = cardConfig.effectiveVideoBinNames
+
+            // Rebuild: use override if set
+            let effectiveVideoBase: String
+            if let override = cardConfig.footageFolderOverride {
+                let parentParts = videoBase.split(separator: "/", omittingEmptySubsequences: true).dropLast()
+                if parentParts.isEmpty {
+                    effectiveVideoBase = override
+                } else {
+                    effectiveVideoBase = parentParts.joined(separator: "/") + "/" + override
+                }
+            } else {
+                effectiveVideoBase = videoBase
+            }
+            let vBaseSegs = baseSegments(effectiveVideoBase, category: .video)
+
+            if !videoBinNames.isEmpty {
+                for binName in videoBinNames.prefix(2) {
+                    if let sampleFile = scanResult.videoFiles.first(where: {
+                        cardConfig.fileSubfolderMap[$0.id] == binName
+                    }) ?? scanResult.videoFiles.first {
+                        var segs: [PathSegment] = [projectSegment] + withDayAndPostDay(buildCategorySegments(vBaseSegs, category: .video), category: .video)
+                        segs.append(PathSegment(type: .binName, value: binName, category: .video))
+                        segs.append(PathSegment(type: .fileName, value: sampleFile.fileName))
+                        let cnt = scanResult.videoFiles.filter { cardConfig.fileSubfolderMap[$0.id] == binName }.count
+                        result.append((segments: segs, isFolder: false, fileCount: cnt))
+                    }
+                }
+                let assignedBins = Set(videoBinNames)
+                let unassignedFiles = scanResult.videoFiles.filter {
+                    guard let assignment = cardConfig.fileSubfolderMap[$0.id] else { return true }
+                    return !assignedBins.contains(assignment)
+                }
+                if let unassigned = unassignedFiles.first {
+                    var segs: [PathSegment] = [projectSegment] + withDayAndPostDay(buildCategorySegments(vBaseSegs, category: .video), category: .video)
+                    segs.append(PathSegment(type: .fileName, value: unassigned.fileName))
+                    result.append((segments: segs, isFolder: false, fileCount: unassignedFiles.count))
+                }
+            } else if let sampleFile = scanResult.videoFiles.first {
+                var segs: [PathSegment] = [projectSegment] + withDayAndPostDay(buildCategorySegments(vBaseSegs, category: .video), category: .video)
+                for subfolder in cardConfig.effectiveVideoSubfolders {
+                    segs.append(PathSegment(type: .subfolder, value: subfolder))
+                }
+                segs.append(PathSegment(type: .fileName, value: sampleFile.fileName))
+                result.append((segments: segs, isFolder: false, fileCount: scanResult.videoFiles.count))
+            }
+        }
+
+        // Audio segmented paths
+        if scanResult.hasAudio {
+            let audioBase = cardConfig.audioFolderOverride ?? basePaths.audioPath
+            let aBaseSegs = baseSegments(audioBase, category: .audio)
+            let audioBinNames = cardConfig.effectiveAudioBinNames
+            let useDayForAudio = projectConfig.linkAudioToDayStructure && projectConfig.isMultiDayShoot
+
+            // Helper: bouw audio-base met of zonder dag-segment
+            func audioBaseWithDay() -> [PathSegment] {
+                let category = FileSafeFileCategory.audio
+                if useDayForAudio {
+                    return appendPostDayFolders(buildCategorySegments(aBaseSegs, category: category) + [PathSegment(type: .dayFolder, value: dayLabel)], category: category)
+                } else {
+                    // Geen dag voor audio — wel postDaySubfolders direct na base toepassen
+                    return appendPostDayFolders(buildCategorySegments(aBaseSegs, category: category), category: category)
+                }
+            }
+
+            if !audioBinNames.isEmpty {
+                for binName in audioBinNames.prefix(2) {
+                    if let sampleFile = scanResult.audioFiles.first(where: {
+                        cardConfig.fileSubfolderMap[$0.id] == binName
+                    }) ?? scanResult.audioFiles.first {
+                        var segs: [PathSegment] = [projectSegment] + audioBaseWithDay()
+                        segs.append(PathSegment(type: .binName, value: binName, category: .audio))
+                        segs.append(PathSegment(type: .fileName, value: sampleFile.fileName))
+                        let cnt = scanResult.audioFiles.filter { cardConfig.fileSubfolderMap[$0.id] == binName }.count
+                        result.append((segments: segs, isFolder: false, fileCount: cnt))
+                    }
+                }
+                let assignedBins = Set(audioBinNames)
+                let unassignedFiles = scanResult.audioFiles.filter {
+                    guard let assignment = cardConfig.fileSubfolderMap[$0.id] else { return true }
+                    return !assignedBins.contains(assignment)
+                }
+                if let unassigned = unassignedFiles.first {
+                    var segs: [PathSegment] = [projectSegment] + audioBaseWithDay()
+                    segs.append(PathSegment(type: .fileName, value: unassigned.fileName))
+                    result.append((segments: segs, isFolder: false, fileCount: unassignedFiles.count))
+                }
+            } else if let sampleFile = scanResult.audioFiles.first {
+                if !projectConfig.audioPersons.isEmpty {
+                    let person = projectConfig.audioPersons.first ?? "Person"
+                    var segs: [PathSegment] = [projectSegment] + audioBaseWithDay()
+                    segs.append(PathSegment(type: .subfolder, value: person))
+                    segs.append(PathSegment(type: .fileName, value: sampleFile.fileName))
+                    result.append((segments: segs, isFolder: false, fileCount: scanResult.audioFiles.count))
+                } else {
+                    var segs: [PathSegment] = [projectSegment] + audioBaseWithDay()
+                    segs.append(PathSegment(type: .fileName, value: sampleFile.fileName))
+                    result.append((segments: segs, isFolder: false, fileCount: scanResult.audioFiles.count))
+                }
+            }
+        }
+
+        // Photo segmented paths
+        if scanResult.hasPhoto {
+            let effectivePhotoBase = cardConfig.photoFolderOverride ?? photoBase
+            let pBaseSegs = baseSegments(effectivePhotoBase, category: .photo)
+            let photoBinNames = cardConfig.effectivePhotoBinNames
+
+            // Helper: bouw photo-base met of zonder dag-segment via gemeenschappelijke pipeline
+            func photoBaseWithDay() -> [PathSegment] {
+                let category = FileSafeFileCategory.photo
+                let withCustom = buildCategorySegments(pBaseSegs, category: category)
+                if projectConfig.isMultiDayShoot {
+                    return appendPostDayFolders(withCustom + [PathSegment(type: .dayFolder, value: dayLabel)], category: category)
+                } else {
+                    return appendPostDayFolders(withCustom, category: category)
+                }
+            }
+
+            if !photoBinNames.isEmpty {
+                for binName in photoBinNames.prefix(2) {
+                    if let sampleFile = scanResult.photoFiles.first(where: {
+                        cardConfig.fileSubfolderMap[$0.id] == binName
+                    }) ?? scanResult.photoFiles.first {
+                        let isRaw = ["cr3", "cr2", "arw", "nef", "raf", "dng"].contains(sampleFile.fileExtension.lowercased())
+                        var segs: [PathSegment] = [projectSegment] + photoBaseWithDay()
+                        segs.append(PathSegment(type: .binName, value: binName, category: .photo))
+                        if projectConfig.splitRawJpeg {
+                            segs.append(PathSegment(type: .subfolder, value: isRaw ? "RAW" : "JPEG"))
+                        }
+                        segs.append(PathSegment(type: .fileName, value: sampleFile.fileName))
+                        let cnt = scanResult.photoFiles.filter { cardConfig.fileSubfolderMap[$0.id] == binName }.count
+                        result.append((segments: segs, isFolder: false, fileCount: cnt))
+                    }
+                }
+            } else if let sampleFile = scanResult.photoFiles.first {
+                let isRaw = ["cr3", "cr2", "arw", "nef", "raf", "dng"].contains(sampleFile.fileExtension.lowercased())
+                var segs: [PathSegment] = [projectSegment] + photoBaseWithDay()
+                for subfolder in cardConfig.effectivePhotoSubfolders {
+                    segs.append(PathSegment(type: .subfolder, value: subfolder))
+                }
+                if projectConfig.splitRawJpeg {
+                    segs.append(PathSegment(type: .subfolder, value: isRaw ? "RAW" : "JPEG"))
+                }
+                segs.append(PathSegment(type: .fileName, value: sampleFile.fileName))
+                result.append((segments: segs, isFolder: false, fileCount: scanResult.photoFiles.count))
+            }
+        }
+
+        // Wildtrack
+        if projectConfig.hasWildtrack && scanResult.hasAudio {
+            let audioBase = cardConfig.audioFolderOverride ?? basePaths.audioPath
+            let aBaseSegs = baseSegments(audioBase, category: .audio)
+            let aSegsWithCustom = buildCategorySegments(aBaseSegs, category: .audio)
+            if projectConfig.isMultiDayShoot && projectConfig.linkAudioToDayStructure {
+                var segs: [PathSegment] = [projectSegment] + aSegsWithCustom
+                segs.append(PathSegment(type: .dayFolder, value: dayLabel))
+                segs.append(PathSegment(type: .subfolder, value: "Wildtrack"))
+                result.append((segments: segs, isFolder: true, fileCount: 0))
+            } else {
+                var segs: [PathSegment] = [projectSegment] + aSegsWithCustom
+                segs.append(PathSegment(type: .subfolder, value: "Wildtrack"))
+                result.append((segments: segs, isFolder: true, fileCount: 0))
+            }
+        }
+
+        return result
+    }
+
+    private func handleSegmentInsert(pathIndex: Int, segmentIndex: Int, folderName: String) {
+        // Bepaal de categorie van het pad
+        let paths = segmentedPaths
+        guard pathIndex < paths.count else { return }
+        let segments = paths[pathIndex].segments
+        let category = segments.first(where: { $0.category != nil })?.category
+        let key = category?.rawValue ?? "video"
+
+        // Bepaal waar de gebruiker op "+" heeft geklikt.
+        // segmentIndex verwijst naar de segment NÁ de +-knop.
+        // Als die (of een segment ervoor) al voorbij de dagmap is, dan moet de
+        // nieuwe map na de dagmap komen (in postDaySubfolders).
+        guard segmentIndex > 0, segmentIndex <= segments.count else { return }
+
+        // Vind eventuele dag-positie in het pad
+        let dayIndex = segments.firstIndex(where: { $0.type == .dayFolder })
+        let isAfterDay: Bool = {
+            guard let dayIdx = dayIndex else { return false }
+            // Insert komt NA de day als de +-positie (segmentIndex) > dayIdx
+            return segmentIndex > dayIdx
+        }()
+
+        if isAfterDay {
+            // Tussen dag en bin/file → postDaySubfolders
+            // Positie binnen postDaySubfolders: tel hoeveel subfolders ná de dag al vóór
+            // de insert-positie staan.
+            let postDayExisting = segments[(dayIndex ?? -1) + 1 ..< segmentIndex]
+                .filter { $0.type == .subfolder }
+                .map(\.value)
+            var currentPostDay = cardConfig.postDaySubfolders[key] ?? []
+            // Vind index van de laatste "al bestaande post-day folder" in de lijst
+            // en voeg ná die in. Als geen match → aan het eind toevoegen.
+            if let lastExisting = postDayExisting.last,
+               let idx = currentPostDay.firstIndex(of: lastExisting) {
+                currentPostDay.insert(folderName, at: idx + 1)
+            } else {
+                currentPostDay.append(folderName)
+            }
+            cardConfig.postDaySubfolders[key] = currentPostDay
+        } else {
+            // Vóór dag (of geen dag aanwezig) → customPathOverride (pre-day keten)
+            // Bouw de keten tot aan de +-positie op
+            let preDaySegments = segments[..<segmentIndex]
+                .filter { $0.type == .categoryFolder || $0.type == .subfolder }
+                .map(\.value)
+            // Huidige volledige keten (inclusief alles ná de insert-positie) zodat we
+            // niet per ongeluk folders achter het +-punt verliezen
+            let fullChain = segments
+                .filter { $0.type == .categoryFolder || $0.type == .subfolder }
+                .map(\.value)
+            // Insert op positie = preDaySegments.count
+            var newChain = fullChain
+            newChain.insert(folderName, at: min(preDaySegments.count, newChain.count))
+            cardConfig.customPathOverride[key] = newChain
+        }
+    }
+
+    private func handleSegmentChange(_ segment: PathSegment, newValue: String) {
+        switch segment.type {
+        case .categoryFolder, .subfolder:
+            // Bij wijziging van een map-segment: bouw het volledige customPathOverride op.
+            // Match op category i.p.v. UUID: PathSegment.id wordt per render opnieuw
+            // gegenereerd, dus een UUID-match faalt altijd.
+            let key = segment.category?.rawValue ?? "video"
+
+            // Vind een pad met dezelfde category als het gewijzigde segment
+            let paths = segmentedPaths
+            guard let entry = paths.first(where: { entry in
+                entry.segments.first(where: { $0.category != nil })?.category == segment.category
+            }) else { return }
+
+            // Bepaal of dit segment in pre-day of post-day gebied staat
+            let dayIndex = entry.segments.firstIndex(where: { $0.type == .dayFolder })
+            let segmentIndex = entry.segments.firstIndex(where: {
+                $0.type == segment.type && $0.value == segment.value && $0.category == segment.category
+            })
+            let isPostDay: Bool = {
+                guard let segIdx = segmentIndex, let dayIdx = dayIndex else { return false }
+                return segIdx > dayIdx
+            }()
+
+            // Split multi-segment newValue (bv. "01_Raw/02_Reels" via drill-down)
+            // zodat elk segment een eigen entry in de chain wordt.
+            let splitValues = newValue
+                .split(separator: "/")
+                .map { String($0).trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+
+            if isPostDay {
+                // Pas postDaySubfolders aan
+                var postDay = cardConfig.postDaySubfolders[key] ?? []
+                if let idx = postDay.firstIndex(of: segment.value) {
+                    postDay.replaceSubrange(idx...idx, with: splitValues)
+                    cardConfig.postDaySubfolders[key] = postDay
+                }
+            } else {
+                // Pas customPathOverride aan (volledige pre-day keten)
+                var chain = entry.segments
+                    .prefix(while: { $0.type != .dayFolder })
+                    .filter { $0.type == .categoryFolder || $0.type == .subfolder }
+                    .map(\.value)
+                if let idx = chain.firstIndex(of: segment.value) {
+                    chain.replaceSubrange(idx...idx, with: splitValues)
+                }
+                cardConfig.customPathOverride[key] = chain
+            }
+
+        case .binName:
+            if segment.category == .video {
+                if let idx = cardConfig.videoBins.firstIndex(where: { $0.name == segment.value }) {
+                    cardConfig.videoBins[idx].name = newValue
+                }
+            } else if segment.category == .photo {
+                if let idx = cardConfig.photoBins.firstIndex(where: { $0.name == segment.value }) {
+                    cardConfig.photoBins[idx].name = newValue
+                }
+            }
+
+        case .dayFolder:
+            // Dag label wijzigen
+            if let dayIndex = cardConfig.shootDays.firstIndex(where: {
+                $0.displayName == segment.value || $0.displayName(isMultiDay: true) == segment.value
+            }) {
+                cardConfig.shootDays[dayIndex].label = newValue
+            }
+
+        default:
+            break
+        }
+    }
+
+    /// Verwijder een door FF aangemaakte folder uit pre-day of post-day list
+    private func handleSegmentDelete(_ segment: PathSegment) {
+        // Day-folder segment: single-day flipt useDateSubfolder=false direct.
+        // Multi-day toont confirm-dialog (verlies van dag-distinctie is destructief).
+        if segment.type == .dayFolder {
+            if !projectConfig.isMultiDayShoot {
+                cardConfig.useDateSubfolder = false
+            } else {
+                let alert = NSAlert()
+                alert.messageText = String(localized: "filesafe.pathviewer.day_remove_confirm.title")
+                alert.informativeText = String(localized: "filesafe.pathviewer.day_remove_confirm.message")
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: String(localized: "filesafe.pathviewer.day_remove_confirm.confirm"))
+                alert.addButton(withTitle: String(localized: "filesafe.pathviewer.day_remove_confirm.cancel"))
+                if alert.runModal() == .alertFirstButtonReturn {
+                    cardConfig.useDateSubfolder = false
+                }
+            }
+            return
+        }
+
+        guard let category = segment.category else { return }
+        let key = category.rawValue
+
+        // Verwijder uit postDaySubfolders als het daar in staat
+        if var postDay = cardConfig.postDaySubfolders[key],
+           let idx = postDay.firstIndex(of: segment.value) {
+            postDay.remove(at: idx)
+            cardConfig.postDaySubfolders[key] = postDay.isEmpty ? nil : postDay
+            return
+        }
+
+        // Anders uit customPathOverride verwijderen
+        if var chain = cardConfig.customPathOverride[key],
+           let idx = chain.firstIndex(of: segment.value) {
+            chain.remove(at: idx)
+            cardConfig.customPathOverride[key] = chain.isEmpty ? nil : chain
+            return
+        }
+
+        // Fallback: insertedSubfolders (oudere toevoegmethode)
+        if var inserted = cardConfig.insertedSubfolders[key],
+           let idx = inserted.firstIndex(of: segment.value) {
+            inserted.remove(at: idx)
+            cardConfig.insertedSubfolders[key] = inserted.isEmpty ? nil : inserted
+        }
+    }
+
+    /// Herorder een segment binnen dezelfde categorie + positie (pre-day / post-day).
+    /// Cross-category of cross-position drops worden genegeerd.
+    private func handleSegmentReorder(payload: String, target: PathSegment) {
+        // Payload parse: "FS_SEG|{category}|{position}|{value}"
+        let parts = payload.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false)
+        guard parts.count == 4, parts[0] == "FS_SEG" else { return }
+        let srcCategory = String(parts[1])
+        let srcPosition = String(parts[2])
+        let srcValue = String(parts[3])
+
+        // Doel moet een category hebben en editable zijn
+        guard let targetCategory = target.category?.rawValue,
+              target.isNameEditable else { return }
+
+        // Vind target segment in segmentedPaths om zijn positie te bepalen
+        let paths = segmentedPaths
+        guard let entry = paths.first(where: { entry in
+            entry.segments.first(where: { $0.category != nil })?.category?.rawValue == targetCategory
+        }) else { return }
+
+        let dayIdx = entry.segments.firstIndex(where: { $0.type == .dayFolder })
+        let targetIdx = entry.segments.firstIndex(where: {
+            $0.type == target.type && $0.value == target.value && $0.category == target.category
+        })
+        let targetPosition: String
+        if let targetIdx = targetIdx, let dayIdx = dayIdx, targetIdx > dayIdx {
+            targetPosition = "post"
+        } else {
+            targetPosition = "pre"
+        }
+
+        // Beperking: alleen binnen dezelfde categorie + positie
+        guard srcCategory == targetCategory, srcPosition == targetPosition else { return }
+        guard srcValue != target.value else { return } // drop op zichzelf → no-op
+
+        // Pas de juiste lijst aan.
+        // Na remove op fromIdx schuiven items ná die index één plek op; insert op
+        // targets originele toIdx plaatst het gesleepte item dus op de positie van
+        // het target — target zelf schuift naar rechts (bij forward drag) of
+        // behoudt zijn relatieve volgorde (bij backward drag).
+        if srcPosition == "post" {
+            var list = cardConfig.postDaySubfolders[srcCategory] ?? []
+            guard let fromIdx = list.firstIndex(of: srcValue),
+                  let toIdx = list.firstIndex(of: target.value),
+                  fromIdx != toIdx else { return }
+            let moved = list.remove(at: fromIdx)
+            list.insert(moved, at: min(toIdx, list.count))
+            cardConfig.postDaySubfolders[srcCategory] = list
+        } else {
+            var list = cardConfig.customPathOverride[srcCategory] ?? []
+            guard let fromIdx = list.firstIndex(of: srcValue),
+                  let toIdx = list.firstIndex(of: target.value),
+                  fromIdx != toIdx else { return }
+            let moved = list.remove(at: fromIdx)
+            list.insert(moved, at: min(toIdx, list.count))
+            cardConfig.customPathOverride[srcCategory] = list
+        }
+    }
+
     var body: some View {
         DisclosureGroup(
             isExpanded: $isExpanded,
             content: {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(examplePaths, id: \.self) { path in
-                        HStack(spacing: 6) {
-                            Image(systemName: path.hasSuffix("/") ? "folder.fill" : "doc.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(path.hasSuffix("/") ? .accentColor : .secondary)
-                            Text(path)
-                                .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
+                    ForEach(Array(segmentedPaths.enumerated()), id: \.offset) { pathIndex, entry in
+                        FileSafeInteractivePath(
+                            segments: entry.segments,
+                            projectPath: projectPath,
+                            onSegmentChange: handleSegmentChange,
+                            onInsertSegment: { segIndex, folderName in
+                                handleSegmentInsert(pathIndex: pathIndex, segmentIndex: segIndex, folderName: folderName)
+                            },
+                            onSegmentDelete: handleSegmentDelete,
+                            onSegmentReorder: handleSegmentReorder,
+                            trailingBadge: entry.fileCount > 1
+                                ? String(format: String(localized: "filesafe.pathviewer.files_count_suffix"), entry.fileCount - 1)
+                                : nil
+                        )
                     }
 
-                    if examplePaths.isEmpty {
+                    if segmentedPaths.isEmpty {
                         Text(String(localized: "filesafe.cardconfig.no_preview"))
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
@@ -2017,6 +3314,7 @@ struct FileSafeStructurePreviewView: View {
     let totalSize: Int64
     let duplicateCount: Int
     let duplicateSize: Int64
+    var duplicateFileIds: Set<UUID> = []
     @Binding var skipDuplicates: Bool
     let onStartCopy: () -> Void
     let onBack: () -> Void
@@ -2027,6 +3325,15 @@ struct FileSafeStructurePreviewView: View {
 
     private var sizeToCopy: Int64 {
         skipDuplicates ? totalSize - duplicateSize : totalSize
+    }
+
+    /// Bevat de tree ergens een folder met `isAffected == false`?
+    private func hasNonAffectedFolders(_ folder: FileSafeTargetFolder) -> Bool {
+        if !folder.isAffected { return true }
+        for child in folder.children {
+            if hasNonAffectedFolders(child) { return true }
+        }
+        return false
     }
 
     var body: some View {
@@ -2094,8 +3401,32 @@ struct FileSafeStructurePreviewView: View {
                         .padding(.bottom, 8)
                     }
 
+                    // Legend — alleen als er non-affected bestaande mappen zijn
+                    if hasNonAffectedFolders(tree) {
+                        HStack(spacing: 10) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.accentColor)
+                                Text(String(localized: "filesafe.preview.legend.affected"))
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                            }
+                            HStack(spacing: 4) {
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary.opacity(0.5))
+                                Text(String(localized: "filesafe.preview.legend.existing"))
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(.bottom, 6)
+                    }
+
                     // Folder structure tree (start bij project root)
-                    FolderTreeRow(folder: tree, depth: 0)
+                    FolderTreeRow(folder: tree, depth: 0, duplicateFileIds: duplicateFileIds)
                 }
                 .padding(12)
             }
@@ -2124,7 +3455,12 @@ struct FileSafeStructurePreviewView: View {
 struct FolderTreeRow: View {
     let folder: FileSafeTargetFolder
     let depth: Int
+    var duplicateFileIds: Set<UUID> = []
     @State private var isExpanded = true
+
+    private var hasContent: Bool {
+        !folder.children.isEmpty || !folder.files.isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -2140,7 +3476,7 @@ struct FolderTreeRow: View {
                 }
 
                 // Expand/collapse
-                if !folder.children.isEmpty {
+                if hasContent {
                     Button(action: { withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() } }) {
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                             .font(.system(size: 9))
@@ -2155,10 +3491,11 @@ struct FolderTreeRow: View {
 
                 Image(systemName: "folder.fill")
                     .font(.system(size: 11))
-                    .foregroundColor(.accentColor)
+                    .foregroundColor(folder.isAffected ? .accentColor : .secondary.opacity(0.5))
 
                 Text(folder.displayName)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 12, weight: folder.isAffected ? .medium : .regular))
+                    .foregroundColor(folder.isAffected ? .primary : .secondary.opacity(0.7))
 
                 Spacer()
 
@@ -2173,10 +3510,65 @@ struct FolderTreeRow: View {
                 }
             }
             .frame(height: 22)
+            .opacity(folder.isAffected ? 1.0 : 0.65)
 
             if isExpanded {
+                // Subfolder children
                 ForEach(folder.children) { child in
-                    FolderTreeRow(folder: child, depth: depth + 1)
+                    FolderTreeRow(folder: child, depth: depth + 1, duplicateFileIds: duplicateFileIds)
+                }
+
+                // Bestanden in deze map (max 5)
+                if !folder.files.isEmpty {
+                    let displayFiles = Array(folder.files.prefix(5))
+                    ForEach(displayFiles) { file in
+                        let isDuplicate = duplicateFileIds.contains(file.id)
+                        HStack(spacing: 4) {
+                            if depth + 1 > 0 {
+                                ForEach(0..<(depth + 1), id: \.self) { _ in
+                                    Rectangle()
+                                        .fill(Color.secondary.opacity(0.15))
+                                        .frame(width: 1)
+                                        .padding(.horizontal, 6)
+                                }
+                            }
+                            Spacer().frame(width: 12)
+                            Image(systemName: "doc.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(isDuplicate ? .orange : .secondary)
+                            Text(file.fileName)
+                                .font(.system(size: 11))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .strikethrough(isDuplicate)
+                                .foregroundColor(isDuplicate ? .orange : .primary)
+                            Spacer()
+                            Text(ByteCountFormatter.string(fromByteCount: file.fileSize, countStyle: .file))
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(height: 20)
+                    }
+
+                    if folder.files.count > 5 {
+                        HStack(spacing: 4) {
+                            if depth + 1 > 0 {
+                                ForEach(0..<(depth + 1), id: \.self) { _ in
+                                    Rectangle()
+                                        .fill(Color.secondary.opacity(0.15))
+                                        .frame(width: 1)
+                                        .padding(.horizontal, 6)
+                                }
+                            }
+                            Spacer().frame(width: 12)
+                            Text("...and \(folder.files.count - 5) more")
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                                .italic()
+                            Spacer()
+                        }
+                        .frame(height: 18)
+                    }
                 }
             }
         }
@@ -2371,10 +3763,43 @@ struct VerificationStepRow: View {
 struct FileSafeReportView: View {
     let report: FileSafeCopyReport
     let projectPath: String
+    var footagePath: String? = nil
+    var isNewProject: Bool = false
+    var projectName: String = ""
     let onEject: () -> Void
     let onOpenFinder: () -> Void
     let onOpenReport: () -> Void
     let onDone: () -> Void
+
+    @State private var importProjectFiles: [URL] = []
+    @State private var isScanningForProjects: Bool = false
+    @State private var showingProjectPicker: Bool = false
+    @State private var showingNLEPicker: Bool = false
+    @State private var importStatus: String? = nil
+    @State private var importWatcherTask: Task<Void, Never>? = nil
+    @State private var importStatusPollTask: Task<Void, Never>? = nil
+
+    /// Of de gekozen projectmap een .prproj/.drp bevat. Default true bij `isNewProject == false`
+    /// om text-flicker tijdens scan te vermijden (zie Item 11 in plan).
+    @State private var hasExistingProjectFile: Bool = true
+    @State private var isCheckingProjectFiles: Bool = false
+
+    /// Bestanden die succesvol (3/3 checks) zijn gekopieerd en beschikbaar om te importeren.
+    private var importableFiles: [String] {
+        report.results
+            .filter { $0.isFullyVerified }
+            .map { $0.destinationPath }
+    }
+
+    private var hasImportableFiles: Bool {
+        !importableFiles.isEmpty
+    }
+
+    /// "Nieuw project" indien expliciet als nieuw aangemerkt, of indien de gekozen
+    /// bestaande map geen NLE-projectbestand bevat (.prproj/.drp).
+    private var effectiveIsNewProject: Bool {
+        isNewProject || !hasExistingProjectFile
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2520,9 +3945,39 @@ struct FileSafeReportView: View {
                 .padding(12)
             }
 
-            // Action buttons
+            // Action buttons + Import Footage
             VStack(spacing: 8) {
                 Divider()
+
+                // Import footage — alleen tonen bij succesvolle transfer
+                if hasImportableFiles {
+                    importFootageButton
+                        .padding(.horizontal, 12)
+                        .padding(.top, 4)
+
+                    if let status = importStatus {
+                        HStack(spacing: 6) {
+                            Image(systemName: "info.circle.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.accentColor)
+                            Text(status)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            if importWatcherTask != nil {
+                                Button(String(localized: "filesafe.report.import.cancel_watch")) {
+                                    importWatcherTask?.cancel()
+                                    importWatcherTask = nil
+                                    importStatus = nil
+                                }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 10))
+                                .foregroundColor(.accentColor)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                    }
+                }
 
                 HStack(spacing: 8) {
                     Button(action: onEject) {
@@ -2548,7 +4003,11 @@ struct FileSafeReportView: View {
 
                     Spacer()
 
-                    Button(action: onDone) {
+                    Button(action: {
+                        importWatcherTask?.cancel()
+                        importWatcherTask = nil
+                        onDone()
+                    }) {
                         Text(String(localized: "filesafe.report.done"))
                             .font(.system(size: 12, weight: .medium))
                     }
@@ -2557,6 +4016,267 @@ struct FileSafeReportView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
+            }
+        }
+        .onDisappear {
+            importWatcherTask?.cancel()
+            importWatcherTask = nil
+            importStatusPollTask?.cancel()
+            importStatusPollTask = nil
+        }
+        .onAppear {
+            // Item 11: detecteer of de gekozen "bestaande" map daadwerkelijk een
+            // NLE-projectbestand bevat. Zo niet → behandel als nieuw project zodat
+            // de gebruiker via de NLE-picker een nieuw .prproj/.drp kan aanmaken.
+            guard !isNewProject else {
+                hasExistingProjectFile = false
+                return
+            }
+            isCheckingProjectFiles = true
+            Task {
+                let files = await ProjectScanner.shared.findProjectFiles(in: projectPath)
+                await MainActor.run {
+                    hasExistingProjectFile = !files.isEmpty
+                    isCheckingProjectFiles = false
+                }
+            }
+        }
+    }
+
+    // MARK: - Import Footage knop
+
+    @ViewBuilder
+    private var importFootageButton: some View {
+        Button(action: handleImportTap) {
+            HStack(spacing: 8) {
+                if isScanningForProjects || importWatcherTask != nil {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.7)
+                } else {
+                    Image(systemName: effectiveIsNewProject
+                          ? "plus.rectangle.on.folder.fill"
+                          : "square.and.arrow.down.on.square.fill")
+                        .font(.system(size: 14))
+                }
+                Text(importButtonLabel)
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.large)
+        .disabled(isScanningForProjects)
+        .popover(isPresented: $showingProjectPicker) {
+            NLEProjectFilesPopover(
+                files: importProjectFiles,
+                emptyMessage: String(localized: "filesafe.report.import.no_project"),
+                onPick: { url in
+                    showingProjectPicker = false
+                    startImport(using: url)
+                }
+            )
+        }
+        .popover(isPresented: $showingNLEPicker) {
+            newProjectNLEPicker
+        }
+    }
+
+    private var importButtonLabel: String {
+        if effectiveIsNewProject {
+            return String(localized: "filesafe.report.import.create_new")
+        } else {
+            let name = projectName.isEmpty
+                ? URL(fileURLWithPath: projectPath).lastPathComponent
+                : projectName
+            return String(format: String(localized: "filesafe.report.import.existing"), name)
+        }
+    }
+
+    // MARK: - Nieuwe-project NLE picker
+
+    private var newProjectNLEPicker: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(String(localized: "filesafe.report.import.pick_nle"))
+                .font(.system(size: 12, weight: .semibold))
+
+            ForEach(NLEType.allCases, id: \.self) { nle in
+                Button {
+                    showingNLEPicker = false
+                    launchNLEAndWatch(nle: nle)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: nle.icon)
+                            .font(.system(size: 14))
+                            .foregroundColor(.accentColor)
+                        Text(nle.displayName)
+                            .font(.system(size: 12))
+                        Spacer()
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(10)
+        .frame(width: 220)
+    }
+
+    // MARK: - Acties
+
+    private func handleImportTap() {
+        importStatus = nil
+        if effectiveIsNewProject {
+            showingNLEPicker = true
+        } else {
+            // Scan naar NLE projectbestanden in de projectmap
+            isScanningForProjects = true
+            Task {
+                let files = await ProjectScanner.shared.findProjectFiles(in: projectPath)
+                await MainActor.run {
+                    importProjectFiles = files
+                    isScanningForProjects = false
+
+                    if files.count == 1 {
+                        // Direct importeren
+                        startImport(using: files[0])
+                    } else {
+                        // 0 of >1: toon popover
+                        showingProjectPicker = true
+                    }
+                }
+            }
+        }
+    }
+
+    private func startImport(using projectURL: URL) {
+        let nle = NLEType.from(projectPath: projectURL.path) ?? .premiere
+        let dateString = DateFormatter.localizedString(
+            from: Date(),
+            dateStyle: .none,
+            timeStyle: .short
+        )
+        let binPath = "FileSafe Import \(dateString)"
+
+        let targetDir = footagePath ?? projectPath
+        let job = JobRequest(
+            projectPath: projectURL.path,
+            finderTargetDir: targetDir,
+            premiereBinPath: binPath,
+            files: importableFiles,
+            assetType: "footage",
+            nleType: nle
+        )
+        let jobId = job.id
+        JobServer.shared.addJob(job)
+        NLEChecker.shared.bringToFront(nle)
+
+        importStatus = String(
+            format: String(localized: "filesafe.report.import.queued"),
+            importableFiles.count
+        )
+
+        // Poll JobServer zodat de gebruiker ziet of de plugin de job heeft
+        // opgehaald, of dat de heartbeat nog niet matcht.
+        importStatusPollTask?.cancel()
+        importStatusPollTask = Task { @MainActor in
+            let start = Date()
+            var lastStatus: String?
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if Task.isCancelled { return }
+                let state = JobServer.shared.jobState(id: jobId)
+                switch state {
+                case .pending:
+                    let elapsed = Int(Date().timeIntervalSince(start))
+                    let key: String.LocalizationValue = elapsed > 30
+                        ? "filesafe.report.import.waiting_long"
+                        : "filesafe.report.import.waiting"
+                    let status = String(format: String(localized: key), elapsed)
+                    if status != lastStatus {
+                        importStatus = status
+                        lastStatus = status
+                    }
+                case .inProgress:
+                    let status = String(localized: "filesafe.report.import.importing")
+                    if status != lastStatus {
+                        importStatus = status
+                        lastStatus = status
+                    }
+                case .completed(let result):
+                    importStatus = String(
+                        format: String(localized: "filesafe.report.import.done"),
+                        result.importedFiles.count
+                    )
+                    return
+                case .unknown:
+                    return
+                }
+            }
+        }
+    }
+
+    /// Voor nieuwe projecten: open de NLE en wacht tot er een projectbestand op disk verschijnt.
+    private func launchNLEAndWatch(nle: NLEType) {
+        // Open de NLE applicatie
+        let bundleId: String
+        switch nle {
+        case .premiere: bundleId = "com.adobe.PremierePro"
+        case .resolve: bundleId = "com.blackmagic-design.DaVinciResolve"
+        }
+        if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+            let config = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, _ in }
+        } else {
+            NLEChecker.shared.bringToFront(nle)
+        }
+
+        importStatus = String(
+            format: String(localized: "filesafe.report.import.watching"),
+            nle.displayName
+        )
+
+        // Start watcher: elke 3s scannen of er een .prproj/.drp in de projectmap verschijnt
+        importWatcherTask?.cancel()
+        importWatcherTask = Task {
+            let maxSeconds = 600.0 // 10 minuten
+            let pollInterval: UInt64 = 3_000_000_000 // 3s
+            let start = Date()
+
+            while !Task.isCancelled {
+                let elapsed = Date().timeIntervalSince(start)
+                if elapsed > maxSeconds { break }
+
+                let files = await ProjectScanner.shared.findProjectFiles(in: projectPath)
+                if !files.isEmpty {
+                    await MainActor.run {
+                        importProjectFiles = files
+                        importWatcherTask = nil
+                        if files.count == 1 {
+                            importStatus = String(
+                                format: String(localized: "filesafe.report.import.found"),
+                                files[0].lastPathComponent
+                            )
+                            startImport(using: files[0])
+                        } else {
+                            importStatus = String(localized: "filesafe.report.import.multiple_found")
+                            showingProjectPicker = true
+                        }
+                    }
+                    return
+                }
+
+                try? await Task.sleep(nanoseconds: pollInterval)
+            }
+
+            await MainActor.run {
+                if importWatcherTask != nil {
+                    importStatus = String(localized: "filesafe.report.import.timeout")
+                    importWatcherTask = nil
+                }
             }
         }
     }
@@ -2627,6 +4347,9 @@ struct FileSafeDashboardView: View {
                     FileSafeReportView(
                         report: report,
                         projectPath: transfer.projectPath,
+                        footagePath: transfer.footagePath,
+                        isNewProject: transfer.isNewProject,
+                        projectName: transfer.projectName,
                         onEject: {},
                         onOpenFinder: {
                             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: transfer.projectPath)

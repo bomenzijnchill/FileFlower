@@ -136,6 +136,7 @@ struct FileSafeView: View {
                             totalSize: fileMappings.reduce(0) { $0 + $1.source.fileSize },
                             duplicateCount: fileMappings.filter { $0.isDuplicate }.count,
                             duplicateSize: fileMappings.filter { $0.isDuplicate }.reduce(0) { $0 + $1.source.fileSize },
+                            duplicateFileIds: Set(fileMappings.filter { $0.isDuplicate }.map { $0.source.id }),
                             skipDuplicates: $skipDuplicates,
                             onStartCopy: { startCopy() },
                             onBack: { withAnimation { currentStep = .cardConfig } }
@@ -253,9 +254,13 @@ struct FileSafeView: View {
                 await MainActor.run {
                     self.scanResult = result
 
-                    // Auto-detectie: als alle materiaal van 1 dag is EN er is nog geen config
-                    if result.isSingleDay && !self.hasExistingProjectConfig {
-                        projectConfig.isMultiDayShoot = false
+                    // Auto-detectie multi-day op basis van gedetecteerde datums
+                    if !self.hasExistingProjectConfig {
+                        if result.uniqueCalendarDays.count > 1 {
+                            projectConfig.isMultiDayShoot = true
+                        } else if result.isSingleDay {
+                            projectConfig.isMultiDayShoot = false
+                        }
                     }
 
                     // Altijd projectConfig stap tonen (pre-filled met opgeslagen config)
@@ -276,25 +281,64 @@ struct FileSafeView: View {
               let projectPath = selectedProjectPath,
               let cardConfig = cardConfig else { return }
 
+        // Als er een active template is, gebruik die (met default parameter-waarden +
+        // projectnaam als "Project Name" parameter bestaat).
+        let activeTemplate = TemplateDeployFlow.activeTemplate(for: appState.config)
+        let activeTemplateValues = activeTemplate.map { template -> [String: String] in
+            var values = TemplateDeployFlow.defaultValues(for: template)
+            let projectNameKey = template.parameters.first { param in
+                let lower = param.title.lowercased()
+                return lower == "project name" || lower == "projectname" || lower == "project"
+            }?.title
+            if let key = projectNameKey, !projectConfig.projectName.isEmpty {
+                values[key] = projectConfig.projectName
+            }
+            return values
+        } ?? [:]
+
         let (tree, mappings) = FileSafeStructureBuilder.shared.buildStructure(
             projectPath: projectPath,
             scanResult: scanResult,
             projectConfig: projectConfig,
             cardConfig: cardConfig,
             folderPreset: appState.config.folderStructurePreset,
-            customTemplate: appState.config.customFolderTemplate
+            customTemplate: appState.config.customFolderTemplate,
+            activeTemplate: activeTemplate,
+            activeTemplateValues: activeTemplateValues
         )
 
-        structurePreview = tree
+        // Bestaande project → merge bestaande mappen in zodat de preview de
+        // volledige projectboom laat zien (grijs voor non-affected folders).
+        // Bij nieuwe projecten is er nog niks op disk, dus merge overslaan.
+        let merged: FileSafeTargetFolder
+        if !isNewProject {
+            merged = FileSafeStructureBuilder.shared.mergeExistingProjectTree(
+                targetTree: tree,
+                existingProjectPath: projectPath
+            )
+        } else {
+            merged = tree
+        }
+
+        structurePreview = merged
         fileMappings = mappings
 
         // Detecteer duplicaten (bestanden die al in het project staan)
         // Gebruik existingProjectPath zodat bestaande mappen (bijv. "FOOTAGE") herkend worden
-        let footagePath = FileSafeStructureBuilder.shared.resolveBasePaths(
-            preset: appState.config.folderStructurePreset,
-            customTemplate: appState.config.customFolderTemplate,
-            existingProjectPath: projectPath
-        ).footagePath
+        let footagePath: String
+        if let template = activeTemplate {
+            footagePath = FileSafeStructureBuilder.shared.resolveBasePaths(
+                template: template,
+                values: activeTemplateValues,
+                existingProjectPath: projectPath
+            ).footagePath
+        } else {
+            footagePath = FileSafeStructureBuilder.shared.resolveBasePaths(
+                preset: appState.config.folderStructurePreset,
+                customTemplate: appState.config.customFolderTemplate,
+                existingProjectPath: projectPath
+            ).footagePath
+        }
         FileSafeStructureBuilder.shared.detectDuplicates(
             in: &fileMappings,
             projectPath: projectPath,
@@ -316,16 +360,52 @@ struct FileSafeView: View {
                 withIntermediateDirectories: true
             )
 
-            let deployConfig = DeployConfig(
-                folderStructurePreset: appState.config.folderStructurePreset,
-                customFolderTemplate: appState.config.customFolderTemplate
-            )
-            _ = try? TemplateDeployer.deploy(
-                to: URL(fileURLWithPath: projectPath),
-                config: deployConfig
-            )
+            // Nieuwe flow: active template met parameter-prompt
+            if let template = TemplateDeployFlow.activeTemplate(for: appState.config) {
+                if TemplateDeployFlow.needsPrompt(for: template) {
+                    // Toon parameter-sheet — deploy gebeurt in completion
+                    let controller = ParameterValueWindowController(
+                        templateName: template.name,
+                        parameters: template.parameters,
+                        onResult: { [self] values in
+                            if let values = values {
+                                _ = try? TemplateDeployer.deploy(
+                                    to: URL(fileURLWithPath: projectPath),
+                                    template: template,
+                                    values: values
+                                )
+                                continueStartCopy(projectPath: projectPath)
+                            }
+                            // Annulering → niks doen, user blijft op scherm
+                        }
+                    )
+                    controller.show()
+                    return
+                } else {
+                    _ = try? TemplateDeployer.deploy(
+                        to: URL(fileURLWithPath: projectPath),
+                        template: template,
+                        values: TemplateDeployFlow.defaultValues(for: template)
+                    )
+                }
+            } else {
+                // Legacy preset-flow
+                let deployConfig = DeployConfig(
+                    folderStructurePreset: appState.config.folderStructurePreset,
+                    customFolderTemplate: appState.config.customFolderTemplate
+                )
+                _ = try? TemplateDeployer.deploy(
+                    to: URL(fileURLWithPath: projectPath),
+                    config: deployConfig
+                )
+            }
         }
 
+        continueStartCopy(projectPath: projectPath)
+    }
+
+    /// Tweede deel van startCopy — wordt uitgevoerd na (synchrone of async) template-deploy.
+    private func continueStartCopy(projectPath: String) {
         // Sla project config direct op (niet wachten tot kopie klaar is)
         projectConfig.lastUpdated = Date()
         try? projectConfig.save(to: projectPath)
@@ -343,10 +423,26 @@ struct FileSafeView: View {
         )
 
         // Bepaal footage path voor rapport
-        let footagePath = FileSafeStructureBuilder.shared.resolveBasePaths(
-            preset: appState.config.folderStructurePreset,
-            customTemplate: appState.config.customFolderTemplate
-        ).footagePath
+        let footagePath: String
+        if let template = TemplateDeployFlow.activeTemplate(for: appState.config) {
+            var values = TemplateDeployFlow.defaultValues(for: template)
+            let projectNameKey = template.parameters.first { param in
+                let lower = param.title.lowercased()
+                return lower == "project name" || lower == "projectname" || lower == "project"
+            }?.title
+            if let key = projectNameKey, !projectConfig.projectName.isEmpty {
+                values[key] = projectConfig.projectName
+            }
+            footagePath = FileSafeStructureBuilder.shared.resolveBasePaths(
+                template: template,
+                values: values
+            ).footagePath
+        } else {
+            footagePath = FileSafeStructureBuilder.shared.resolveBasePaths(
+                preset: appState.config.folderStructurePreset,
+                customTemplate: appState.config.customFolderTemplate
+            ).footagePath
+        }
 
         // Start transfer via manager (overleeft window close)
         let transferId = transferManager.startTransfer(
@@ -356,7 +452,8 @@ struct FileSafeView: View {
             projectPath: projectPath,
             footagePath: footagePath,
             projectConfig: projectConfig,
-            skippedCount: skippedCount
+            skippedCount: skippedCount,
+            isNewProject: isNewProject
         )
 
         selectedTransferId = transferId

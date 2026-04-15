@@ -3,9 +3,17 @@ import NIO
 import NIOHTTP1
 import Combine
 
+/// Lifecycle-status van een queued job — gebruikt door UI-polling (FileSafe report screen).
+enum JobState {
+    case pending       // Ligt nog in de queue, plugin heeft 'm niet opgehaald
+    case inProgress    // Opgehaald door plugin, wacht op completion
+    case completed(JobResult)
+    case unknown       // Onbekende id (ook state na uitwerking door completeJob + GC)
+}
+
 class JobServer {
     static let shared = JobServer()
-    
+
     private var group: EventLoopGroup?
     private var channel: Channel?
     // Premiere Pro job state (bestaand)
@@ -17,6 +25,11 @@ class JobServer {
     private var resolvePendingJobs: [UUID: JobRequest] = [:]
     private var resolveCompletedJobs: [UUID: JobResult] = [:]
     private var resolveSentJobs: [UUID: JobRequest] = [:]
+
+    // Job-dicts worden zowel op NIO event loop (getNextJob, completeJob)
+    // als vanuit de UI (polling via jobState) geraadpleegd. Lock beschermt
+    // concurrente lezen/schrijven.
+    private let jobsLock = NSLock()
 
     private var isRunning = false
     private let serverQueue = DispatchQueue(label: "com.fileflower.jobserver", qos: .userInitiated)
@@ -152,18 +165,27 @@ class JobServer {
     }
     
     func addJob(_ job: JobRequest) {
+        jobsLock.lock()
         switch job.nleType {
         case .premiere:
             pendingJobs[job.id] = job
             #if DEBUG
+            let pendingCount = pendingJobs.count
+            #endif
+            jobsLock.unlock()
+            #if DEBUG
             print("JobServer: Premiere job toegevoegd - id: \(job.id)")
-            print("JobServer: Pending Premiere jobs: \(pendingJobs.count)")
+            print("JobServer: Pending Premiere jobs: \(pendingCount)")
             #endif
         case .resolve:
             resolvePendingJobs[job.id] = job
             #if DEBUG
+            let pendingCount = resolvePendingJobs.count
+            #endif
+            jobsLock.unlock()
+            #if DEBUG
             print("JobServer: Resolve job toegevoegd - id: \(job.id)")
-            print("JobServer: Pending Resolve jobs: \(resolvePendingJobs.count)")
+            print("JobServer: Pending Resolve jobs: \(pendingCount)")
             #endif
         }
         #if DEBUG
@@ -174,6 +196,9 @@ class JobServer {
     }
     
     func getNextJob() -> JobRequest? {
+        jobsLock.lock()
+        defer { jobsLock.unlock() }
+
         guard let activePath = threadSafeActiveProjectPath else {
             if !pendingJobs.isEmpty {
                 #if DEBUG
@@ -205,6 +230,14 @@ class JobServer {
                 return job
             }
         }
+        #if DEBUG
+        if !pendingJobs.isEmpty {
+            print("JobServer: getNextJob - geen pad-match. normalized active: \(normalizedActive)")
+            for (_, job) in pendingJobs {
+                print("  pending: \(normalizePath(job.projectPath))")
+            }
+        }
+        #endif
         return nil
     }
 
@@ -214,10 +247,13 @@ class JobServer {
     }
     
     func completeJob(_ result: JobResult) {
+        jobsLock.lock()
         completedJobs[result.jobId] = result
+        let originalJob = sentJobs.removeValue(forKey: result.jobId)
+        jobsLock.unlock()
 
         // Haal de originele job op voor syncId en pendingHashes
-        guard let originalJob = sentJobs.removeValue(forKey: result.jobId),
+        guard let originalJob = originalJob,
               let syncId = originalJob.syncId,
               !originalJob.pendingHashes.isEmpty else {
             return
@@ -302,6 +338,9 @@ class JobServer {
 
     /// Haal de volgende Resolve job op die matcht met het actieve Resolve project
     func getNextResolveJob() -> JobRequest? {
+        jobsLock.lock()
+        defer { jobsLock.unlock() }
+
         guard let activePath = threadSafeResolveActiveProjectPath else {
             if !resolvePendingJobs.isEmpty {
                 #if DEBUG
@@ -331,14 +370,45 @@ class JobServer {
                 return job
             }
         }
+        #if DEBUG
+        if !resolvePendingJobs.isEmpty {
+            print("JobServer: getNextResolveJob - geen pad-match. normalized active: \(normalizedActive)")
+            for (_, job) in resolvePendingJobs {
+                print("  pending: \(normalizePath(job.projectPath))")
+            }
+        }
+        #endif
         return nil
+    }
+
+    // MARK: - Job state lookup (voor UI polling)
+
+    /// Geef de huidige status van een job terug (Premiere OF Resolve, eerste match).
+    /// Gebruikt door FileSafe import-polling om de wachtstatus naar de gebruiker te surface'n.
+    func jobState(id: UUID) -> JobState {
+        jobsLock.lock()
+        defer { jobsLock.unlock() }
+
+        if let result = completedJobs[id] ?? resolveCompletedJobs[id] {
+            return .completed(result)
+        }
+        if sentJobs[id] != nil || resolveSentJobs[id] != nil {
+            return .inProgress
+        }
+        if pendingJobs[id] != nil || resolvePendingJobs[id] != nil {
+            return .pending
+        }
+        return .unknown
     }
 
     /// Verwerk het resultaat van een Resolve job
     func completeResolveJob(_ result: JobResult) {
+        jobsLock.lock()
         resolveCompletedJobs[result.jobId] = result
+        let originalJob = resolveSentJobs.removeValue(forKey: result.jobId)
+        jobsLock.unlock()
 
-        guard let originalJob = resolveSentJobs.removeValue(forKey: result.jobId),
+        guard let originalJob = originalJob,
               let syncId = originalJob.syncId,
               !originalJob.pendingHashes.isEmpty else {
             return
@@ -688,13 +758,47 @@ private class HTTPHandler: ChannelInboundHandler {
                             print("JobServer: Deploy template request voor: \(targetPath)")
                             #endif
 
-                            // Lees config direct uit AppState (main app is niet gesandboxed)
-                            let config = DeployConfig(
-                                folderStructurePreset: AppState.shared.config.folderStructurePreset,
-                                customFolderTemplate: AppState.shared.config.customFolderTemplate
-                            )
+                            let appConfig = AppState.shared.config
+                            let count: Int
 
-                            let count = try TemplateDeployer.deploy(to: targetURL, config: config)
+                            // Nieuwe flow: active template met parameters
+                            if let template = TemplateDeployFlow.activeTemplate(for: appConfig) {
+                                // Parse parameter values uit body (optioneel)
+                                var values = TemplateDeployFlow.defaultValues(for: template)
+                                if let rawValues = json["parameterValues"] as? [String: String] {
+                                    for (k, v) in rawValues { values[k] = v }
+                                }
+
+                                // Valideer vereiste parameters
+                                let missing = template.parameters.first { param in
+                                    param.cannotBeEmpty &&
+                                    (values[param.title]?.trimmingCharacters(in: .whitespaces).isEmpty ?? true)
+                                }
+                                if let missing = missing {
+                                    var errorBody = context.channel.allocator.buffer(capacity: 200)
+                                    errorBody.writeString(
+                                        "{\"status\":\"error\",\"message\":\"Missing required parameter: \(jsonEscape(missing.title))\"}"
+                                    )
+                                    response = (
+                                        head: HTTPResponseHead(version: .http1_1, status: .badRequest),
+                                        body: errorBody
+                                    )
+                                    break
+                                }
+
+                                count = try TemplateDeployer.deploy(
+                                    to: targetURL,
+                                    template: template,
+                                    values: values
+                                )
+                            } else {
+                                // Legacy preset-flow
+                                let config = DeployConfig(
+                                    folderStructurePreset: appConfig.folderStructurePreset,
+                                    customFolderTemplate: appConfig.customFolderTemplate
+                                )
+                                count = try TemplateDeployer.deploy(to: targetURL, config: config)
+                            }
 
                             #if DEBUG
                             print("JobServer: \(count) mappen aangemaakt in \(targetPath)")

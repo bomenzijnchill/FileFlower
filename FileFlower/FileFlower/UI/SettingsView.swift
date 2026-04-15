@@ -37,6 +37,7 @@ struct SettingsView: View {
     
     enum SettingsTab: String, CaseIterable {
         case general = "General"
+        case folderStructure = "FolderStructure"
         case classification = "Classification"
         case websites = "Websites"
         case updates = "Updates"
@@ -45,6 +46,7 @@ struct SettingsView: View {
         var icon: String {
             switch self {
             case .general: return "gear"
+            case .folderStructure: return "folder.badge.gearshape"
             case .classification: return "waveform"
             case .websites: return "globe"
             case .updates: return "arrow.triangle.2.circlepath"
@@ -55,6 +57,7 @@ struct SettingsView: View {
         var localizedName: String {
             switch self {
             case .general: return String(localized: "settings.tab.general")
+            case .folderStructure: return String(localized: "settings.tab.folder_structure")
             case .classification: return String(localized: "settings.tab.classification")
             case .websites: return String(localized: "settings.tab.websites")
             case .updates: return String(localized: "settings.tab.updates")
@@ -185,25 +188,34 @@ struct SettingsView: View {
     
     @ViewBuilder
     private var tabContent: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            VStack(spacing: 12) {
-                switch selectedTab {
-                case .general:
-                    generalTabContent
-                case .classification:
-                    classificationTabContent
-                case .websites:
-                    websitesTabContent
-                case .updates:
-                    updatesTabContent
-                case .feedback:
-                    feedbackTabContent
+        // Folder Structure heeft een eigen split-layout met interne scroll —
+        // render die flush, zonder outer ScrollView of padding.
+        if selectedTab == .folderStructure {
+            folderStructureTabContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 12) {
+                    switch selectedTab {
+                    case .general:
+                        generalTabContent
+                    case .folderStructure:
+                        EmptyView() // onbereikbaar — zie conditional hierboven
+                    case .classification:
+                        classificationTabContent
+                    case .websites:
+                        websitesTabContent
+                    case .updates:
+                        updatesTabContent
+                    case .feedback:
+                        feedbackTabContent
+                    }
                 }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
     private var generalTabContent: some View {
@@ -237,16 +249,19 @@ struct SettingsView: View {
                 autoAddActiveProjectRoot: $autoAddActiveProjectRoot
             )
 
-            FolderStructureSection(
-                folderStructurePreset: $folderStructurePreset,
-                onSave: saveConfig
-            )
-
             // Analytics
             AnalyticsSection(analyticsEnabled: $analyticsEnabled)
         }
     }
-    
+
+    private var folderStructureTabContent: some View {
+        FolderStructureTemplateView(
+            appState: appState,
+            folderStructurePreset: $folderStructurePreset,
+            onSave: saveConfig
+        )
+    }
+
     private var classificationTabContent: some View {
         VStack(spacing: 12) {
             MusicClassificationSection(musicMode: $musicMode)
@@ -571,241 +586,7 @@ struct SfxSubfoldersSection: View {
     }
 }
 
-// MARK: - Analytics Section
-
-// MARK: - Folder Structure Section
-
-struct FolderStructureSection: View {
-    @StateObject private var appState = AppState.shared
-    @Binding var folderStructurePreset: FolderStructurePreset
-    let onSave: () -> Void
-
-    @State private var templateFolderPath: String = ""
-    @State private var scannedFolderTree: FolderNode?
-    @State private var isScanningTemplate = false
-    @State private var isAnalyzingTemplate = false
-    @State private var templateMapping: FolderTypeMapping?
-    @State private var templateError: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(String(localized: "settings.folder_structure"))
-                .font(.system(size: 13, weight: .semibold))
-
-            // Preset picker
-            Picker(String(localized: "settings.folder_preset"), selection: $folderStructurePreset) {
-                ForEach(FolderStructurePreset.allCases, id: \.self) { preset in
-                    Text(String(localized: preset.displayKey)).tag(preset)
-                }
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: folderStructurePreset) { _, _ in onSave() }
-
-            // Custom template management
-            if folderStructurePreset == .custom {
-                if let template = appState.config.customFolderTemplate {
-                    existingTemplateView(template)
-                } else {
-                    noTemplateView
-                }
-            }
-        }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor))
-        .cornerRadius(8)
-    }
-
-    private func existingTemplateView(_ template: CustomFolderTemplate) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(systemName: "folder.fill")
-                    .foregroundColor(.accentColor)
-                Text(URL(fileURLWithPath: template.sourcePath).lastPathComponent)
-                    .font(.system(size: 12, weight: .medium))
-                Spacer()
-                Button(String(localized: "settings.template.change")) {
-                    selectTemplateFolder()
-                }
-                .controlSize(.small)
-            }
-
-            if let desc = template.mapping.description {
-                Text(desc)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .italic()
-            }
-
-            if let date = template.mapping.analyzedAt {
-                Text("\(String(localized: "settings.template.analyzed_at")) \(date.formatted(date: .abbreviated, time: .shortened))")
-                    .font(.system(size: 10))
-                    .foregroundColor(.secondary)
-            }
-
-            // Mapping overzicht
-            VStack(alignment: .leading, spacing: 2) {
-                settingsMappingRow("Music", path: template.mapping.musicPath)
-                settingsMappingRow("SFX", path: template.mapping.sfxPath)
-                settingsMappingRow("Voice Over", path: template.mapping.voPath)
-                settingsMappingRow("Graphics", path: template.mapping.graphicsPath)
-                settingsMappingRow("Motion Graphics", path: template.mapping.motionGraphicsPath)
-                settingsMappingRow("Stock Footage", path: template.mapping.stockFootagePath)
-            }
-            .padding(6)
-            .background(Color(NSColor.textBackgroundColor))
-            .cornerRadius(4)
-
-            Button(String(localized: "settings.template.reanalyze")) {
-                reanalyzeTemplate(template)
-            }
-            .controlSize(.small)
-            .disabled(isAnalyzingTemplate)
-
-            if isAnalyzingTemplate {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text(String(localized: "onboarding.template.analyzing"))
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            if let error = templateError {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundColor(.orange)
-            }
-        }
-        .padding(.top, 4)
-    }
-
-    private var noTemplateView: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(String(localized: "settings.template.none"))
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
-
-            Button(String(localized: "onboarding.template.select_folder")) {
-                selectTemplateFolder()
-            }
-            .controlSize(.small)
-
-            if isScanningTemplate || isAnalyzingTemplate {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text(String(localized: isScanningTemplate
-                                ? "onboarding.template.scanning"
-                                : "onboarding.template.analyzing"))
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            if let error = templateError {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundColor(.orange)
-            }
-        }
-        .padding(.top, 4)
-    }
-
-    private func settingsMappingRow(_ label: String, path: String?) -> some View {
-        HStack(spacing: 6) {
-            Text(label)
-                .font(.system(size: 10, weight: .medium))
-                .frame(width: 90, alignment: .leading)
-            Image(systemName: "arrow.right")
-                .font(.system(size: 8))
-                .foregroundColor(.secondary)
-            Text(path ?? "-")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundColor(path != nil ? .primary : .secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-    }
-
-    private func selectTemplateFolder() {
-        DispatchQueue.main.async {
-            // Voorkom dat de popover dichtgaat terwijl het folderpaneel open is
-            StatusBarController.shared.setPopoverBehavior(.applicationDefined)
-
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.message = String(localized: "onboarding.template.panel_message")
-            panel.level = .modalPanel
-
-            if panel.runModal() == .OK, let url = panel.url {
-                self.templateFolderPath = url.path
-                self.templateError = nil
-                self.isScanningTemplate = true
-
-                Task {
-                    let tree = FolderTemplateService.shared.scanFolderTree(at: url)
-                    await MainActor.run {
-                        self.scannedFolderTree = tree
-                        self.isScanningTemplate = false
-                        self.isAnalyzingTemplate = true
-                    }
-
-                    do {
-                        let mapping = try await FolderTemplateService.shared.analyzeStructure(
-                            tree: tree,
-                            deviceId: self.appState.config.anonymousId
-                        )
-                        await MainActor.run {
-                            self.appState.config.customFolderTemplate = CustomFolderTemplate(
-                                sourcePath: self.templateFolderPath,
-                                folderTree: tree,
-                                mapping: mapping,
-                                createdAt: Date(),
-                                lastUpdatedAt: Date()
-                            )
-                            self.appState.saveConfig()
-                            self.isAnalyzingTemplate = false
-                        }
-                    } catch {
-                        await MainActor.run {
-                            self.templateError = error.localizedDescription
-                            self.isAnalyzingTemplate = false
-                        }
-                    }
-                }
-            }
-
-            // Herstel normaal popover-gedrag
-            StatusBarController.shared.setPopoverBehavior(.transient)
-        }
-    }
-
-    private func reanalyzeTemplate(_ template: CustomFolderTemplate) {
-        templateError = nil
-        isAnalyzingTemplate = true
-
-        Task {
-            do {
-                let mapping = try await FolderTemplateService.shared.analyzeStructure(
-                    tree: template.folderTree,
-                    deviceId: appState.config.anonymousId
-                )
-                await MainActor.run {
-                    appState.config.customFolderTemplate?.mapping = mapping
-                    appState.config.customFolderTemplate?.lastUpdatedAt = Date()
-                    appState.saveConfig()
-                    isAnalyzingTemplate = false
-                }
-            } catch {
-                await MainActor.run {
-                    templateError = error.localizedDescription
-                    isAnalyzingTemplate = false
-                }
-            }
-        }
-    }
-}
+// Folder Structure Section is verplaatst naar FolderStructureTemplateView.swift
 
 struct AnalyticsSection: View {
     @Binding var analyticsEnabled: Bool
