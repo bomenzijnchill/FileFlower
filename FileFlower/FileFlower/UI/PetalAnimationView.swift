@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Bloemblaadje-vorm via quadratic curves
-private struct PetalShape: Shape {
+/// Bloemblaadje-vorm via quadratic curves.
+/// Niet `private`: de gids hergebruikt deze vorm zodat er één bewegingstaal blijft.
+struct PetalShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         let w = rect.width

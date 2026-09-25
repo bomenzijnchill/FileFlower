@@ -44,31 +44,13 @@ struct LoadFolderView: View {
                     }
                 })
             } else {
-                // Toolbar
-                HStack(spacing: 8) {
-                    Text(String(localized: "loadfolder.title"))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.secondary)
+                // Section header
+                QueueSectionHeader(
+                    title: String(localized: "loadfolder.presets_header"),
+                    count: appState.config.loadFolderPresets.count,
+                    style: .ready
+                )
 
-                    Spacer()
-
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            showingAddForm = true
-                        }
-                    }) {
-                        Label(String(localized: "loadfolder.add"), systemImage: "plus")
-                            .font(.system(size: 11))
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .frame(minHeight: 36)
-                .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
-
-                // Preset lijst
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(appState.config.loadFolderPresets) { preset in
@@ -88,6 +70,29 @@ struct LoadFolderView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
                         }
+
+                        // Add button at bottom
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showingAddForm = true
+                            }
+                        }) {
+                            HStack {
+                                Spacer()
+                                Label(String(localized: "loadfolder.add_new"), systemImage: "plus")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.brandBurntPeach)
+                                Spacer()
+                            }
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(Color.brandBurntPeach.opacity(0.3), lineWidth: 1, antialiased: true)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
                     }
                 }
             }
@@ -148,7 +153,7 @@ struct LoadFolderPresetRow: View {
 
                 if !preset.folderExists {
                     Text(String(localized: "loadfolder.folder_not_found"))
-                        .font(.system(size: 9))
+                        .font(.system(size: 11))
                         .foregroundColor(.red)
                 }
             }

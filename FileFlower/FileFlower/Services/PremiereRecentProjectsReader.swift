@@ -80,8 +80,16 @@ class PremiereRecentProjectsReader {
         return Array(projects.prefix(limit))
     }
 
-    /// Check of een pad op een netwerkvolume staat
+    /// Check of een pad op een ECHT netwerkvolume staat.
+    /// Voorheen gold elk pad onder /Volumes/ als "netwerk", waardoor projecten op een
+    /// lokale externe SSD of SD-kaart weggefilterd werden door filterServerProjectsToLocal.
     static func isNetworkPath(_ path: String) -> Bool {
-        return path.hasPrefix("/Volumes/")
+        guard path.hasPrefix("/Volumes/") else { return false }
+        let values = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.volumeIsLocalKey])
+        if let isLocal = values?.volumeIsLocal {
+            return !isLocal
+        }
+        // Kan het volume niet bevragen (niet gemount) → behandel als netwerk (oud gedrag)
+        return true
     }
 }

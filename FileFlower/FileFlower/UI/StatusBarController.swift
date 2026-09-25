@@ -3,6 +3,7 @@ import AppKit
 
 extension Notification.Name {
     static let popoverDidClose = Notification.Name("popoverDidClose")
+    static let processAllFromFooter = Notification.Name("processAllFromFooter")
 }
 
 /// Beheert het menubar icoon en de popover die verschijnt bij klik of nieuwe downloads

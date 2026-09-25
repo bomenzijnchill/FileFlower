@@ -15,6 +15,39 @@ enum FileSafeStep: Int, CaseIterable {
     case report = 8
 }
 
+// MARK: - Wizard Stage (5-step UI presentation)
+
+enum WizardStage: Int, CaseIterable, Identifiable {
+    case source = 1
+    case destination = 2
+    case layout = 3
+    case confirm = 4
+    case done = 5
+
+    var id: Int { rawValue }
+
+    var localizedLabel: String {
+        switch self {
+        case .source:      return String(localized: "filesafe.stage.source")
+        case .destination: return String(localized: "filesafe.stage.destination")
+        case .layout:      return String(localized: "filesafe.stage.layout")
+        case .confirm:     return String(localized: "filesafe.stage.confirm")
+        case .done:        return String(localized: "filesafe.stage.done")
+        }
+    }
+
+    static func stage(for step: FileSafeStep) -> WizardStage? {
+        switch step {
+        case .volumeSelect:                       return .source
+        case .projectSelect, .scanning:           return .destination
+        case .projectConfig, .cardConfig:         return .layout
+        case .structurePreview, .copying:         return .confirm
+        case .report:                             return .done
+        case .dashboard, .emptyState:             return nil
+        }
+    }
+}
+
 // MARK: - File Category
 
 enum FileSafeFileCategory: String, Codable, CaseIterable {
@@ -100,15 +133,18 @@ enum FileSafeDateSource: String, Codable, CaseIterable {
 
 enum FileSafeExtensions {
     static let video: Set<String> = [
-        "mp4", "mov", "mxf", "braw", "r3d", "ari", "mts", "m2ts", "avi", "mkv", "dng"
+        "mp4", "mov", "mxf", "braw", "r3d", "ari", "mts", "m2ts", "avi", "mkv"
     ]
 
     static let audio: Set<String> = [
         "wav", "aif", "aiff", "mp3", "aac", "flac", "bwf", "rf64"
     ]
 
+    // DNG staat hier (niet bij video): DJI-drones en de meeste camera's schrijven DNG
+    // als foto-raw. De RAW/JPEG-split in de photo-builder verwacht dng ook al.
+    // (CinemaDNG-sequenties zijn zeldzaam en horen als map bij de footage.)
     static let photo: Set<String> = [
-        "jpg", "jpeg", "png", "tiff", "tif", "cr3", "cr2", "arw", "nef", "raf", "heic"
+        "jpg", "jpeg", "png", "tiff", "tif", "cr3", "cr2", "arw", "nef", "raf", "heic", "dng"
     ]
 
     static let ignoredFiles: Set<String> = [
@@ -194,6 +230,10 @@ struct FileSafeScanResult: Codable {
     let files: [FileSafeSourceFile]
     let totalSize: Int64
     let scanDate: Date
+    /// Paden die tijdens de scan niet gelezen konden worden (I/O-fouten, rechten).
+    /// Bij een beginnend kaartdefect zou een "geslaagde" scan anders stilzwijgend
+    /// bestanden missen — precies het scenario waarvoor FileSafe bestaat.
+    var unreadablePaths: [String] = []
 
     // Detectie-informatie
     let detectedBrand: FileSafeCameraBrand
@@ -382,6 +422,9 @@ struct FileSafeCardConfig: Codable {
     // tussen dag en bestand/bin.
     var postDaySubfolders: [String: [String]]
 
+    // Cosmetic — toggle on Bevestig step. Engine verifies regardless for now.
+    var verifyAfterCopy: Bool = true
+
     static func defaultFor(scanResult: FileSafeScanResult, projectConfig: FileSafeProjectConfig) -> FileSafeCardConfig {
         var days: [FileSafeShootDay] = []
 
@@ -441,7 +484,8 @@ struct FileSafeCardConfig: Codable {
             audioFolderOverride: nil,
             photoFolderOverride: nil,
             customPathOverride: [:],
-            postDaySubfolders: [:]
+            postDaySubfolders: [:],
+            verifyAfterCopy: true
         )
     }
 
@@ -502,6 +546,7 @@ struct FileSafeCardConfig: Codable {
         case fileSubfolderMap, useDateSubfolder, insertedSubfolders
         case footageFolderOverride, audioFolderOverride, photoFolderOverride
         case customPathOverride, postDaySubfolders
+        case verifyAfterCopy
     }
 }
 
@@ -525,6 +570,7 @@ extension FileSafeCardConfig {
         photoFolderOverride = try c.decodeIfPresent(String.self, forKey: .photoFolderOverride)
         customPathOverride = try c.decodeIfPresent([String: [String]].self, forKey: .customPathOverride) ?? [:]
         postDaySubfolders = try c.decodeIfPresent([String: [String]].self, forKey: .postDaySubfolders) ?? [:]
+        verifyAfterCopy = try c.decodeIfPresent(Bool.self, forKey: .verifyAfterCopy) ?? true
     }
 }
 
@@ -713,6 +759,7 @@ enum PathSegmentType {
     case binName
     case subfolder
     case fileName
+    case token
 }
 
 struct PathSegment: Identifiable {

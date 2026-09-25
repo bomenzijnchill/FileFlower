@@ -15,9 +15,6 @@ struct Config: Codable {
     var bringPremiereToFront: Bool
     var autoOpenBridgePanel: Bool
     var startAtLogin: Bool
-    var useMLXClassification: Bool
-    var mlxModelPath: String?
-    var mlxModelName: String
     var useWebScraping: Bool
     var useGenreMoodDetection: Bool     // Of genre/mood detectie ingeschakeld is
     var useSfxSubfolders: Bool          // Of SFX in subcategorie submappen gesorteerd wordt
@@ -86,9 +83,6 @@ struct Config: Codable {
         bringPremiereToFront: true,
         autoOpenBridgePanel: true,
         startAtLogin: false,
-        useMLXClassification: false,
-        mlxModelPath: nil,
-        mlxModelName: "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
         useWebScraping: true,
         useGenreMoodDetection: true,
         useSfxSubfolders: true,
@@ -131,9 +125,6 @@ struct Config: Codable {
         bringPremiereToFront: Bool = true,
         autoOpenBridgePanel: Bool = true,
         startAtLogin: Bool = false,
-        useMLXClassification: Bool = false,
-        mlxModelPath: String? = nil,
-        mlxModelName: String = "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
         useWebScraping: Bool = true,
         useGenreMoodDetection: Bool = true,
         useSfxSubfolders: Bool = true,
@@ -173,9 +164,6 @@ struct Config: Codable {
         self.bringPremiereToFront = bringPremiereToFront
         self.autoOpenBridgePanel = autoOpenBridgePanel
         self.startAtLogin = startAtLogin
-        self.useMLXClassification = useMLXClassification
-        self.mlxModelPath = mlxModelPath
-        self.mlxModelName = mlxModelName
         self.useWebScraping = useWebScraping
         self.useGenreMoodDetection = useGenreMoodDetection
         self.useSfxSubfolders = useSfxSubfolders
@@ -228,9 +216,6 @@ struct Config: Codable {
         bringPremiereToFront = try container.decodeIfPresent(Bool.self, forKey: .bringPremiereToFront) ?? true
         autoOpenBridgePanel = try container.decodeIfPresent(Bool.self, forKey: .autoOpenBridgePanel) ?? true
         startAtLogin = try container.decodeIfPresent(Bool.self, forKey: .startAtLogin) ?? false
-        useMLXClassification = try container.decodeIfPresent(Bool.self, forKey: .useMLXClassification) ?? false
-        mlxModelPath = try container.decodeIfPresent(String.self, forKey: .mlxModelPath)
-        mlxModelName = try container.decodeIfPresent(String.self, forKey: .mlxModelName) ?? "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
         useWebScraping = try container.decodeIfPresent(Bool.self, forKey: .useWebScraping) ?? true
         useGenreMoodDetection = try container.decodeIfPresent(Bool.self, forKey: .useGenreMoodDetection) ?? true
         useSfxSubfolders = try container.decodeIfPresent(Bool.self, forKey: .useSfxSubfolders) ?? true
@@ -296,9 +281,6 @@ struct Config: Codable {
         try container.encode(bringPremiereToFront, forKey: .bringPremiereToFront)
         try container.encode(autoOpenBridgePanel, forKey: .autoOpenBridgePanel)
         try container.encode(startAtLogin, forKey: .startAtLogin)
-        try container.encode(useMLXClassification, forKey: .useMLXClassification)
-        try container.encodeIfPresent(mlxModelPath, forKey: .mlxModelPath)
-        try container.encode(mlxModelName, forKey: .mlxModelName)
         try container.encode(useWebScraping, forKey: .useWebScraping)
         try container.encode(useGenreMoodDetection, forKey: .useGenreMoodDetection)
         try container.encode(useSfxSubfolders, forKey: .useSfxSubfolders)
@@ -340,9 +322,6 @@ struct Config: Codable {
         case bringPremiereToFront
         case autoOpenBridgePanel
         case startAtLogin
-        case useMLXClassification
-        case mlxModelPath
-        case mlxModelName
         case useWebScraping
         case useGenreMoodDetection
         case useSfxSubfolders
@@ -416,11 +395,29 @@ struct DiscoveredProjectStructure: Codable {
     var namingConvention: String?
     /// Wanneer de structuur voor het laatst is gescand
     var lastScannedDate: Date
+    /// Geleerde padregels op basis van handmatige keuzes en bestaande bestanden
+    var learnedRules: [LearnedPathRule]? = nil
+    /// Of de gebruiker de mapindeling voor dit project heeft bevestigd (dan is hij gezaghebbend).
+    /// Optional zodat oude config-blobs zonder deze key blijven decoderen (migratie-veilig).
+    var confirmed: Bool? = nil
+    var confirmedAt: Date? = nil
 
     /// Of de cache nog geldig is (max 24 uur)
     var isValid: Bool {
         Date().timeIntervalSince(lastScannedDate) < 86400
     }
+}
+
+/// Een geleerde padregel op basis van gebruikerskeuzes of bestaande bestandsplaatsing.
+struct LearnedPathRule: Codable {
+    let assetType: String
+    let subfolder: String?
+    let resolvedPath: String
+    let fileExtensions: [String]
+    let source: String?
+    let learnedAt: Date
+    var usageCount: Int
+    var isScanned: Bool
 }
 
 /// Detecteerbare naamgeving-conventies van projectmappen

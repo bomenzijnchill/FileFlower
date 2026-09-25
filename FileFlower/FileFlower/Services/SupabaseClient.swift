@@ -99,7 +99,12 @@ class SupabaseClient {
                 let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? "geen body"
                 print("SupabaseClient: HTTP \(httpResponse.statusCode) - \(body)")
                 #endif
-                completion(false)
+                // 4xx = permanent geweigerd (schema-mismatch, RLS, te grote payload).
+                // Als "mislukt" rapporteren zou de batch elke 5 minuten eeuwig opnieuw
+                // laten proberen en de queue onbegrensd laten groeien. Alleen 5xx en
+                // netwerkfouten zijn tijdelijk en verdienen een retry.
+                let isPermanent = (400...499).contains(httpResponse.statusCode)
+                completion(isPermanent ? true : false)
             }
         }
 

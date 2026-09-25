@@ -111,9 +111,12 @@ class SourceDetector {
         // Haal de 4K downloader folder uit config
         guard let youtube4KFolder = config.youtube4KDownloaderFolder else { return nil }
         
-        // Check of het bestand in de 4K Video Downloader map staat
-        let filePath = url.path
-        guard filePath.hasPrefix(youtube4KFolder) else { return nil }
+        // Check of het bestand in de 4K Video Downloader map staat.
+        // Op padgrens vergelijken: "/Movies/4K Video" mocht niet ook
+        // "/Movies/4K Video Archief/clip.mp3" matchen.
+        let filePath = URL(fileURLWithPath: url.path).standardizedFileURL.path
+        let folderPath = URL(fileURLWithPath: youtube4KFolder).standardizedFileURL.path
+        guard filePath == folderPath || filePath.hasPrefix(folderPath + "/") else { return nil }
         
         #if DEBUG
         print("SourceDetector: YouTube 4K gedetecteerd (pad: \(youtube4KFolder))")
@@ -636,10 +639,15 @@ class SourceDetector {
                         #endif
                     }
                 } else {
-                    // Muziek - zet assetType en confidence
-                    result.assetType = .music
-                    result.confidence = .high  // BELANGRIJK: Zorgt ervoor dat MLX geskipt wordt
-                    
+                    // Muziek — maar ALLEEN als het bestand daadwerkelijk audio is.
+                    // Browse-metadata van een muziekpagina mag een stockvideo/foto nooit
+                    // met high confidence als Music classificeren.
+                    let audioExtensions: Set<String> = ["wav", "mp3", "aiff", "aif", "flac", "m4a", "aac", "ogg"]
+                    if audioExtensions.contains(url.pathExtension.lowercased()) {
+                        result.assetType = .music
+                        result.confidence = .high  // BELANGRIJK: Zorgt ervoor dat MLX geskipt wordt
+                    }
+
                     // Gebruik de eerste genre/mood
                     if let genre = stockMeta.primaryGenre {
                         result.scrapedGenre = genre
@@ -678,10 +686,14 @@ class SourceDetector {
                 print("SourceDetector: Chrome extensie metadata - shouldSkipMLX: \(result.shouldSkipMLX)")
                 #endif
             } else {
-                // Geen pageUrl - gebruik standaard genre/mood maar stel assetType nog steeds in
-                result.assetType = .music  // Default voor audio zonder URL
-                result.confidence = .high
-                
+                // Geen pageUrl - gebruik standaard genre/mood, maar classificeer alleen
+                // echte audiobestanden als muziek
+                let audioExtensions: Set<String> = ["wav", "mp3", "aiff", "aif", "flac", "m4a", "aac", "ogg"]
+                if audioExtensions.contains(url.pathExtension.lowercased()) {
+                    result.assetType = .music
+                    result.confidence = .high
+                }
+
                 if let genre = stockMeta.primaryGenre {
                     result.scrapedGenre = genre
                     #if DEBUG

@@ -242,8 +242,22 @@ struct FolderStructureTemplateView: View {
     }
 
     private func delete(_ template: FolderStructureTemplate) {
+        // Bevestiging: 'Delete' staat direct onder 'Duplicate' in het contextmenu en
+        // gooide een zorgvuldig opgebouwde template (parameters + AI-mapping) met één
+        // misklik definitief weg.
+        let wasDefault = appState.config.defaultTemplateId == template.id
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Template \"\(template.name)\" verwijderen?"
+        alert.informativeText = wasDefault
+            ? "Dit kan niet ongedaan worden gemaakt. Dit is je standaard-template; een andere template wordt de nieuwe standaard."
+            : "Dit kan niet ongedaan worden gemaakt."
+        alert.addButton(withTitle: "Verwijderen")
+        alert.addButton(withTitle: "Annuleren")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
         appState.config.folderTemplates.removeAll(where: { $0.id == template.id })
-        if appState.config.defaultTemplateId == template.id {
+        if wasDefault {
             appState.config.defaultTemplateId = appState.config.folderTemplates.first?.id
         }
         if selectedTemplateId == template.id {
@@ -703,7 +717,11 @@ private struct TemplateTreeEditor: View {
                             depth: 0,
                             parameters: parameters,
                             onDelete: { deleteChild(at: index) },
-                            onChange: onChange
+                            onChange: onChange,
+                            onMoveUp: { moveRootChild(from: index, to: index - 1) },
+                            onMoveDown: { moveRootChild(from: index, to: index + 1) },
+                            canMoveUp: index > 0,
+                            canMoveDown: index < tree.children.count - 1
                         )
                     }
                 }
@@ -723,6 +741,13 @@ private struct TemplateTreeEditor: View {
         tree.children.remove(at: index)
         onChange()
     }
+
+    private func moveRootChild(from: Int, to: Int) {
+        guard from >= 0, to >= 0, from < tree.children.count, to < tree.children.count else { return }
+        let moved = tree.children.remove(at: from)
+        tree.children.insert(moved, at: to)
+        onChange()
+    }
 }
 
 // MARK: - Tree node row (recursive)
@@ -733,14 +758,21 @@ private struct TemplateTreeNodeRow: View {
     let parameters: [TemplateParameter]
     let onDelete: () -> Void
     let onChange: () -> Void
+    let onMoveUp: () -> Void
+    let onMoveDown: () -> Void
+    let canMoveUp: Bool
+    let canMoveDown: Bool
 
     @State private var isExpanded: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 4) {
-                // Indentatie
-                Text(String(repeating: "  ", count: depth))
+                // Indentatie met vaste breedte per niveau (spaties in een proportioneel
+                // font gaven inconsistente inspringing waardoor kolommen niet uitlijnden).
+                if depth > 0 {
+                    Color.clear.frame(width: CGFloat(depth) * 14, height: 1)
+                }
 
                 // Disclosure
                 Button(action: { isExpanded.toggle() }) {
@@ -784,6 +816,16 @@ private struct TemplateTreeNodeRow: View {
                     }
 
                     Divider()
+                    Button(action: onMoveUp) {
+                        Label(String(localized: "folder_structure.tree.move_up"), systemImage: "arrow.up")
+                    }
+                    .disabled(!canMoveUp)
+                    Button(action: onMoveDown) {
+                        Label(String(localized: "folder_structure.tree.move_down"), systemImage: "arrow.down")
+                    }
+                    .disabled(!canMoveDown)
+
+                    Divider()
                     Button(String(localized: "folder_structure.delete"), role: .destructive) { onDelete() }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -804,7 +846,11 @@ private struct TemplateTreeNodeRow: View {
                         depth: depth + 1,
                         parameters: parameters,
                         onDelete: { deleteChild(at: index) },
-                        onChange: onChange
+                        onChange: onChange,
+                        onMoveUp: { moveChild(from: index, to: index - 1) },
+                        onMoveDown: { moveChild(from: index, to: index + 1) },
+                        canMoveUp: index > 0,
+                        canMoveDown: index < node.children.count - 1
                     )
                 }
             }
@@ -822,6 +868,15 @@ private struct TemplateTreeNodeRow: View {
     private func deleteChild(at index: Int) {
         var newChildren = node.children
         newChildren.remove(at: index)
+        node = FolderNode(id: node.id, name: node.name, relativePath: node.relativePath, children: newChildren)
+        onChange()
+    }
+
+    private func moveChild(from: Int, to: Int) {
+        guard from >= 0, to >= 0, from < node.children.count, to < node.children.count else { return }
+        var newChildren = node.children
+        let moved = newChildren.remove(at: from)
+        newChildren.insert(moved, at: to)
         node = FolderNode(id: node.id, name: node.name, relativePath: node.relativePath, children: newChildren)
         onChange()
     }

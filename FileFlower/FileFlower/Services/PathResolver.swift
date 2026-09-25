@@ -51,7 +51,7 @@ class PathResolver {
                 prprojPath: projectPathURL,
                 configuredRootPath: project.rootPath
             )
-            return TargetFolder(url: projectRoot, relativePath: projectRoot.path)
+            return TargetFolder(url: projectRoot, relativePath: "")
         }
 
         // Standard preset: bestaande logica
@@ -80,7 +80,7 @@ class PathResolver {
                 baseFolder = existingAudioFolder
             } else {
                 // Create standard audio folder structure
-                baseFolder = try findOrCreateFolder(
+                baseFolder = planFolder(
                     in: projectRoot,
                     names: languageMapping["Audio"] ?? ["Audio"]
                 )
@@ -89,18 +89,18 @@ class PathResolver {
             // SFX files go directly to project root in 04_SFX folder (not in 03_Muziek)
             baseFolder = projectRoot
         case .motionGraphic, .graphic:
-            baseFolder = try findOrCreateFolder(
+            baseFolder = planFolder(
                 in: projectRoot,
                 names: languageMapping["Visuals"] ?? ["Visuals"]
             )
         case .footage:
             // Footage gaat naar de footage/raw map
-            baseFolder = try findOrCreateFolder(
+            baseFolder = planFolder(
                 in: projectRoot,
                 names: languageMapping["Footage"] ?? ["Footage", "Raw", "Materiaal"]
             )
         case .stockFootage:
-            baseFolder = try findOrCreateFolder(
+            baseFolder = planFolder(
                 in: projectRoot,
                 names: languageMapping["Visuals"] ?? ["Visuals"]
             )
@@ -117,8 +117,8 @@ class PathResolver {
             if let subfolder = subfolder, !subfolder.isEmpty {
                 // Only create Mood/Genre folder if there's a subfolder to put in it
                 let modeFolder = musicMode == .mood ? "Mood" : "Genre"
-                let modeFolderURL = try findOrCreateFolder(in: baseFolder, names: [modeFolder])
-                targetFolder = try findOrCreateFolder(in: modeFolderURL, names: [subfolder])
+                let modeFolderURL = planFolder(in: baseFolder, names: [modeFolder])
+                targetFolder = planFolder(in: modeFolderURL, names: [subfolder])
             } else {
                 // No subfolder selected, place directly in base folder
                 targetFolder = baseFolder
@@ -126,25 +126,25 @@ class PathResolver {
             
         case .sfx:
             // SFX files go directly to 04_SFX in project root
-            let sfxFolder = try findOrCreateFolder(
+            let sfxFolder = planFolder(
                 in: projectRoot,
                 names: languageMapping["SFX"] ?? ["04_SFX", "SFX"]
             )
             if let subfolder = subfolder, !subfolder.isEmpty {
-                targetFolder = try findOrCreateFolder(in: sfxFolder, names: [subfolder])
+                targetFolder = planFolder(in: sfxFolder, names: [subfolder])
             } else {
                 targetFolder = sfxFolder
             }
             
         case .vo:
-            let voFolder = try findOrCreateFolder(
+            let voFolder = planFolder(
                 in: baseFolder,
                 names: languageMapping["VO"] ?? ["VO"]
             )
             targetFolder = voFolder
             
         case .motionGraphic, .graphic:
-            let graphicsFolder = try findOrCreateFolder(
+            let graphicsFolder = planFolder(
                 in: baseFolder,
                 names: languageMapping["Graphics"] ?? ["Graphics"]
             )
@@ -157,20 +157,30 @@ class PathResolver {
         case .stockFootage:
             // Speciale routing voor YouTube 4K downloads
             if source == .youtube4K {
-                let youtube4KFolder = try findOrCreateFolder(in: baseFolder, names: [youtube4KSubfolderName])
+                let youtube4KFolder = planFolder(in: baseFolder, names: [youtube4KSubfolderName])
                 targetFolder = youtube4KFolder
             } else {
-                let footageFolder = try findOrCreateFolder(in: baseFolder, names: ["StockFootage"])
+                let footageFolder = planFolder(in: baseFolder, names: ["StockFootage"])
                 targetFolder = footageFolder
             }
 
         case .unknown:
             break
         }
-        
-        return TargetFolder(url: targetFolder, relativePath: targetFolder.path)
+
+        return TargetFolder(url: targetFolder, relativePath: relativeFolderPath(of: targetFolder, under: projectRoot))
     }
-    
+
+    /// Bereken het relatieve pad van een map t.o.v. de project-hoofdmap ("" = de hoofdmap zelf).
+    private func relativeFolderPath(of url: URL, under root: URL) -> String {
+        let rootPath = root.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        if path == rootPath { return "" }
+        let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+        guard path.hasPrefix(prefix) else { return path }
+        return String(path.dropFirst(prefix.count))
+    }
+
     // MARK: - Preview Path (read-only, geen filesystem side-effects)
 
     /// Berekent een leesbaar preview-pad dat laat zien waar het bestand naartoe gaat, zonder mappen aan te maken
@@ -214,6 +224,417 @@ class PathResolver {
         }
 
         return components.joined(separator: " → ")
+    }
+
+    // MARK: - Confidence-Based Resolution
+
+    let confidenceThreshold: Double = 0.6
+
+    /// De daadwerkelijke project main folder (bv. de map die 03_Audio, 04_SFX, etc. bevat).
+    /// Handig om als startpunt te gebruiken voor folder pickers.
+    func projectMainFolderURL(for project: ProjectInfo) -> URL {
+        let projectPathURL = URL(fileURLWithPath: project.projectPath)
+        return findProjectMainFolder(
+            prprojPath: projectPathURL,
+            configuredRootPath: project.rootPath
+        )
+    }
+
+    /// Convert een absoluut doelpad naar een relatief pad t.o.v. de project main folder.
+    /// Returns nil als het pad NIET onder de project root valt — dan moet de regel niet opgeslagen worden.
+    /// Een leeg pad ("") is geldig en betekent "in de project root zelf".
+    func makeRelativeToProject(_ absolutePath: String, project: ProjectInfo) -> String? {
+        // Als het al een relatief pad is (geen leading /), accepteer het direct
+        if !absolutePath.hasPrefix("/") {
+            return absolutePath
+        }
+
+        let projectPathURL = URL(fileURLWithPath: project.projectPath)
+        let projectRoot = findProjectMainFolder(
+            prprojPath: projectPathURL,
+            configuredRootPath: project.rootPath
+        )
+        let rootPath = projectRoot.path
+
+        // Normaliseer trailing slashes
+        let normalizedRoot = rootPath.hasSuffix("/") ? String(rootPath.dropLast()) : rootPath
+        let normalizedAbs = absolutePath.hasSuffix("/") ? String(absolutePath.dropLast()) : absolutePath
+
+        if normalizedAbs == normalizedRoot {
+            return ""
+        }
+
+        let prefix = normalizedRoot + "/"
+        guard normalizedAbs.hasPrefix(prefix) else {
+            #if DEBUG
+            print("PathResolver: chosenPath \(normalizedAbs) ligt buiten project root \(normalizedRoot) — niet opslaan")
+            #endif
+            return nil
+        }
+
+        return String(normalizedAbs.dropFirst(prefix.count))
+    }
+
+    /// Resolve target folder met confidence score, via drie lagen:
+    ///   1. Door de gebruiker bevestigde/geleerde regels (hoogste autoriteit)
+    ///   2. Bewijs: waar staan vergelijkbare bestanden ál in dit project (PlacementEngine)
+    ///   3. Structuur/keyword-conventie (resolveTarget — puur, maakt niets aan)
+    /// Elke laag wordt gevalideerd tegen PathSafetyPolicy; een geblokkeerd resultaat
+    /// valt door naar de volgende laag. Resolutie heeft GEEN filesystem side-effects,
+    /// dus de confidence beschrijft het plan — niet een zojuist zelf aangemaakte map.
+    /// Laag 1 als losse stap: de geleerde of bevestigde regel voor dit project.
+    /// Geeft nil als er geen bruikbare regel is, of als de regel naar een geblokkeerde map wijst.
+    /// `isConfirmed` onderscheidt een regel uit het bevestigings-paneel van een gescande/geleerde.
+    private func learnedRuleResolution(
+        project: ProjectInfo,
+        assetType: AssetType,
+        subfolder: String?,
+        musicMode: MusicMode,
+        source: DetectedSource?,
+        projectRoot: URL
+    ) -> (resolution: PathResolution, isConfirmed: Bool)? {
+        // SKIP regels met absolute paden (legacy bug data) — die zouden tot folder-nesting leiden
+        guard let learned = PathLearningManager.shared.findMatchingRule(
+            projectPath: project.projectPath,
+            assetType: assetType,
+            subfolder: subfolder,
+            source: source
+        ), !learned.resolvedPath.hasPrefix("/") else { return nil }
+
+        var url = projectRoot.appendingPathComponent(learned.resolvedPath)
+
+        // Een generieke regel (zonder submap) is de BASIS; de gevraagde mood/genre/
+        // categorie-submap hoort daar nog onder — zelfde structuur als resolveTarget.
+        if learned.subfolder == nil, let sub = subfolder, !sub.isEmpty {
+            switch assetType {
+            case .music:
+                let modeFolder = musicMode == .mood ? "Mood" : "Genre"
+                url = planFolder(in: planFolder(in: url, names: [modeFolder]), names: [sub])
+            case .sfx:
+                url = planFolder(in: url, names: [sub])
+            default:
+                break
+            }
+        }
+
+        // Veiligheidscheck: een regel die (uit oude data) naar een cache-map wijst is ongeldig
+        guard PathSafetyPolicy.firstBlockedComponent(in: url.path) == nil else { return nil }
+
+        let mappingConfirmed = AppState.shared.config.mappings[project.projectPath]?
+            .discoveredStructure?.confirmed == true
+        let isConfirmed = mappingConfirmed && !learned.isScanned
+
+        let confidence: Double
+        if isConfirmed {
+            confidence = 1.0
+        } else if learned.isScanned {
+            confidence = 0.75
+        } else if learned.usageCount >= 3 {
+            confidence = 1.0
+        } else {
+            confidence = 0.85
+        }
+
+        let resolution = PathResolution(
+            targetFolder: TargetFolder(url: url, relativePath: relativeFolderPath(of: url, under: projectRoot)),
+            confidence: confidence,
+            reason: isConfirmed ? "Bevestigde mapindeling" : "Geleerd uit \(learned.usageCount) eerdere keuze(s)"
+        )
+        return (resolution, isConfirmed)
+    }
+
+    func resolveTargetWithConfidence(
+        project: ProjectInfo,
+        assetType: AssetType,
+        subfolder: String?,
+        musicMode: MusicMode,
+        source: DetectedSource? = nil,
+        fileName: String? = nil
+    ) -> PathResolution {
+        guard assetType != .unknown else {
+            return PathResolution(
+                targetFolder: TargetFolder(url: URL(fileURLWithPath: "/"), relativePath: ""),
+                confidence: 0.0,
+                reason: "Onbekend bestandstype"
+            )
+        }
+
+        let projectRoot = findProjectMainFolder(
+            prprojPath: URL(fileURLWithPath: project.projectPath),
+            configuredRootPath: project.rootPath
+        )
+
+        let preset = AppState.shared.config.folderStructurePreset
+
+        // Een BEVESTIGDE mapindeling is de meest expliciete keuze die de gebruiker kan maken:
+        // hij heeft per asset-type in het paneel aangewezen waar het hoort. Die gaat daarom
+        // vóór het eigen sjabloon — anders bleef het bevestigings-paneel zonder effect voor
+        // iedereen met een custom template. Flat blijft wél kortsluiten: daar is "alles in de
+        // projectmap" per definitie het antwoord.
+        if preset == .custom,
+           let learned = learnedRuleResolution(
+               project: project, assetType: assetType, subfolder: subfolder,
+               musicMode: musicMode, source: source, projectRoot: projectRoot
+           ), learned.isConfirmed {
+            return learned.resolution
+        }
+
+        // Flat en custom presets zijn verder expliciete gebruikerskeuzes — evidence en
+        // gescande regels mogen die niet omzeilen. Direct het structuurplan gebruiken.
+        if preset == .flat || preset == .custom {
+            if let plan = try? resolveTarget(
+                project: project, assetType: assetType, subfolder: subfolder,
+                musicMode: musicMode, source: source
+            ), PathSafetyPolicy.firstBlockedComponent(in: plan.url.path) == nil {
+                return PathResolution(
+                    targetFolder: plan,
+                    confidence: preset == .flat ? 0.95 : 0.85,
+                    reason: preset == .flat ? "Flat-indeling (alles in projectmap)" : "Eigen mapindeling (template)"
+                )
+            }
+            return PathResolution(
+                targetFolder: TargetFolder(url: URL(fileURLWithPath: "/"), relativePath: ""),
+                confidence: 0.0,
+                reason: "Kan geen veilige bestemming bepalen"
+            )
+        }
+
+        // ── Laag 1: geleerde/bevestigde regels ──────────────────────────────
+        if let learned = learnedRuleResolution(
+            project: project, assetType: assetType, subfolder: subfolder,
+            musicMode: musicMode, source: source, projectRoot: projectRoot
+        ) {
+            return learned.resolution
+        }
+
+        // ── Laag 3 alvast berekenen (nodig voor kruisvalidatie met laag 2) ──
+        let structurePlan: TargetFolder? = (try? resolveTarget(
+            project: project,
+            assetType: assetType,
+            subfolder: subfolder,
+            musicMode: musicMode,
+            source: source
+        )).flatMap { plan in
+            // Geblokkeerd structuurplan (cache-map) is geen geldig plan
+            PathSafetyPolicy.firstBlockedComponent(in: plan.url.path) == nil ? plan : nil
+        }
+
+        // ── Laag 2: bewijs — waar staan vergelijkbare bestanden al? ─────────
+        var evidenceCandidates: [PlacementCandidate] = []
+        if let query = placementQuery(for: assetType, fileName: fileName, subfolder: subfolder) {
+            evidenceCandidates = PlacementEngine().findCandidates(
+                snapshot: cachedSnapshot(for: projectRoot),
+                query: query
+            )
+        }
+
+        if let top = evidenceCandidates.first, top.score >= 30, top.peerCount >= 3,
+           !top.relativePath.isEmpty {
+            // Sterk bewijs. Kruisvalidatie met het structuurplan verhoogt de zekerheid.
+            let agreesWithStructure = structurePlan.map { plan in
+                top.directoryURL.path == plan.url.path ||
+                top.directoryURL.path.hasPrefix(plan.url.path + "/") ||
+                plan.url.path.hasPrefix(top.directoryURL.path + "/")
+            } ?? false
+
+            // Submap-verfijning: als de bewijs-map een BESTAANDE submap heeft die matcht op
+            // de mood/genre/categorie, plaats daar. Anders plat bij de peers — we bouwen geen
+            // Mood/Genre-structuur op in mappen waar de gebruiker die niet gebruikt.
+            var targetURL = top.directoryURL
+            if let sub = subfolder, !sub.isEmpty,
+               let existingSub = findExistingFolder(in: top.directoryURL, names: [sub], maxDepth: 0) {
+                targetURL = existingSub
+            }
+
+            return PathResolution(
+                targetFolder: TargetFolder(url: targetURL, relativePath: relativeFolderPath(of: targetURL, under: projectRoot)),
+                confidence: agreesWithStructure ? 0.9 : 0.85,
+                reason: top.reason,
+                alternatives: Array(evidenceCandidates.prefix(4))
+            )
+        }
+
+        // ── Laag 3: structuur/keyword-conventie ─────────────────────────────
+        if let plan = structurePlan {
+            let folderExists = FileManager.default.fileExists(atPath: plan.url.path)
+            let hasDiscoveredStructure = AppState.shared.config.mappings[project.projectPath]?.discoveredStructure != nil
+
+            // Matig bewijs uit laag 2 dat het structuurplan tegenspreekt → bevestiging vragen
+            let conflictingEvidence = evidenceCandidates.first.map { top in
+                top.score >= 15 &&
+                top.directoryURL.path != plan.url.path &&
+                !top.directoryURL.path.hasPrefix(plan.url.path + "/") &&
+                !plan.url.path.hasPrefix(top.directoryURL.path + "/")
+            } ?? false
+
+            let confidence: Double
+            let reason: String
+            if conflictingEvidence {
+                confidence = 0.5
+                reason = "Structuur wijst naar \(plan.relativePath.isEmpty ? "projectmap" : plan.relativePath), maar vergelijkbare bestanden staan ergens anders"
+            } else if folderExists && hasDiscoveredStructure {
+                confidence = 0.8
+                reason = "Bestaande map gevonden"
+            } else if folderExists {
+                confidence = 0.7
+                reason = "Map bestaat, structuur niet eerder gescand"
+            } else if hasDiscoveredStructure {
+                confidence = 0.5
+                reason = "Map moet aangemaakt worden"
+            } else {
+                confidence = 0.3
+                reason = "Geen bekende structuur, pad is een schatting"
+            }
+
+            return PathResolution(
+                targetFolder: plan,
+                confidence: confidence,
+                reason: reason,
+                alternatives: Array(evidenceCandidates.prefix(4))
+            )
+        }
+
+        // ── Niets bruikbaars: expliciet onzeker, nooit gokken ────────────────
+        return PathResolution(
+            targetFolder: TargetFolder(url: URL(fileURLWithPath: "/"), relativePath: ""),
+            confidence: 0.0,
+            reason: "Kan geen veilige bestemming bepalen",
+            alternatives: Array(evidenceCandidates.prefix(4))
+        )
+    }
+
+    // MARK: - Evidence snapshot cache
+
+    /// Snapshot van de projectboom per projectroot, kort gecached zodat een batch
+    /// (reresolve/verwerk-ronde) maar één filesystem-walk doet — belangrijk op netwerkschijven.
+    private var snapshotCache: [String: (date: Date, entries: [PlacementDirEntry])] = [:]
+    private let snapshotTTL: TimeInterval = 60
+
+    private func cachedSnapshot(for projectRoot: URL) -> [PlacementDirEntry] {
+        let key = projectRoot.standardizedFileURL.path
+        if let cached = snapshotCache[key], Date().timeIntervalSince(cached.date) < snapshotTTL {
+            return cached.entries
+        }
+        let entries = PlacementEngine().snapshot(projectRoot: projectRoot)
+        snapshotCache[key] = (Date(), entries)
+        return entries
+    }
+
+    /// Bouw de evidence-query voor een asset type.
+    private func placementQuery(for assetType: AssetType, fileName: String?, subfolder: String?) -> PlacementQuery? {
+        let audioExts: Set<String> = ["wav", "mp3", "aiff", "aif", "flac", "m4a", "aac", "ogg"]
+        let videoExts: Set<String> = ["mp4", "mov", "mxf", "avi", "mkv", "webm", "braw", "r3d"]
+        let imageExts: Set<String> = ["png", "jpg", "jpeg", "psd", "svg", "gif", "tiff", "webp", "ai", "eps"]
+        let motionExts: Set<String> = ["mogrt", "aep", "aet"]
+
+        switch assetType {
+        case .music:
+            return PlacementQuery(
+                fileName: fileName ?? "",
+                peerExtensions: audioExts,
+                keywords: ["music", "muziek", "audio", "soundtrack"],
+                avoidKeywords: ["sfx", "soundfx", "geluidseffecten", "vo", "voiceover", "voice",
+                                "foley", "effects", "effecten", "sound effects"],
+                subfolder: subfolder
+            )
+        case .sfx:
+            return PlacementQuery(
+                fileName: fileName ?? "",
+                peerExtensions: audioExts,
+                keywords: ["sfx", "soundfx", "geluidseffecten", "foley", "effecten", "sound effects"],
+                avoidKeywords: ["music", "muziek", "vo", "voiceover"],
+                subfolder: subfolder
+            )
+        case .vo:
+            return PlacementQuery(
+                fileName: fileName ?? "",
+                peerExtensions: audioExts,
+                keywords: ["vo", "voiceover", "voice", "spraak", "narration"],
+                avoidKeywords: ["music", "muziek", "sfx", "geluidseffecten", "effects", "sound effects"],
+                subfolder: subfolder
+            )
+        case .footage:
+            return PlacementQuery(
+                fileName: fileName ?? "",
+                peerExtensions: videoExts,
+                keywords: ["footage", "materiaal", "raw", "rushes", "media"],
+                avoidKeywords: ["exports", "export", "final", "render", "renders", "output", "stock"],
+                subfolder: subfolder
+            )
+        case .stockFootage:
+            return PlacementQuery(
+                fileName: fileName ?? "",
+                peerExtensions: videoExts,
+                keywords: ["stock", "stockfootage", "broll", "b-roll"],
+                avoidKeywords: ["exports", "export", "final", "render", "renders", "output"],
+                subfolder: subfolder
+            )
+        case .graphic:
+            return PlacementQuery(
+                fileName: fileName ?? "",
+                peerExtensions: imageExts,
+                keywords: ["graphics", "vormgeving", "design", "stills", "visuals"],
+                avoidKeywords: ["exports", "export"],
+                subfolder: subfolder
+            )
+        case .motionGraphic:
+            return PlacementQuery(
+                fileName: fileName ?? "",
+                peerExtensions: motionExts,
+                keywords: ["motiongraphics", "motion", "templates", "mogrt", "graphics", "visuals"],
+                avoidKeywords: [],
+                subfolder: subfolder
+            )
+        case .unknown:
+            return nil
+        }
+    }
+
+    /// Invalideer de gecachte structuur en scan opnieuw.
+    func invalidateAndRediscover(for project: ProjectInfo) async -> DiscoveredProjectStructure? {
+        let config = AppState.shared.config
+        let mappingKey = project.projectPath
+
+        // Evidence-snapshot is ook verouderd
+        snapshotCache.removeAll()
+
+        // Verwijder oude gescande regels (behoud handmatige)
+        PathLearningManager.shared.clearScannedRules(for: mappingKey)
+
+        // Scan folder structuur opnieuw
+        let projectPathURL = URL(fileURLWithPath: project.projectPath)
+        let projectRoot = findProjectMainFolder(
+            prprojPath: projectPathURL,
+            configuredRootPath: project.rootPath
+        )
+
+        let discoveredPaths = discoverProjectStructure(projectRoot: projectRoot)
+        let convention = detectNamingConvention(in: projectRoot)
+
+        // Voer backwards reasoning uit
+        let scannedRules = await ProjectStructureScanner.shared.scanExistingFiles(in: projectRoot)
+
+        // Behoud bestaande handmatige regels
+        let existingManualRules = config.mappings[mappingKey]?.discoveredStructure?.learnedRules?
+            .filter { !$0.isScanned } ?? []
+
+        let structure = DiscoveredProjectStructure(
+            discoveredPaths: discoveredPaths,
+            namingConvention: convention.rawValue,
+            lastScannedDate: Date(),
+            learnedRules: existingManualRules + scannedRules
+        )
+
+        // Sla op
+        var updatedConfig = AppState.shared.config
+        var mapping = updatedConfig.mappings[mappingKey] ?? ProjectMapping()
+        mapping.discoveredStructure = structure
+        updatedConfig.mappings[mappingKey] = mapping
+
+        AppState.shared.config = updatedConfig
+        ConfigManager.shared.save(updatedConfig)
+
+        return structure
     }
 
     // MARK: - Custom Template Routing
@@ -275,14 +696,14 @@ class PathResolver {
             case .stockFootage: fallbackNames = ["StockFootage"]
             case .unknown: throw PathResolverError.unknownAssetType
             }
-            let targetFolder = try findOrCreateFolder(in: projectRoot, names: fallbackNames)
-            return TargetFolder(url: targetFolder, relativePath: targetFolder.path)
+            let targetFolder = planFolder(in: projectRoot, names: fallbackNames)
+            return TargetFolder(url: targetFolder, relativePath: relativeFolderPath(of: targetFolder, under: projectRoot))
         }
 
         // Bouw target folder op basis van het relatieve pad uit de mapping
         var targetFolder = projectRoot
         for component in path.split(separator: "/") {
-            targetFolder = try findOrCreateFolder(in: targetFolder, names: [String(component)])
+            targetFolder = planFolder(in: targetFolder, names: [String(component)])
         }
 
         // Subfolder handling (mood/genre voor music, categorie voor SFX)
@@ -290,10 +711,10 @@ class PathResolver {
             switch assetType {
             case .music:
                 let modeFolder = musicMode == .mood ? "Mood" : "Genre"
-                let modeFolderURL = try findOrCreateFolder(in: targetFolder, names: [modeFolder])
-                targetFolder = try findOrCreateFolder(in: modeFolderURL, names: [subfolder])
+                let modeFolderURL = planFolder(in: targetFolder, names: [modeFolder])
+                targetFolder = planFolder(in: modeFolderURL, names: [subfolder])
             case .sfx:
-                targetFolder = try findOrCreateFolder(in: targetFolder, names: [subfolder])
+                targetFolder = planFolder(in: targetFolder, names: [subfolder])
             default:
                 break
             }
@@ -302,197 +723,37 @@ class PathResolver {
         #if DEBUG
         print("PathResolver: Custom template resolved -> \(targetFolder.path)")
         #endif
-        return TargetFolder(url: targetFolder, relativePath: targetFolder.path)
+        return TargetFolder(url: targetFolder, relativePath: relativeFolderPath(of: targetFolder, under: projectRoot))
     }
 
     // MARK: - Folder Helpers
 
-    private func findOrCreateFolder(in parent: URL, names: [String]) throws -> URL {
-        let fileManager = FileManager.default
-        
-        // First, check if any of the name variants already exist (case-insensitive)
+    /// Plan een map binnen `parent`: gebruik een bestaande map als die matcht, anders het
+    /// BEOOGDE pad met de eerste naam-variant. Maakt NOOIT een map aan — resolutie is puur;
+    /// mappen worden pas fysiek aangemaakt door FileProcessor op het moment van verplaatsen.
+    private func planFolder(in parent: URL, names: [String]) -> URL {
         if let existing = findExistingFolder(in: parent, names: names) {
             return existing
         }
-        
-        // If none found, try each name variant to create
+
+        // Bestaat er al een map met exact één van deze namen (zonder fuzzy match)?
+        let fileManager = FileManager.default
         for name in names {
             let folderURL = parent.appendingPathComponent(name, isDirectory: true)
-            
             var isDirectory: ObjCBool = false
-            if fileManager.fileExists(atPath: folderURL.path, isDirectory: &isDirectory) {
-                if isDirectory.boolValue {
-                    return folderURL
-                }
-            } else {
-                // Create folder
-                try fileManager.createDirectory(at: folderURL, withIntermediateDirectories: true)
+            if fileManager.fileExists(atPath: folderURL.path, isDirectory: &isDirectory), isDirectory.boolValue {
                 return folderURL
             }
         }
-        
-        // If none found, use first name
-        let folderURL = parent.appendingPathComponent(names.first ?? "Unknown", isDirectory: true)
-        try fileManager.createDirectory(at: folderURL, withIntermediateDirectories: true)
-        return folderURL
+
+        // Nog niet aanwezig: plan de map met de eerste naam-variant
+        return parent.appendingPathComponent(names.first ?? "Unknown", isDirectory: true)
     }
     
+    /// Forwardt naar ProjectRootResolver — de gezaghebbende bepaling van de hoofd-projectmap.
+    /// (Voorheen koos dit soms de map van het .prproj-bestand zelf, bv. 01_PremierePro.)
     private func findProjectMainFolder(prprojPath: URL, configuredRootPath: String) -> URL {
-        let fileManager = FileManager.default
-        let configuredRootURL = URL(fileURLWithPath: configuredRootPath)
-
-        // Virtueel Resolve pad: database-backed project zonder .drp op disk
-        // Gebruik het geconfigureerde rootpad als dat een echte directory is
-        if prprojPath.path.hasPrefix("/resolve-project/") {
-            if fileManager.fileExists(atPath: configuredRootURL.path) {
-                #if DEBUG
-                print("PathResolver: Virtual Resolve project, using configured root: \(configuredRootURL.path)")
-                #endif
-                return configuredRootURL
-            }
-            // Geconfigureerde root bestaat niet — dit is waarschijnlijk "/resolve-project"
-            // Kan geen bestanden organiseren zonder een echte map op disk
-            #if DEBUG
-            print("PathResolver: Virtual Resolve project, geen echte projectmap gevonden voor: \(configuredRootPath)")
-            #endif
-            return configuredRootURL
-        }
-
-        // Start from the .prproj file's parent directory
-        var current = prprojPath.deletingLastPathComponent()
-
-        #if DEBUG
-        print("PathResolver: Starting search from: \(current.path)")
-        #endif
-        
-        // Walk up the directory tree until we find the project's main folder
-        // This is the folder that contains folders like 03_Muziek, 04_SFX, etc.
-        // NOT folders like 01_Adobe (which contains Premiere project files)
-        while current.path != "/" {
-            // Check if we've gone above the configured root
-            if !current.path.hasPrefix(configuredRootURL.path) {
-                #if DEBUG
-                print("PathResolver: Gone above configured root, using parent of .prproj")
-                #endif
-                // We've gone too far, use the parent of .prproj
-                return prprojPath.deletingLastPathComponent()
-            }
-            
-            // Check if this folder contains audio/music folders
-            if let contents = try? fileManager.contentsOfDirectory(
-                at: current,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            ) {
-                let folderNames = contents.compactMap { url -> String? in
-                    var isDir: ObjCBool = false
-                    guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir),
-                          isDir.boolValue else {
-                        return nil
-                    }
-                    return url.lastPathComponent
-                }
-                
-                #if DEBUG
-                print("PathResolver: Checking folder: \(current.path)")
-                print("PathResolver: Found folders: \(folderNames.joined(separator: ", "))")
-                #endif
-                
-                // First check: Are we CURRENTLY in a Premiere-specific folder? (check current folder name, not contents)
-                let currentFolderName = current.lastPathComponent.lowercased()
-                let isCurrentlyInNLEFolder = currentFolderName.contains("adobe") ||
-                                                  currentFolderName.contains("premiere") ||
-                                                  currentFolderName.contains("davinci") ||
-                                                  currentFolderName.contains("resolve") ||
-                                                  currentFolderName.contains("audio previews") ||
-                                                  currentFolderName.contains("auto-save") ||
-                                                  currentFolderName.hasPrefix("01_")
-                
-                // If we're currently in a Premiere folder (e.g. 01_Adobe), the parent is the project root
-                if isCurrentlyInNLEFolder {
-                    #if DEBUG
-                    print("PathResolver: Currently in NLE folder, skipping: \(current.path)")
-                    #endif
-                    let parent = current.deletingLastPathComponent()
-                    if parent.path != current.path && parent.path.hasPrefix(configuredRootURL.path) {
-                        // De parent van een 01_Adobe/Premiere folder IS de project root
-                        // ook als er nog geen 03_/04_ mappen bestaan (nieuw project)
-                        #if DEBUG
-                        print("PathResolver: Found project main folder (parent of Premiere folder): \(parent.path)")
-                        #endif
-                        return parent
-                    }
-                }
-                
-                // Check if we see project structure folders (03_, 04_, etc.)
-                let hasProjectStructureFolder = folderNames.contains { name in
-                    // Look for numbered folders that indicate project structure
-                    return name.hasPrefix("03_") || // 03_Muziek, 03_Audio
-                           name.hasPrefix("04_") || // 04_SFX, 04_Visuals
-                           name.hasPrefix("05_") || // 05_VFX
-                           name.hasPrefix("06_") || // 06_Vormgeving
-                           name.hasPrefix("02_")    // 02_Materiaal
-                }
-                
-                // Also check for unnumbered but clear structure folders
-                let hasAudioMusicFolder = folderNames.contains { name in
-                    let lowerName = name.lowercased()
-                    // Look for folders that indicate audio/music content (but NOT Premiere-related)
-                    return (lowerName == "muziek" || lowerName == "audio" || lowerName == "music") &&
-                           !lowerName.contains("preview") &&
-                           !lowerName.contains("adobe")
-                }
-                
-                // If we find project structure folders OR audio/music folders, this is the project main folder
-                if hasProjectStructureFolder || hasAudioMusicFolder {
-                    #if DEBUG
-                    print("PathResolver: Found project main folder at: \(current.path)")
-                    #endif
-                    return current
-                }
-            }
-            
-            // Move up one level
-            let parent = current.deletingLastPathComponent()
-            
-            // If we can't go higher, use current
-            if parent.path == current.path {
-                break
-            }
-            
-            current = parent
-        }
-        
-        // Fallback: go up from .prproj until we find a folder that's not a Premiere folder
-        var fallback = prprojPath.deletingLastPathComponent()
-        while fallback.path != "/" {
-            let folderName = fallback.lastPathComponent.lowercased()
-            // If this is not an NLE folder, use it
-            if !folderName.contains("adobe") &&
-               !folderName.contains("premiere") &&
-               !folderName.contains("davinci") &&
-               !folderName.contains("resolve") &&
-               !folderName.contains("audio previews") &&
-               !folderName.contains("auto-save") &&
-               !folderName.hasPrefix("01_") {
-                #if DEBUG
-                print("PathResolver: Fallback - using: \(fallback.path)")
-                #endif
-                return fallback
-            }
-            // Otherwise, go up one more level
-            let parent = fallback.deletingLastPathComponent()
-            if parent.path == fallback.path {
-                break
-            }
-            fallback = parent
-        }
-        
-        // Last resort: use parent of .prproj
-        #if DEBUG
-        print("PathResolver: Fallback - using parent of .prproj: \(prprojPath.deletingLastPathComponent().path)")
-        #endif
-        return prprojPath.deletingLastPathComponent()
+        return ProjectRootResolver.shared.mainFolder(forProjectPath: prprojPath.path, configuredRootHint: configuredRootPath)
     }
     
     private func findExistingAudioFolder(in parent: URL) -> URL? {
@@ -517,23 +778,24 @@ class PathResolver {
             }
             
             let itemName = item.lastPathComponent.lowercased()
-            
-            // Skip NLE-specific folders
-            if itemName.contains("adobe") ||
+
+            // Skip NLE-cache en systeem-mappen (centrale policy) + extra NLE-heuristieken
+            if PathSafetyPolicy.isBlockedFolderName(itemName) ||
+               itemName.contains("adobe") ||
                itemName.contains("premiere") ||
                itemName.contains("davinci") ||
                itemName.contains("resolve") ||
                itemName.contains("preview") ||
-               itemName.contains("auto-save") ||
                itemName.hasPrefix("01_") {
                 continue
             }
             
-            // Check if this folder indicates audio/music
-            if itemName == "muziek" || 
-               itemName == "audio" || 
-               itemName == "music" ||
-               itemName.hasPrefix("03_") {
+            // Wijst deze map op audio? Woordgrens-match, GEEN kaal "03_"-prefix.
+            // Dat prefix accepteerde elke map die met 03_ begint: in een project met
+            // 03_Grading en zonder muziekmap belandden muziek en VO daar — de map bestond,
+            // dus confidence 0.7 en het gebeurde zonder te vragen.
+            // "03_Audio" en "03_Geluid" matchen nog steeds: op het woord, niet op het cijfer.
+            if PlacementEngine.matchesAny(itemName, keywords: ["audio", "muziek", "music", "geluid", "sound"]) {
                 #if DEBUG
                 print("PathResolver: Found audio folder: \(item.path)")
                 #endif
@@ -567,35 +829,36 @@ class PathResolver {
             return fileManager.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
         }
 
-        // Stap 1: Zoek exacte en contains-matches op huidig niveau
-        for item in folders {
-            let itemName = normalizeFolderName(item.lastPathComponent)
+        // KRITIEK: cache/NLE-mappen mogen NOOIT als asset-map matchen.
+        // Dit voorkomt dat bv. "Adobe Premiere Pro Audio Previews" matcht bij zoeken naar "Audio"
+        // (de exacte bug die een bestand in de Premiere render-cache plaatste).
+        let matchableFolders = folders.filter { !PathSafetyPolicy.isBlockedFolderName($0.lastPathComponent) }
 
-            // Exacte match
+        // Stap 1: Zoek exacte matches op huidig niveau
+        for item in matchableFolders {
+            let itemName = normalizeFolderName(item.lastPathComponent)
             for normalizedName in normalizedNames {
                 if itemName == normalizedName {
                     return item
                 }
             }
+        }
 
-            // Contains match (bijv. "03_Audio" bevat "audio")
-            for normalizedName in normalizedNames {
-                if itemName.contains(normalizedName) || normalizedName.contains(itemName) {
-                    if normalizedName.count >= 3 && itemName.count >= 3 {
-                        return item
-                    }
-                }
+        // Stap 1b: token-gebaseerde match ("Audio Files" matcht "audio"; "Audiobooks" NIET).
+        // Bewust strakker dan de oude substring-match die bv. "Audiobooks" als audiomap zag.
+        for item in matchableFolders {
+            if PlacementEngine.matchesAny(item.lastPathComponent, keywords: normalizedNames) {
+                return item
             }
         }
 
         // Stap 2: Recursief zoeken in submappen (als maxDepth > 0)
         if maxDepth > 0 {
-            for item in folders {
-                // Skip NLE-specifieke en systeem mappen
+            for item in matchableFolders {
+                // Skip NLE-specifieke mappen bij het afdalen
                 let name = item.lastPathComponent.lowercased()
                 if name.contains("adobe") || name.contains("premiere") ||
                    name.contains("davinci") || name.contains("resolve") ||
-                   name.contains("auto-save") || name.contains("audio previews") ||
                    name.hasPrefix("01_") || name.hasPrefix(".") {
                     continue
                 }
@@ -730,6 +993,14 @@ class PathResolver {
 struct TargetFolder {
     let url: URL
     let relativePath: String
+}
+
+struct PathResolution {
+    let targetFolder: TargetFolder
+    let confidence: Double
+    let reason: String
+    /// Alternatieve bestemmingen op basis van bewijs (voor het bevestigings-UI)
+    var alternatives: [PlacementCandidate] = []
 }
 
 enum PathResolverError: Error {

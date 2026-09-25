@@ -17,6 +17,7 @@ class FileSafeTransferManager: ObservableObject {
         mappings: [FileSafeFileMapping],
         projectName: String,
         volumeName: String,
+        volumeURL: URL? = nil,
         projectPath: String,
         footagePath: String?,
         projectConfig: FileSafeProjectConfig,
@@ -26,6 +27,7 @@ class FileSafeTransferManager: ObservableObject {
         let transfer = FileSafeTransfer(
             projectName: projectName,
             volumeName: volumeName,
+            volumeURL: volumeURL,
             projectPath: projectPath,
             footagePath: footagePath,
             totalCount: mappings.count,
@@ -74,6 +76,8 @@ class FileSafeTransfer: ObservableObject, Identifiable {
     let id: UUID
     let projectName: String
     let volumeName: String
+    /// Bron-volume, nodig om na afloop te kunnen ejecten vanuit het dashboard
+    let volumeURL: URL?
     let projectPath: String
     let footagePath: String?
     let startTime: Date
@@ -106,21 +110,27 @@ class FileSafeTransfer: ObservableObject, Identifiable {
     // Internal
     private var copyTask: Task<Void, Never>?
     private let maxRetries = 3
-    private let tempExtension = ".filesafe-tmp"
+    /// Uniek per transfer: twee gelijktijdige transfers naar dezelfde doelmap mogen
+    /// elkaars tijdelijke bestand niet verwijderen/verifiëren.
+    private nonisolated let tempExtension: String
     private let chunkSize = 1_048_576 // 1MB chunks
 
     init(
         projectName: String,
         volumeName: String,
+        volumeURL: URL? = nil,
         projectPath: String,
         footagePath: String?,
         totalCount: Int,
         skippedCount: Int = 0,
         isNewProject: Bool = false
     ) {
-        self.id = UUID()
+        let newId = UUID()
+        self.id = newId
+        self.tempExtension = ".filesafe-tmp-\(newId.uuidString.prefix(8))"
         self.projectName = projectName
         self.volumeName = volumeName
+        self.volumeURL = volumeURL
         self.projectPath = projectPath
         self.footagePath = footagePath
         self.startTime = Date()
@@ -189,6 +199,20 @@ class FileSafeTransfer: ObservableObject, Identifiable {
             }
 
             let endTime = Date()
+            // Bij annulering: de niet-verwerkte mappings expliciet als "niet gekopieerd"
+            // opnemen. Anders meldt het rapport "Verified: 20 / Failed: 0" terwijl er
+            // 30 bestanden ontbreken — precies het bewijs waarvoor FileSafe bestaat.
+            let wasCancelled = Task.isCancelled || results.count < mappings.count
+            if wasCancelled {
+                for mapping in mappings.dropFirst(results.count) {
+                    results.append(self.makeFailedResult(
+                        mapping: mapping,
+                        error: "Niet gekopieerd — transfer geannuleerd",
+                        retries: 0
+                    ))
+                }
+            }
+
             let report = FileSafeCopyReport(
                 id: UUID(),
                 projectName: self.projectName,
@@ -203,7 +227,7 @@ class FileSafeTransfer: ObservableObject, Identifiable {
 
             self.isRunning = false
             self.currentPhase = .complete
-            self.progress = 1.0
+            self.progress = wasCancelled ? Double(results.filter { $0.error == nil }.count) / Double(max(mappings.count, 1)) : 1.0
             self.report = report
 
             // I/O voor log/txt/config naar achtergrond zodat UI direct door kan transitionen.
@@ -339,10 +363,25 @@ class FileSafeTransfer: ObservableObject, Identifiable {
                 continue
             }
 
-            // Alle checks geslaagd — hernoem temp naar definitief
+            // Alle checks geslaagd — hernoem temp naar definitief.
+            // NOOIT stil overschrijven: twee bronbestanden met dezelfde naam (bv. IMG_0001.CR3
+            // uit 100CANON én 101CANON) mogen elkaar niet vervangen. Bestaat het doel al:
+            //   - identieke inhoud (checksum) → duplicaat, klaar
+            //   - andere inhoud → uniek suffix (_2, _3, …)
+            var finalDestURL = destURL
             do {
-                try? FileManager.default.removeItem(at: destURL)
-                try FileManager.default.moveItem(at: tempURL, to: destURL)
+                if FileManager.default.fileExists(atPath: destURL.path) {
+                    let existingHash = await calculateSHA256(at: destURL)
+                    if existingHash == sourceHash {
+                        // Exact duplicaat staat er al geverifieerd — temp opruimen
+                        try? FileManager.default.removeItem(at: tempURL)
+                    } else {
+                        finalDestURL = Self.uniqueDestination(destURL)
+                        try FileManager.default.moveItem(at: tempURL, to: finalDestURL)
+                    }
+                } else {
+                    try FileManager.default.moveItem(at: tempURL, to: destURL)
+                }
             } catch {
                 lastError = "Rename failed: \(error.localizedDescription)"
                 try? FileManager.default.removeItem(at: tempURL)
@@ -356,7 +395,7 @@ class FileSafeTransfer: ObservableObject, Identifiable {
             return FileSafeCopyResult(
                 id: UUID(),
                 sourceFile: mapping.source,
-                destinationPath: mapping.destinationPath,
+                destinationPath: finalDestURL.path,
                 sourceChecksum: sourceHash,
                 destinationChecksum: destHash,
                 sizesMatch: true,
@@ -371,6 +410,22 @@ class FileSafeTransfer: ObservableObject, Identifiable {
         // Alle pogingen gefaald
         try? FileManager.default.removeItem(at: tempURL)
         return makeFailedResult(mapping: mapping, error: lastError ?? "Unknown error", retries: retryCount)
+    }
+
+    /// Uniek doelpad: voegt `_2`, `_3`, … toe zodat een bestaand bestand nooit wordt overschreven.
+    private nonisolated static func uniqueDestination(_ target: URL) -> URL {
+        guard FileManager.default.fileExists(atPath: target.path) else { return target }
+        let dir = target.deletingLastPathComponent()
+        let name = target.deletingPathExtension().lastPathComponent
+        let ext = target.pathExtension
+        var counter = 2
+        var candidate = target
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            let newName = ext.isEmpty ? "\(name)_\(counter)" : "\(name)_\(counter).\(ext)"
+            candidate = dir.appendingPathComponent(newName)
+            counter += 1
+        }
+        return candidate
     }
 
     // MARK: - SHA-256 Checksum (chunked)

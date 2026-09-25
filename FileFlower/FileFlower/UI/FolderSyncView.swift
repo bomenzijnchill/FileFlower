@@ -56,36 +56,21 @@ struct FolderSyncView: View {
     
     private var folderSyncListContent: some View {
         VStack(spacing: 0) {
-            // Toolbar
-            HStack(spacing: 8) {
-                Button(action: { showingAddForm = true }) {
-                    Label(String(localized: "foldersync.add_folder"), systemImage: "plus")
-                        .font(.system(size: 11))
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                
-                Spacer()
-                
-                if !appState.config.folderSyncs.isEmpty {
-                    Text(String(localized: "foldersync.folder_count \(appState.config.folderSyncs.count)"))
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(minHeight: 36)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.3))
-            
-            // Content
             if appState.config.folderSyncs.isEmpty {
                 EmptyFolderSyncView(onAdd: { showingAddForm = true })
             } else {
+                // Section header
+                let enabledCount = appState.config.folderSyncs.filter(\.isEnabled).count
+                let totalCount = appState.config.folderSyncs.count
+                QueueSectionHeader(
+                    title: "\(String(localized: "foldersync.active_syncs")) \(enabledCount)/\(totalCount)",
+                    count: enabledCount,
+                    style: .ready
+                )
+
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(syncsByProject, id: \.projectPath) { group in
-                            // Project header
                             ProjectGroupHeader(
                                 projectName: group.projectName,
                                 syncCount: group.syncs.count,
@@ -93,8 +78,7 @@ struct FolderSyncView: View {
                                 onToggle: { toggleProjectExpansion(group.projectPath) },
                                 onDeleteAll: { deleteAllSyncsForProject(group.projectPath) }
                             )
-                            
-                            // Syncs voor dit project (als expanded)
+
                             if expandedProjects.contains(group.projectPath) {
                                 ForEach(group.syncs) { sync in
                                     FolderSyncRow(
@@ -109,27 +93,45 @@ struct FolderSyncView: View {
                                     )
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 6)
-                                    .padding(.leading, 8) // Extra indent
-                                    
+                                    .padding(.leading, 8)
+
                                     if sync.id != group.syncs.last?.id {
                                         Divider()
                                             .padding(.horizontal, 20)
                                     }
                                 }
                             }
-                            
+
                             if group.projectPath != syncsByProject.last?.projectPath {
                                 Divider()
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 4)
                             }
                         }
+
+                        // Add button at bottom
+                        Button(action: { showingAddForm = true }) {
+                            HStack {
+                                Spacer()
+                                Label(String(localized: "foldersync.add_sync"), systemImage: "plus")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.brandBurntPeach)
+                                Spacer()
+                            }
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(Color.brandBurntPeach.opacity(0.3), lineWidth: 1, antialiased: true)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
                     }
                 }
             }
         }
         .onAppear {
-            // Standaard alle projecten uitklappen
             expandedProjects = Set(syncsByProject.map { $0.projectPath })
         }
     }
@@ -944,10 +946,16 @@ struct EditFolderSyncForm: View {
         if selectedProjectPath != sync.projectPath {
             if let index = appState.config.folderSyncs.firstIndex(where: { $0.id == sync.id }) {
                 appState.config.folderSyncs[index].projectPath = selectedProjectPath
+                // Hash-administratie is per SYNC, niet per project: laten staan zou
+                // betekenen dat het nieuwe project geen enkel bestaand bestand krijgt
+                // (alles geldt als "al gesynct"). Reset zodat de initiële sync het
+                // nieuwe project alsnog vult.
+                appState.config.folderSyncs[index].syncedFileHashes.removeAll()
                 appState.saveConfig()
-                
-                // Herstart de watcher met nieuwe config
+
+                // Herstart de watcher met nieuwe config (wist ook in-memory hashes)
                 let updatedSync = appState.config.folderSyncs[index]
+                FolderSyncWatcher.shared.resetProcessedFiles(for: updatedSync.id)
                 FolderSyncWatcher.shared.restartSync(sync: updatedSync)
             }
         }

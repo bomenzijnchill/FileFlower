@@ -9,6 +9,33 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 2.2.0</title>
+            <sparkle:version>33</sparkle:version>
+            <sparkle:shortVersionString>2.2.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>FileFlower 2.2.0</h2>
+                <ul>
+                    <li><strong>Bridge (beta)</strong> — Nieuw tabblad om mappen rechtstreeks tussen je eigen machines te synchroniseren, peer-to-peer en zonder cloud. Met een eigen verkenner-venster en instellingen-sectie</li>
+                    <li><strong>App-gids</strong> — Interactieve uitleg met demo's van hoe FileFlower denkt, te openen via Instellingen</li>
+                    <li><strong>Wachtrij</strong> — Alles selecteren/deselecteren (ook Cmd+A), wachtrij legen, en een knop voor de mapindeling van het actieve project</li>
+                    <li><strong>Slimmere plaatsing</strong> — Padbepaling herbouwd rond mapnamen als primaire bron, met een bevestigingspaneel per project. Bestanden belanden niet meer op gokplekken</li>
+                    <li><strong>FileSafe</strong> — Overzetten met checksum-verificatie, geen stille overschrijvingen, duidelijke scanmeldingen en rapporten per transfer</li>
+                    <li><strong>Videoclassificatie</strong> — Camera-originelen (Sony, RED, ARRI, GoPro, Panasonic, …) worden correct herkend; minder missers bij intro/outro/promo</li>
+                    <li><strong>Vernieuwde interface</strong> — Eigen lettertypes en kleurenpalet door de hele app, in vijf talen</li>
+                    <li><strong>Stabiliteit</strong> — Tal van verbeteringen in de achtergronddiensten, plugins en integraties</li>
+                </ul>
+            ]]></description>
+            <pubDate>Fri, 25 Sep 2026 11:46:02 +0200</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v2.2.0/FileFlower.dmg"
+                sparkle:edSignature="Ajq4AXinxt5MeWCvjtkXiEZBpEYSl2Iih36NoOc0cQ4yVhJOgigIXC24ZTZIqReaEjfvrGZ8UIrUal4pujx5AQ=="
+                length="16062979"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 2.1.2</title>
             <sparkle:version>31</sparkle:version>
             <sparkle:shortVersionString>2.1.2</sparkle:shortVersionString>

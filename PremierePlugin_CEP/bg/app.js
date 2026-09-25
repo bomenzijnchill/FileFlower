@@ -185,8 +185,8 @@ function openProject(projectPath) {
 function ensureBinAndImportFiles(pathString, files) {
     return new Promise((resolve, reject) => {
         const parts = pathString.split("/").filter(p => p.length > 0);
-        const escapedFiles = files.map(f => f.replace(/\\/g, "\\\\").replace(/"/g, '\\"'));
-        
+        // Paden NIET handmatig escapen: JSON.stringify(files) levert al een correct
+        // ge-escapete JS-array op. Dubbel escapen corrumpeerde paden met \ of ".
         const script = `
             (function() {
                 try {
@@ -194,14 +194,14 @@ function ensureBinAndImportFiles(pathString, files) {
                         return JSON.stringify({ 
                             success: false, 
                             importedFiles: [], 
-                            failedFiles: ${JSON.stringify(escapedFiles)},
+                            failedFiles: ${JSON.stringify(files)},
                             error: "No project is open",
                             actualBinPath: ""
                         });
                     }
                     
                     var pathParts = ${JSON.stringify(parts)};
-                    var filesToImport = ${JSON.stringify(escapedFiles)};
+                    var filesToImport = ${JSON.stringify(files)};
                     var rootBin = app.project.rootItem;
                     var currentBin = rootBin;
                     
@@ -238,16 +238,17 @@ function ensureBinAndImportFiles(pathString, files) {
                             }
                         }
                         
-                        // Second: normalized match
+                        // Second: normalized EXACT match.
+                        // Bewust GEEN substring-varianten meer: een bin "Video Audio Sync"
+                        // matchte daarmee op zoekterm "Audio" en slokte alle muziek op.
+                        // Geen exacte match => hieronder een nieuwe bin aanmaken.
                         for (var j = 0; j < parentBin.children.numItems; j++) {
                             var child = parentBin.children[j];
                             if (child && child.type === ProjectItemType.BIN) {
                                 var childName = String(child.name || "");
                                 var normalizedChild = normalize(childName);
-                                
-                                if (normalizedChild === normalizedSearch || 
-                                    normalizedChild.indexOf(normalizedSearch) !== -1 ||
-                                    normalizedSearch.indexOf(normalizedChild) !== -1) {
+
+                                if (normalizedChild === normalizedSearch) {
                                     return child;
                                 }
                             }
@@ -257,73 +258,37 @@ function ensureBinAndImportFiles(pathString, files) {
                         return parentBin.createBin(searchName);
                     };
                     
-                    var musicKeywords = ["muziek", "music", "audio"];
-                    var sfxKeywords = ["sfx", "soundfx", "sound effects", "geluidseffecten"];
+                    // (Keyword-matching verwijderd: bin-selectie gaat nu uitsluitend op
+                    //  exacte/genormaliseerde naam. FileFlower bepaalt zelf het juiste
+                    //  bin-pad; fuzzy matching hier leidde tot imports in verkeerde bins.)
                     
                     // Navigate/create the bin path
                     for (var p = 0; p < pathParts.length; p++) {
                         var partName = String(pathParts[p]);
                         
                         if (p === 0) {
-                            // First level: use keyword matching for Music/SFX folders
+                            // Eerste niveau: zelfde regels als diepere niveaus —
+                            // exacte (genormaliseerde) naam-match, anders nieuwe bin.
+                            // De oude keyword-matching pakte ELKE top-bin met "audio"/"music"
+                            // in de naam (bv. "Audio Recordings" van interviews) en dumpte
+                            // daar de muziek in.
                             var foundFirst = null;
                             var normalizedPart = normalize(partName);
-                            
-                            var isMusicSearch = false;
-                            var isSfxSearch = false;
-                            for (var mk = 0; mk < musicKeywords.length; mk++) {
-                                if (normalizedPart.indexOf(musicKeywords[mk]) !== -1) {
-                                    isMusicSearch = true;
-                                    break;
-                                }
-                            }
-                            for (var sk = 0; sk < sfxKeywords.length; sk++) {
-                                if (normalizedPart.indexOf(sfxKeywords[sk]) !== -1) {
-                                    isSfxSearch = true;
-                                    break;
-                                }
-                            }
-                            
+
                             for (var i = 0; i < currentBin.children.numItems; i++) {
                                 var child = currentBin.children[i];
                                 if (child && child.type === ProjectItemType.BIN) {
                                     var childName = String(child.name || "");
                                     var normalizedChild = normalize(childName);
-                                    
-                                    // Exact match
-                                    if (childName === partName) {
+
+                                    // Exact match (letterlijk of genormaliseerd)
+                                    if (childName === partName || normalizedChild === normalizedPart) {
                                         foundFirst = child;
                                         break;
                                     }
-                                    
-                                    // Normalized match
-                                    if (normalizedChild === normalizedPart) {
-                                        foundFirst = child;
-                                        break;
-                                    }
-                                    
-                                    // Keyword match for music
-                                    if (isMusicSearch) {
-                                        for (var mk2 = 0; mk2 < musicKeywords.length; mk2++) {
-                                            if (normalizedChild.indexOf(musicKeywords[mk2]) !== -1) {
-                                                foundFirst = child;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    // Keyword match for SFX
-                                    if (isSfxSearch && !foundFirst) {
-                                        for (var sk2 = 0; sk2 < sfxKeywords.length; sk2++) {
-                                            if (normalizedChild.indexOf(sfxKeywords[sk2]) !== -1) {
-                                                foundFirst = child;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    if (foundFirst) break;
                                 }
                             }
-                            
+
                             if (foundFirst) {
                                 currentBin = foundFirst;
                             } else {
@@ -428,7 +393,7 @@ function ensureBinAndImportFiles(pathString, files) {
                     return JSON.stringify({
                         success: false,
                         importedFiles: [],
-                        failedFiles: ${JSON.stringify(escapedFiles)},
+                        failedFiles: ${JSON.stringify(files)},
                         error: e.toString(),
                         actualBinPath: ""
                     });

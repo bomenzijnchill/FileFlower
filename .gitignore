@@ -25,3 +25,10 @@ MacApp/config.json
 PremierePlugin/build/
 node_modules/
 .claude/
+
+# Interne audit- en planningsdocumenten (niet publiceren: publieke repo)
+audit-rapport-*.md
+ik-vroeg-dit-aan-*.md
+
+# Interne overdrachtsdocumenten — niet publiceren (zie CLAUDE.md).
+FileFlower/docs/fase6-overdracht-*.md

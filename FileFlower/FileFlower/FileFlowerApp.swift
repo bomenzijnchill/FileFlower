@@ -1,6 +1,9 @@
 import SwiftUI
 import AppKit
 import Combine
+#if canImport(BridgeKit)
+import BridgeKit
+#endif
 
 @main
 struct FileFlowerApp: App {
@@ -8,7 +11,15 @@ struct FileFlowerApp: App {
 
     var body: some Scene {
         Settings {
-            SettingsView(onDismiss: {})
+            EmptyView()
+        }
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button(String(localized: "common.settings") + "…") {
+                    SettingsWindowController.show()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
         }
     }
 }
@@ -132,10 +143,18 @@ class AppState: ObservableObject {
     @Published var shouldOpenWindow = false
     @Published var shouldSwitchToFileSafeTab = false
     @Published var isPaused = false
+    @Published var isAnalyzing = false
+    /// Aantal aangevinkte wachtrij-items — gepubliceerd door QueueView zodat de
+    /// footer-knop toont wat hij daadwerkelijk gaat verwerken.
+    @Published var selectedQueueItemCount: Int = 0
+    /// Project waarvan de mapindeling nog bevestigd moet worden (toont het bevestigings-paneel).
+    @Published var pendingMappingProject: ProjectInfo?
     @Published var activeProject: ProjectInfo?
     /// Houdt bij welk NLE-project als laatst automatisch is ingesteld, zodat we alleen
     /// bij een NIEUW NLE-project de selectie overschrijven (niet bij elke refresh).
     private var lastAutoSelectedNLEPath: String?
+    /// Is de root-sanering al één keer gedraaid nadat een volume beschikbaar kwam?
+    private var didSanitizeAfterMount = false
 
     // FolderSync state
     @Published var folderSyncStatuses: [UUID: FolderSyncStatus] = [:]
@@ -151,9 +170,9 @@ class AppState: ObservableObject {
     
     private init() {
         loadConfig()
-        // MLX classification is verwijderd - forceer uit voor bestaande configs
-        config.useMLXClassification = false
         migrateHashesIfNeeded()
+        migrateBadLearnedPathRulesIfNeeded()
+        sanitizeProjectRoots()
         // Stel de taal in via UserDefaults zodat String(localized:) de juiste bundle locale gebruikt
         UserDefaults.standard.set([config.appLanguage], forKey: "AppleLanguages")
         UserDefaults.standard.synchronize()
@@ -190,6 +209,12 @@ class AppState: ObservableObject {
                 self.clearFinishedItems()
                 // Eindig analytics sessie bij afsluiten
                 AnalyticsService.shared.endSession()
+                #if canImport(BridgeKit)
+                // Bridge netjes afsluiten. Zonder dit blijven gemounte volumes als
+                // dode mappen in de Finder staan: alleen Engine.shutdown koppelt ze
+                // los. Doet niets als de engine nooit gestart is.
+                BridgeSession.shutdownBlocking()
+                #endif
             }
         }
     }
@@ -316,6 +341,15 @@ class AppState: ObservableObject {
             #endif
         }
 
+        // Saneer eventuele vergiftigde roots (roots die BINNEN een project wijzen) nu het
+        // volume aantoonbaar gemount is. Bij het opstarten kan het volume er nog niet zijn,
+        // vandaar deze tweede poging — maar EENMALIG: de plugin meldt zich elke twee seconden
+        // en dit is synchrone schijf-IO op de hoofdthread die de configuratie herschrijft.
+        if !didSanitizeAfterMount {
+            didSanitizeAfterMount = true
+            sanitizeProjectRoots()
+        }
+
         // Auto-add project root als het niet in geconfigureerde roots staat
         // Skip voor virtuele Resolve paden (geen echte directories)
         if config.autoAddActiveProjectRoot && !isVirtualResolvePath {
@@ -325,13 +359,25 @@ class AppState: ObservableObject {
             }
 
             if !alreadyInRoots {
-                // Voeg de parent directory van het project toe als root
-                let newRoot = projectURL.deletingLastPathComponent().deletingLastPathComponent().path
-                config.projectRoots.append(newRoot)
-                saveConfig()
-                #if DEBUG
-                print("AppState: Project root \(newRoot) automatisch toegevoegd voor \(projectName)")
-                #endif
+                // Klim naar de echte projecthoofdmap (map met 02_Footage/03_Audio e.d.);
+                // de container dáárboven is de juiste root. Nooit blind "twee niveaus omhoog" —
+                // dat vergiftigde de config bij geneste structuren zoals
+                // <project>/01_Projects/01_PremierePro/<videomap>/x.prproj.
+                if let mainFolder = ProjectRootResolver.shared.climbToStructuralProjectRoot(fromProjectFile: path) {
+                    let newRoot = mainFolder.deletingLastPathComponent().path
+                    if !config.projectRoots.contains(newRoot) {
+                        config.projectRoots.append(newRoot)
+                        saveConfig()
+                        #if DEBUG
+                        print("AppState: Project root \(newRoot) automatisch toegevoegd voor \(projectName)")
+                        #endif
+                    }
+                } else {
+                    // Geen herkenbare projectstructuur → niet gokken, geen root toevoegen.
+                    #if DEBUG
+                    print("AppState: Geen projectstructuur herkend rond \(path) — root NIET automatisch toegevoegd")
+                    #endif
+                }
             }
         }
 
@@ -405,8 +451,13 @@ class AppState: ObservableObject {
                     rootPath = projectURL.deletingLastPathComponent().deletingLastPathComponent().path
                 }
             } else {
-                // Premiere project
-                rootPath = projectURL.deletingLastPathComponent().deletingLastPathComponent().path
+                // Premiere project: rootPath = de container boven de projecthoofdmap (via klim).
+                // Fallback: twee niveaus omhoog (oud gedrag) als er geen structuur herkenbaar is.
+                if let mainFolder = ProjectRootResolver.shared.climbToStructuralProjectRoot(fromProjectFile: path) {
+                    rootPath = mainFolder.deletingLastPathComponent().path
+                } else {
+                    rootPath = projectURL.deletingLastPathComponent().deletingLastPathComponent().path
+                }
             }
 
             // Auto-add project root voor virtuele Resolve projecten met echte rootPath
@@ -597,19 +648,24 @@ class AppState: ObservableObject {
         return spotlightProjects.first
     }
 
-    /// Spotlight-ontdekte projecten (Premiere + Resolve), gecached voor 30 seconden
+    /// Spotlight-ontdekte projecten (Premiere + Resolve), gecached voor 30 seconden.
+    /// Gebruikt ALLEEN de cache — mdfind draait nooit synchroon vanaf de MainActor
+    /// (dat bevroor de UI); de cache wordt door refreshRecentProjects gevuld.
     private var spotlightProjects: [ProjectInfo] {
-        if let cached = cachedSpotlightProjects,
-           let cacheTime = spotlightProjectsCacheTime,
-           Date().timeIntervalSince(cacheTime) < 30 {
-            return cached
-        }
-        var projects = PremiereRecentProjectsReader.getRecentProjects(limit: 5)
-        projects.append(contentsOf: ResolveRecentProjectsReader.getRecentProjects(limit: 5))
-        projects.sort { $0.lastModified > $1.lastModified }
-        cachedSpotlightProjects = projects
-        spotlightProjectsCacheTime = Date()
-        return projects
+        cachedSpotlightProjects ?? []
+    }
+
+    /// Voer de Spotlight-queries buiten de MainActor uit (mdfind + fileExists blokkeren).
+    nonisolated static func fetchSpotlightProjects(filterToLocal: Bool) async -> [ProjectInfo] {
+        await Task.detached(priority: .utility) {
+            var projects = PremiereRecentProjectsReader.getRecentProjects(limit: 5)
+            projects.append(contentsOf: ResolveRecentProjectsReader.getRecentProjects(limit: 5))
+            if filterToLocal {
+                projects = projects.filter { !PremiereRecentProjectsReader.isNetworkPath($0.projectPath) }
+            }
+            projects.sort { $0.lastModified > $1.lastModified }
+            return projects
+        }.value
     }
 
     /// Controleer of een project onder een geconfigureerde project root valt
@@ -645,12 +701,18 @@ class AppState: ObservableObject {
         if activeProject == nil, let first = recentProjects.first {
             activeProject = first
         }
-        // 4. Zorg dat het actieve project nog in een van de lijsten zit
-        if let active = activeProject,
-           !allFolderProjects.contains(where: { $0.id == active.id }),
-           !recentProjects.contains(where: { $0.id == active.id }),
-           !nleActiveProjects.contains(where: { $0.id == active.id }) {
-            activeProject = nleActiveProjects.first ?? allFolderProjects.first ?? recentProjects.first
+        // 4. Zorg dat het actieve project nog in een van de lijsten zit.
+        //    Vergelijk op projectPath (niet alleen id): dat is de echte identiteit en
+        //    blijft ook kloppen als een lijst het project met andere metadata teruggeeft.
+        //    Zolang het pad nog op schijf bestaat blijft de keuze van de gebruiker staan.
+        if let active = activeProject {
+            let stillListed = allFolderProjects.contains(where: { $0.projectPath == active.projectPath })
+                || recentProjects.contains(where: { $0.projectPath == active.projectPath })
+                || nleActiveProjects.contains(where: { $0.projectPath == active.projectPath })
+            let stillOnDisk = FileManager.default.fileExists(atPath: active.projectPath)
+            if !stillListed && !stillOnDisk {
+                activeProject = nleActiveProjects.first ?? allFolderProjects.first ?? recentProjects.first
+            }
         }
     }
 
@@ -741,6 +803,112 @@ class AppState: ObservableObject {
         UserDefaults.standard.set(true, forKey: migrationKey)
     }
 
+    private func migrateBadLearnedPathRulesIfNeeded() {
+        let migrationKey = "didMigrateBadLearnedPathRules_v1"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        let removed = PathLearningManager.removeBadAbsolutePathRules(in: &config)
+        if removed > 0 {
+            configManager.save(config)
+            #if DEBUG
+            print("AppState: Migratie - \(removed) kapotte LearnedPathRule(s) verwijderd (absolute paden)")
+            #endif
+        }
+
+        UserDefaults.standard.set(true, forKey: migrationKey)
+    }
+
+    /// Saneer vergiftigde project-roots: roots die (door de oude "twee niveaus omhoog" auto-add)
+    /// BINNEN een projectstructuur wijzen, bv. `…/<project>/01_Projects/01_PremierePro`.
+    /// Zo'n root wordt vervangen door de echte projecten-container (parent van de projecthoofdmap).
+    /// Idempotent en veilig bij niet-gemounte volumes: onbereikbare paden worden overgeslagen.
+    func sanitizeProjectRoots() {
+        let fm = FileManager.default
+        var didChange = false
+        var sanitized: [String] = []
+
+        let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
+
+        for root in config.projectRoots {
+            // Onbereikbaar (bv. server niet gemount): laat staan, opnieuw proberen bij volgend contact
+            guard fm.fileExists(atPath: root) else {
+                sanitized.append(root)
+                continue
+            }
+
+            // Bevat deze root zelf projectmappen? Dan is het een gezonde projecten-container
+            // en is er niets te saneren. Zonder deze check werd een geldige container met
+            // projectmappen als "01_Klant"/"02_Klant" vervangen door zijn eigen ouder, omdat
+            // de soepele looksLikeProjectRoot al aansloeg op het kale "02_"-prefix.
+            if ProjectRootResolver.shared.containsProjectFolders(URL(fileURLWithPath: root)) {
+                sanitized.append(root)
+                continue
+            }
+
+            // Zoek een voorouder (strikt boven de root) die structureel een projecthoofdmap is.
+            // Als die bestaat, ligt deze root BINNEN een project → vervang door de container.
+            // BELANGRIJK: klim nooit tot beschermde grenzen (home bevat altijd "Music"!,
+            // "/", "/Users", "/Volumes" en volume-roots) — anders saneren we gezonde roots kapot.
+            var ancestor = URL(fileURLWithPath: root).deletingLastPathComponent()
+            var replacement: String? = nil
+            for _ in 0..<4 {
+                let ancestorPath = ancestor.standardizedFileURL.path
+                if ancestorPath == "/" || ancestorPath == home ||
+                   ancestorPath == "/Users" || ancestorPath == "/Volumes" ||
+                   ancestor.deletingLastPathComponent().path == "/Volumes" {
+                    break
+                }
+                let subfolders = (try? fm.contentsOfDirectory(
+                    at: ancestor,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]
+                ))?.filter { url in
+                    var isDir: ObjCBool = false
+                    return fm.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
+                }.map { $0.lastPathComponent } ?? []
+
+                // Strenge variant: dit besluit overschrijft de configuratie van de gebruiker,
+                // dus een kaal "02_"-prefix is hier geen bewijs van een projecthoofdmap.
+                if ProjectRootResolver.shared.looksLikeProjectRootStrict(subfolders) {
+                    let candidate = ancestor.deletingLastPathComponent().path
+                    // Vervanging moet zelf ook een redelijke diepte hebben — nooit
+                    // "/", "/Users", "/Volumes" of een directe schijf-root als project-root.
+                    let candidateURL = URL(fileURLWithPath: candidate)
+                    let depth = candidateURL.pathComponents.count
+                    if candidate != "/" && candidate != "/Users" && candidate != "/Volumes"
+                        && candidate != home && depth >= 3 {
+                        replacement = candidate
+                    }
+                    break
+                }
+                ancestor = ancestor.deletingLastPathComponent()
+            }
+
+            if let replacement = replacement, replacement != root {
+                #if DEBUG
+                print("AppState: Vergiftigde root gesaneerd: \(root) → \(replacement)")
+                #endif
+                sanitized.append(replacement)
+                didChange = true
+            } else {
+                sanitized.append(root)
+            }
+        }
+
+        // Dedupliceer met behoud van volgorde
+        var seen = Set<String>()
+        let deduped = sanitized.filter { seen.insert($0).inserted }
+        if deduped.count != config.projectRoots.count || didChange {
+            config.projectRoots = deduped
+            // BELANGRIJK: hier NIET saveConfig() gebruiken. Deze functie draait ook
+            // vanuit AppState.init(), en saveConfig() raakt Classifier.shared aan —
+            // die leest AppState.shared en veroorzaakt dan een dispatch_once-deadlock.
+            // Directe save + cache-invalidatie doet precies wat hier nodig is.
+            cachedSpotlightProjects = nil
+            configManager.save(config)
+        }
+    }
+
     private func setupWatchers() {
         downloadsWatcher.onNewFile = { [weak self] url, originURL in
             Task { @MainActor in
@@ -755,12 +923,21 @@ class AppState: ObservableObject {
         }
     }
     
+    /// Loopnummer van de nieuwste refresh. Een oudere (tragere) run die daarna klaar is,
+    /// mag de resultaten van een nieuwere run niet meer overschrijven.
+    private var refreshGeneration: Int = 0
+
     func refreshRecentProjects() async {
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
+
         // Stap 1: Scan ALLE mappen in project roots (folder-based)
         let folderProjects = await projectScanner.scanAllFolderProjects(
             roots: config.projectRoots,
             limit: 100
         )
+        // Nieuwere refresh gestart tijdens deze scan → deze run is verouderd
+        guard generation == refreshGeneration else { return }
         allFolderProjects = folderProjects
 
         // Stap 2: Scan NLE projectbestanden (bestaand gedrag — voor recentProjects / jobs)
@@ -770,12 +947,12 @@ class AppState: ObservableObject {
             filterToLocal: config.filterServerProjectsToLocal
         )
 
-        // Stap 3: Voeg Spotlight-ontdekte projecten toe die nog niet in de lijst staan
-        var spotlightProjects = PremiereRecentProjectsReader.getRecentProjects(limit: 5)
-        spotlightProjects.append(contentsOf: ResolveRecentProjectsReader.getRecentProjects(limit: 5))
-        if config.filterServerProjectsToLocal {
-            spotlightProjects = spotlightProjects.filter { !PremiereRecentProjectsReader.isNetworkPath($0.projectPath) }
-        }
+        // Stap 3: Voeg Spotlight-ontdekte projecten toe die nog niet in de lijst staan.
+        // mdfind spawnt subprocessen met waitUntilExit — nooit op de MainActor draaien,
+        // anders bevriest de hele menubar-UI bij elke 30s-refresh.
+        let filterToLocal = config.filterServerProjectsToLocal
+        let spotlightProjects = await Self.fetchSpotlightProjects(filterToLocal: filterToLocal)
+        guard generation == refreshGeneration else { return }
         for spotlightProject in spotlightProjects {
             if !projects.contains(where: { $0.projectPath == spotlightProject.projectPath }) {
                 projects.append(spotlightProject)
@@ -807,46 +984,30 @@ class AppState: ObservableObject {
         // Sorteer op lastModified aflopend na samenvoegen
         projects.sort { $0.lastModified > $1.lastModified }
 
-        // Invalideer Spotlight cache
-        cachedSpotlightProjects = nil
+        // Vul de Spotlight-cache met het zojuist (off-main) opgehaalde resultaat,
+        // zodat preferredProject die kan gebruiken zonder mdfind op de MainActor.
+        cachedSpotlightProjects = spotlightProjects
+        spotlightProjectsCacheTime = Date()
 
         recentProjects = Array(projects.prefix(config.recentProjectsCacheSize))
 
         // Stap 5: Bepaal NLE-actieve projecten.
-        // Primair: CEP-plugin (Premiere) / Python-bridge (Resolve).
-        // Fallback: wanneer de NLE draait maar geen plugin-data stuurt, kies het meest recente
-        // project volgens Spotlight (kMDItemLastUsedDate).
+        // ALLEEN op basis van harde plugin-data: CEP-plugin (Premiere) / Python-bridge (Resolve).
+        // Voorheen werd, als de NLE draaide zonder plugin-data, het meest recente
+        // Spotlight-resultaat tot "actief project" gebombardeerd — dat kon een willekeurig
+        // oud project ergens op de machine zijn, dat vervolgens auto-geselecteerd werd
+        // en bestanden ontving. Zonder plugin-data doen we nu geen aanname.
         var nleProjects: [ProjectInfo] = []
 
         // Premiere Pro
-        let premierePath: String? = {
-            if let path = jobServer.activeProjectPath, jobServer.isActiveProjectFresh {
-                return path
-            }
-            if NLEChecker.shared.isRunning(.premiere),
-               let spotlightPath = PremiereRecentProjectsReader.getRecentProjects(limit: 1).first?.projectPath {
-                return spotlightPath
-            }
-            return nil
-        }()
-        if let premierePath = premierePath {
+        if NLEChecker.shared.isRunning(.premiere), let premierePath = jobServer.activeProjectPath {
             nleProjects.append(findOrCreateNLEProject(nleFilePath: premierePath))
         }
 
         // DaVinci Resolve
-        let resolvePath: String? = {
-            if let path = jobServer.resolveActiveProjectPath, jobServer.isResolveActiveProjectFresh {
-                return path
-            }
-            if NLEChecker.shared.isRunning(.resolve),
-               let spotlightPath = ResolveRecentProjectsReader.getRecentProjects(limit: 1).first?.projectPath {
-                return spotlightPath
-            }
-            return nil
-        }()
-        if let resolvePath = resolvePath {
+        if NLEChecker.shared.isRunning(.resolve), let resolvePath = jobServer.resolveActiveProjectPath {
             let project = findOrCreateNLEProject(nleFilePath: resolvePath)
-            if !nleProjects.contains(where: { $0.id == project.id }) {
+            if !nleProjects.contains(where: { $0.projectPath == project.projectPath }) {
                 nleProjects.append(project)
             }
         }
@@ -966,10 +1127,6 @@ class AppState: ObservableObject {
         return config.cloudStorageWebsites.contains { origin.contains($0.lowercased()) }
     }
 
-    func clearCompletedItems() {
-        queuedItems.removeAll { $0.status == .completed }
-    }
-
     func clearAllItems() {
         queuedItems.removeAll()
     }
@@ -978,7 +1135,88 @@ class AppState: ObservableObject {
     func clearFinishedItems() {
         queuedItems.removeAll { $0.status == .completed || $0.status == .skipped }
     }
-    
+
+    /// Herbereken alle (nog niet verwerkte) queue-items naar het juiste pad van `project`.
+    /// Wordt aangeroepen wanneer de gebruiker een ander project kiest of een mapindeling bevestigt.
+    /// Respecteert handmatig overschreven paden (manualTargetPath) én expliciete per-item
+    /// projectkeuzes: een item dat de gebruiker aan een ANDER project heeft toegewezen wordt
+    /// tegen zijn EIGEN project her-resolved, nooit stilletjes hertarget.
+    func reresolveQueuedItems(for project: ProjectInfo) {
+        let threshold = PathResolver.shared.confidenceThreshold
+        for index in queuedItems.indices {
+            let item = queuedItems[index]
+            guard item.manualTargetPath == nil,
+                  item.status == .queued || item.status == .classifying,
+                  item.predictedType != .unknown else { continue }
+
+            // Per-item projectkeuze wint van het doorgegeven project
+            let effectiveProject = item.targetProject ?? project
+
+            let subfolder = subfolderForResolution(item)
+            let resolution = PathResolver.shared.resolveTargetWithConfidence(
+                project: effectiveProject,
+                assetType: item.predictedType,
+                subfolder: subfolder,
+                musicMode: config.musicClassification,
+                source: item.detectedSource,
+                fileName: URL(fileURLWithPath: item.path).lastPathComponent
+            )
+
+            queuedItems[index].targetProject = effectiveProject
+            queuedItems[index].targetSubfolder = subfolder
+            queuedItems[index].pathConfidence = resolution.confidence
+            queuedItems[index].needsPathConfirmation = resolution.confidence < threshold
+
+            if resolution.confidence > 0 {
+                let filename = URL(fileURLWithPath: item.path).lastPathComponent
+                queuedItems[index].targetPath = resolution.targetFolder.url.appendingPathComponent(filename).path
+                let rel = resolution.targetFolder.relativePath
+                queuedItems[index].previewPath = rel.isEmpty ? effectiveProject.name : "\(effectiveProject.name) → \(rel)"
+            } else {
+                queuedItems[index].targetPath = nil
+                queuedItems[index].previewPath = PathResolver.shared.previewRelativePath(
+                    project: effectiveProject,
+                    assetType: item.predictedType,
+                    subfolder: subfolder,
+                    musicMode: config.musicClassification,
+                    sfxCategory: item.predictedSfxCategory
+                )
+            }
+        }
+    }
+
+    /// Bepaal de te gebruiken submap voor een item bij her-resolutie (handmatig > mood/genre/sfx-categorie).
+    private func subfolderForResolution(_ item: DownloadItem) -> String? {
+        if let explicit = item.targetSubfolder, !explicit.isEmpty { return explicit }
+        switch item.predictedType {
+        case .music:
+            return config.musicClassification == .mood ? item.predictedMood : item.predictedGenre
+        case .sfx:
+            return config.useSfxSubfolders ? item.predictedSfxCategory : nil
+        default:
+            return nil
+        }
+    }
+
+    // MARK: - Queue Grouping (v3 popover)
+
+    var groupedQueueItems: (attention: [DownloadItem], ready: [DownloadItem]) {
+        var attention: [DownloadItem] = []
+        var ready: [DownloadItem] = []
+        for item in queuedItems {
+            if item.needsPathConfirmation || (item.pathConfidence ?? 1.0) < 0.70 {
+                attention.append(item)
+            } else {
+                ready.append(item)
+            }
+        }
+        return (attention, ready)
+    }
+
+    var readyToProcessCount: Int {
+        groupedQueueItems.ready.filter { $0.status == .queued }.count
+    }
+
     func saveConfig() {
         // Invalideer Spotlight cache zodat nieuwe roots meegenomen worden
         cachedSpotlightProjects = nil
@@ -1065,13 +1303,30 @@ class AppState: ObservableObject {
     
     /// Voeg een nieuwe folder sync toe
     func addFolderSync(folderPath: String, projectPath: String, premiereBinRoot: String = "") {
+        // Weiger dubbele of geneste syncs naar hetzelfde project: twee FSEvent-streams
+        // over dezelfde bestanden geven dubbele imports en desynchrone hash-administratie.
+        let normalized = URL(fileURLWithPath: folderPath).standardizedFileURL.path
+        let conflicting = config.folderSyncs.contains { existing in
+            guard existing.projectPath == projectPath else { return false }
+            let other = URL(fileURLWithPath: existing.folderPath).standardizedFileURL.path
+            return normalized == other
+                || normalized.hasPrefix(other + "/")
+                || other.hasPrefix(normalized + "/")
+        }
+        guard !conflicting else {
+            #if DEBUG
+            print("AppState: Sync voor \(folderPath) overlapt met een bestaande sync — niet toegevoegd")
+            #endif
+            return
+        }
+
         let newSync = FolderSync(
             folderPath: folderPath,
             projectPath: projectPath,
             premiereBinRoot: premiereBinRoot,
             isEnabled: true
         )
-        
+
         config.folderSyncs.append(newSync)
         saveConfig()
         

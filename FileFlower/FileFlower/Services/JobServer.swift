@@ -26,6 +26,12 @@ class JobServer {
     private var resolveCompletedJobs: [UUID: JobResult] = [:]
     private var resolveSentJobs: [UUID: JobRequest] = [:]
 
+    // Begrens de completed-dicts zodat ze niet onbeperkt blijven groeien (memory leak):
+    // bewaar alleen de laatste N resultaten in invoeg-volgorde.
+    private var completedJobOrder: [UUID] = []
+    private var resolveCompletedJobOrder: [UUID] = []
+    private let maxCompletedJobs = 100
+
     // Job-dicts worden zowel op NIO event loop (getNextJob, completeJob)
     // als vanuit de UI (polling via jobState) geraadpleegd. Lock beschermt
     // concurrente lezen/schrijven.
@@ -69,6 +75,13 @@ class JobServer {
         }
     }
 
+    /// Aantal wachtende import-jobs (diagnostiek via /status)
+    var pendingJobCount: Int {
+        jobsLock.lock()
+        defer { jobsLock.unlock() }
+        return pendingJobs.count
+    }
+
     /// Check of het actieve project nog vers is (binnen 10 seconden) — thread-safe
     var isActiveProjectFresh: Bool {
         activeProjectLock.lock()
@@ -78,7 +91,9 @@ class JobServer {
     }
 
     /// Thread-safe lezing van actief project path
-    private var threadSafeActiveProjectPath: String? {
+    /// Niet-private: ook de /status-handler draait op de NIO event-loop en mag de
+    /// @Published-property daarom niet rechtstreeks lezen.
+    var threadSafeActiveProjectPath: String? {
         activeProjectLock.lock()
         defer { activeProjectLock.unlock() }
         return lockedActiveProjectPath
@@ -219,7 +234,7 @@ class JobServer {
         // Zoek een job die matcht met het actieve project
         let normalizedActive = normalizePath(activePath)
         for (id, job) in pendingJobs {
-            if normalizePath(job.projectPath) == normalizedActive {
+            if Self.projectPathsMatch(job.projectPath, normalizedActive) {
                 pendingJobs.removeValue(forKey: id)
                 // Bewaar job zodat we pendingHashes kunnen opslaan bij completion
                 sentJobs[id] = job
@@ -245,10 +260,43 @@ class JobServer {
     private func normalizePath(_ path: String) -> String {
         return URL(fileURLWithPath: path).standardizedFileURL.path
     }
+
+    /// Verwijzen twee paden naar HETZELFDE project?
+    ///
+    /// Eén gedeelde regel voor zowel "mag er een import-job komen?" (QueueView) als
+    /// "mag de plugin deze job ophalen?" (getNextJob). Die gebruikten voorheen
+    /// verschillende regels: de queue accepteerde een projectMAP waarin het .prproj
+    /// staat, maar getNextJob eiste exacte gelijkheid — de job werd dan wél aangemaakt
+    /// maar nooit opgehaald, en het bestand belandde zonder import in de map.
+    static func projectPathsMatch(_ a: String, _ b: String) -> Bool {
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        let na = URL(fileURLWithPath: a).standardizedFileURL.path
+        let nb = URL(fileURLWithPath: b).standardizedFileURL.path
+        if na == nb { return true }
+        // Het ene pad is het projectBESTAND, het andere de projectMAP eromheen
+        if na.hasPrefix(nb + "/") || nb.hasPrefix(na + "/") { return true }
+        // Of: map van het projectbestand is gelijk aan het andere pad
+        let dirA = URL(fileURLWithPath: na).deletingLastPathComponent().path
+        let dirB = URL(fileURLWithPath: nb).deletingLastPathComponent().path
+        return dirA == nb || dirB == na
+    }
     
+    /// Voeg een resultaat toe en evict de oudste als de cap overschreden wordt.
+    /// Caller MOET `jobsLock` vasthouden.
+    private func storeCompleted(_ result: JobResult, into dict: inout [UUID: JobResult], order: inout [UUID]) {
+        if dict[result.jobId] == nil {
+            order.append(result.jobId)
+        }
+        dict[result.jobId] = result
+        while order.count > maxCompletedJobs {
+            let oldest = order.removeFirst()
+            dict.removeValue(forKey: oldest)
+        }
+    }
+
     func completeJob(_ result: JobResult) {
         jobsLock.lock()
-        completedJobs[result.jobId] = result
+        storeCompleted(result, into: &completedJobs, order: &completedJobOrder)
         let originalJob = sentJobs.removeValue(forKey: result.jobId)
         jobsLock.unlock()
 
@@ -360,7 +408,7 @@ class JobServer {
 
         let normalizedActive = normalizePath(activePath)
         for (id, job) in resolvePendingJobs {
-            if normalizePath(job.projectPath) == normalizedActive {
+            if Self.projectPathsMatch(job.projectPath, normalizedActive) {
                 resolvePendingJobs.removeValue(forKey: id)
                 resolveSentJobs[id] = job
                 #if DEBUG
@@ -404,7 +452,7 @@ class JobServer {
     /// Verwerk het resultaat van een Resolve job
     func completeResolveJob(_ result: JobResult) {
         jobsLock.lock()
-        resolveCompletedJobs[result.jobId] = result
+        storeCompleted(result, into: &resolveCompletedJobs, order: &resolveCompletedJobOrder)
         let originalJob = resolveSentJobs.removeValue(forKey: result.jobId)
         jobsLock.unlock()
 
@@ -512,9 +560,78 @@ private class HTTPHandler: ChannelInboundHandler {
         }
     }
     
+    /// True als de Host-header naar loopback wijst (127.0.0.1 / localhost / ::1) of ontbreekt.
+    /// Blokkeert DNS-rebinding: een kwaadaardige pagina die zijn domein naar 127.0.0.1 laat
+    /// wijzen stuurt nog steeds zijn eigen domein als Host-header en wordt zo geweigerd.
+    private static func isLoopbackHost(_ host: String?) -> Bool {
+        guard let host = host, !host.isEmpty else { return true } // HTTP zonder Host-header toestaan
+        var name = host
+        if name.hasPrefix("[") {
+            // IPv6 literal: [::1]:poort
+            if let close = name.firstIndex(of: "]") {
+                name = String(name[name.index(after: name.startIndex)..<close])
+            }
+        } else if let colon = name.lastIndex(of: ":") {
+            name = String(name[..<colon]) // strip :poort
+        }
+        let lower = name.lowercased()
+        return lower == "127.0.0.1" || lower == "localhost" || lower == "::1"
+    }
+
+    /// True als de Origin-header van een gewone webpagina komt.
+    ///
+    /// Legitieme clients zijn: de browser-extensies (`chrome-extension://`,
+    /// `safari-web-extension://`, `moz-extension://`) en native clients zoals de CEP-plugin
+    /// en de Python-bridge (die sturen géén Origin). Een willekeurige webpagina die
+    /// `fetch('http://127.0.0.1:17890/deploy-template')` doet stuurt wél een http(s)-Origin —
+    /// die weigeren we voor alles wat state muteert (CSRF-bescherming).
+    private static func isDisallowedWebOrigin(_ origin: String?) -> Bool {
+        guard let origin = origin, !origin.isEmpty, origin != "null" else { return false }
+        let lower = origin.lowercased()
+        if lower.hasPrefix("chrome-extension://")
+            || lower.hasPrefix("safari-web-extension://")
+            || lower.hasPrefix("moz-extension://") {
+            return false
+        }
+        return lower.hasPrefix("http://") || lower.hasPrefix("https://")
+    }
+
     private func sendResponse(context: ChannelHandlerContext, head: HTTPRequestHead, body: ByteBuffer?) {
+        // Weiger state-muterende requests vanaf een gewone webpagina (CSRF).
+        let isMutating = head.method != .GET && head.method != .OPTIONS && head.method != .HEAD
+        if isMutating, Self.isDisallowedWebOrigin(head.headers.first(name: "Origin")) {
+            var denyBody = context.channel.allocator.buffer(capacity: 48)
+            denyBody.writeString("{\"error\":\"forbidden origin\"}")
+            var denyHeaders = HTTPHeaders()
+            denyHeaders.add(name: "Content-Type", value: "application/json")
+            denyHeaders.add(name: "Content-Length", value: String(denyBody.readableBytes))
+            var denyHead = HTTPResponseHead(version: .http1_1, status: .forbidden)
+            denyHead.headers = denyHeaders
+            context.write(wrapOutboundOut(.head(denyHead)), promise: nil)
+            context.write(wrapOutboundOut(.body(.byteBuffer(denyBody))), promise: nil)
+            context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
+            currentRequest = nil
+            return
+        }
+
+        // Weiger requests met een niet-loopback Host (DNS-rebinding-bescherming).
+        guard Self.isLoopbackHost(head.headers.first(name: "Host")) else {
+            var denyBody = context.channel.allocator.buffer(capacity: 40)
+            denyBody.writeString("{\"error\":\"forbidden host\"}")
+            var denyHeaders = HTTPHeaders()
+            denyHeaders.add(name: "Content-Type", value: "application/json")
+            denyHeaders.add(name: "Content-Length", value: String(denyBody.readableBytes))
+            var denyHead = HTTPResponseHead(version: .http1_1, status: .forbidden)
+            denyHead.headers = denyHeaders
+            context.write(wrapOutboundOut(.head(denyHead)), promise: nil)
+            context.write(wrapOutboundOut(.body(.byteBuffer(denyBody))), promise: nil)
+            context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
+            currentRequest = nil
+            return
+        }
+
         let response: (head: HTTPResponseHead, body: ByteBuffer?)
-        
+
         switch (head.method, head.uri) {
         // ============================================================================
         // CORS PREFLIGHT - voor Chrome extensie
@@ -542,8 +659,23 @@ private class HTTPHandler: ChannelInboundHandler {
         // STATUS - voor CEP panel status check
         // ============================================================================
         case (.GET, "/status"):
-            var statusBody = context.channel.allocator.buffer(capacity: 100)
-            statusBody.writeString("{\"status\":\"ok\",\"server\":\"FileFlower\",\"version\":\"1.0\"}")
+            // Diagnostisch: laat zien of de NLE-plugin zich meldt en of er jobs klaarstaan.
+            // Zonder dit is "bestand verplaatst maar niet geïmporteerd" niet te herleiden.
+            // Via de lock-gespiegelde kopie: deze handler draait op de NIO event-loop,
+            // terwijl de hoofdthread activeProjectPath schrijft.
+            let activePath = server.threadSafeActiveProjectPath ?? ""
+            let fresh = server.isActiveProjectFresh
+            let pending = server.pendingJobCount
+            let escaped = activePath
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            let json = """
+            {"status":"ok","server":"FileFlower","version":"1.0",\
+            "activeProjectPath":"\(escaped)","activeProjectFresh":\(fresh),\
+            "pendingJobs":\(pending)}
+            """
+            var statusBody = context.channel.allocator.buffer(capacity: json.utf8.count)
+            statusBody.writeString(json)
             response = (
                 head: HTTPResponseHead(version: .http1_1, status: .ok),
                 body: statusBody

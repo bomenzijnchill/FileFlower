@@ -11,6 +11,8 @@ class AnalyticsService {
     private var flushTimer: Timer?
     private let maxBatchSize = 20
     private let flushInterval: TimeInterval = 300 // 5 minuten
+    /// Bovengrens op de lokale buffer bij langdurige verzendproblemen
+    private let maxQueuedEvents = 500
 
     // Session tracking
     private var sessionStart: Date?
@@ -18,12 +20,28 @@ class AnalyticsService {
     private var sessionImportsCount = 0
     private var sessionErrorsCount = 0
 
+    /// Gecachte config-waarden. AppState is @MainActor terwijl flush()/track() vanaf
+    /// achtergrond-queues draaien — AppState.shared.config daar lezen was een data race.
+    private let settingsLock = NSLock()
+    private var cachedEnabled: Bool = false
+    private var cachedAnonymousId: String = ""
+
     private var isEnabled: Bool {
-        AppState.shared.config.analyticsEnabled
+        settingsLock.lock(); defer { settingsLock.unlock() }
+        return cachedEnabled
     }
 
     private var anonymousId: String {
-        AppState.shared.config.anonymousId
+        settingsLock.lock(); defer { settingsLock.unlock() }
+        return cachedAnonymousId
+    }
+
+    /// Werk de gecachte instellingen bij (aanroepen vanaf de MainActor bij config-wijziging).
+    func refreshSettings(enabled: Bool, anonymousId: String) {
+        settingsLock.lock()
+        cachedEnabled = enabled
+        cachedAnonymousId = anonymousId
+        settingsLock.unlock()
     }
 
     private init() {
@@ -32,6 +50,23 @@ class AnalyticsService {
     }
 
     // MARK: - Public API
+
+    /// Verwijder persoonlijke info uit strings die naar analytics gaan: het home-pad
+    /// (incl. macOS-gebruikersnaam) wordt "~", en resterende /Users/<naam>-paden worden
+    /// geredigeerd. Voorkomt het lekken van bestandspaden en gebruikersnaam in error-events.
+    static func redactPII(_ string: String) -> String {
+        var s = string
+        let home = NSHomeDirectory()
+        if !home.isEmpty {
+            s = s.replacingOccurrences(of: home, with: "~")
+        }
+        s = s.replacingOccurrences(
+            of: #"/Users/[^/\s]+"#,
+            with: "/Users/<redacted>",
+            options: .regularExpression
+        )
+        return s
+    }
 
     /// Track een analytics event
     func track(_ event: AnalyticsEvent) {
@@ -62,6 +97,11 @@ class AnalyticsService {
                     // Events terug in de queue als ze niet verstuurd konden worden
                     self.queue.async {
                         self.eventQueue.insert(contentsOf: eventsToSend, at: 0)
+                        // Cap de queue: bij een langdurige storing groeit hij anders
+                        // onbegrensd (elke 5 min een nieuwe batch erbij).
+                        if self.eventQueue.count > self.maxQueuedEvents {
+                            self.eventQueue = Array(self.eventQueue.suffix(self.maxQueuedEvents))
+                        }
                         self.saveQueueToDisk()
                         #if DEBUG
                         print("AnalyticsService: Events terug in queue na fout (\(eventsToSend.count) events)")
@@ -83,10 +123,12 @@ class AnalyticsService {
         sessionImportsCount = 0
         sessionErrorsCount = 0
 
+        // Settings snapshot per sessie (ook de cache vullen vóór het eerste event)
+        let config = AppState.shared.config
+        refreshSettings(enabled: config.analyticsEnabled, anonymousId: config.anonymousId)
+
         track(.appLaunched())
 
-        // Settings snapshot per sessie
-        let config = AppState.shared.config
         track(.settingsSnapshot(
             selectedNLEs: config.selectedNLEs.joined(separator: ","),
             folderPreset: config.folderStructurePreset.rawValue,
@@ -127,7 +169,22 @@ class AnalyticsService {
 
         let semaphore = DispatchSemaphore(value: 0)
 
+        // Precies ÉÉN partij mag de events terugzetten: de completion óf de timeout.
+        // Anders zetten beide ze terug → duplicaten in Supabase bij de volgende launch.
+        let handledLock = NSLock()
+        var handled = false
+        func claimHandling() -> Bool {
+            handledLock.lock(); defer { handledLock.unlock() }
+            if handled { return false }
+            handled = true
+            return true
+        }
+
         supabaseClient.sendEvents(eventsToSend, anonymousId: self.anonymousId) { success in
+            guard claimHandling() else {
+                semaphore.signal()
+                return
+            }
             if !success {
                 // Events terug opslaan zodat ze bij volgende launch verstuurd worden
                 self.queue.sync {
@@ -147,7 +204,7 @@ class AnalyticsService {
 
         // Wacht maximaal 10 seconden op het netwerk verzoek
         let result = semaphore.wait(timeout: .now() + 10)
-        if result == .timedOut {
+        if result == .timedOut, claimHandling() {
             #if DEBUG
             print("AnalyticsService: Sync flush timeout — events worden bij volgende launch verstuurd")
             #endif
@@ -169,6 +226,7 @@ class AnalyticsService {
     func optIn() {
         AppState.shared.config.analyticsEnabled = true
         AppState.shared.saveConfig()
+        refreshSettings(enabled: true, anonymousId: AppState.shared.config.anonymousId)
         startSession()
         #if DEBUG
         print("AnalyticsService: Opt-in - analytics ingeschakeld")
@@ -178,6 +236,7 @@ class AnalyticsService {
     func optOut() {
         AppState.shared.config.analyticsEnabled = false
         AppState.shared.saveConfig()
+        refreshSettings(enabled: false, anonymousId: AppState.shared.config.anonymousId)
         // Verwijder alle gebufferde events
         queue.async { [weak self] in
             self?.eventQueue.removeAll()

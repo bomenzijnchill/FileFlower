@@ -35,8 +35,13 @@ class DirectClassifier {
     // Audio extensies
     private let audioExtensions = Set(["wav", "aiff", "aif", "mp3", "m4a", "aac", "flac", "ogg"])
     
-    // Video extensies
-    private let videoExtensions = Set(["mp4", "mov", "avi", "mxf", "mkv", "webm", "m4v", "prores"])
+    // Video extensies — inclusief de professionele camera-formaten. Zonder r3d/braw/ari
+    // kwam zo'n bestand helemaal niet in de video-tak terecht en eindigde het als
+    // AssetType.unknown, waarna PathResolver geen bestemming kon bepalen.
+    private let videoExtensions = Set([
+        "mp4", "mov", "avi", "mxf", "mkv", "webm", "m4v", "prores",
+        "r3d", "braw", "ari", "mts", "m2ts"
+    ])
     
     // Image extensies
     private let imageExtensions = Set(["png", "jpg", "jpeg", "svg", "psd", "gif", "webp", "tiff", "tif"])
@@ -47,42 +52,77 @@ class DirectClassifier {
     // STEMS keywords - altijd Music
     private let stemsKeywords = ["stems", "stem", "bass", "drums", "instruments", "melody", "vocals", "vocal"]
     
-    // SFX keywords
-    private let sfxKeywords = [
-        "sfx", "sound-effect", "sound effect", "effect", "impact", "whoosh", "swoosh",
-        "hit", "crash", "bang", "explosion", "ambience", "ambient", "foley",
-        "transition", "riser", "downer", "swoosh", "swish", "click", "beep",
-        "notification", "ui", "button", "interface", "glitch", "noise",
+    // SFX keywords — STERK: ondubbelzinnig geluidseffect, geeft high confidence.
+    private let strongSfxKeywords = [
+        "sfx", "sound-effect", "sound effect", "soundeffect", "whoosh", "swoosh", "swish",
+        "foley", "stinger", "downer", "footstep", "glitch", "riser",
+        "explosion", "impact", "braam", "boom"
+    ]
+
+    // SFX keywords — ZWAK: gewone zelfstandige naamwoorden die net zo goed in
+    // muziektitels voorkomen ("Wind of Change", "Water Under the Bridge",
+    // "Ambient Nights", "Hit the Road Jack"). Deze geven NOOIT high confidence en
+    // verliezen altijd van een artiest-patroon of muziek-trefwoord.
+    private let weakSfxKeywords = [
+        "effect", "hit", "crash", "bang", "transition", "click", "beep",
+        "notification", "ui", "button", "interface", "noise",
         "wind", "rain", "thunder", "water", "fire", "wave",
         "organic", "nature", "bird", "animal", "door",
-        "footstep", "buzz", "alarm", "siren", "horn", "bell", "knock", "creak",
-        "rumble", "static", "hum", "drone", "texture", "stinger", "sweep"
+        "buzz", "alarm", "siren", "horn", "bell", "knock", "creak",
+        "rumble", "static", "hum", "sweep"
     ]
+
+    /// Alle SFX-trefwoorden (voor plekken die geen onderscheid nodig hebben)
+    private var sfxKeywords: [String] { strongSfxKeywords + weakSfxKeywords }
     
-    // VO keywords
+    // VO keywords.
+    // LET OP: "vocal"/"vocals" staat hier BEWUST NIET in. Stockmuziek-platforms gebruiken
+    // dat massaal als muziek-descriptor ("No Lead Vocals", "No Backing Vocals",
+    // "Vocals Only") — dat zijn instrumentals, geen voice-overs.
     private let voKeywords = [
         "vo", "voice", "narration", "dialogue", "dialog", "speech", "spoken",
-        "vocal", "narrator", "announcer", "commentary", "voiceover", "voice-over",
+        "narrator", "announcer", "commentary", "voiceover", "voice-over",
         "elevenlabs", "text-to-speech", "tts"
     ]
-    
+
     // Music keywords
     private let musicKeywords = [
         "music", "track", "song", "beat", "melody", "score", "soundtrack", "theme",
-        "remix", "mix", "album", "single", "instrumental"
+        "remix", "mix", "album", "single", "instrumental",
+        // Stockmuziek-descriptor: "No Lead Vocals", "Vocals Only" → muziekversie, geen VO
+        "vocal", "vocals"
     ]
     
-    // Stock footage keywords/patterns
+    // Stock footage keywords/patterns.
+    // LET OP: resolutie-suffixen (_4k, _1080, …) staan hier BEWUST NIET meer in. Die zeggen
+    // iets over het bestand, niet over de herkomst: een geëxporteerde eindmontage heet net zo
+    // vaak "..._1080p". Ze tellen nu als apart, zwakker signaal — zie resolutionSuffixTokens.
     private let stockFootageKeywords = [
         "stock", "footage", "b-roll", "broll", "clip", "scene", "shot",
-        "_hd", "_4k", "_uhd", "_1080", "_720", "artgrid", "artlist"
+        "artgrid", "artlist"
     ]
-    
-    // Motion graphic keywords
-    private let motionGraphicKeywords = [
-        "mogrt", "motion", "graphic", "title", "lower third", "lower-third",
-        "bumper", "intro", "outro", "transition", "overlay", "template",
-        "promo", "opener", "end screen", "subscribe"
+
+    /// Resolutie-aanduidingen. Aannemelijk stock-signaal, maar zwak: als hele token, en
+    /// alleen als niets sterkers heeft gesproken. Als token i.p.v. substring, want "_hd"
+    /// als substring matchte ook in "_hdr" (kleurprofiel, geen resolutie).
+    private let resolutionSuffixTokens: Set<String> = [
+        "hd", "fhd", "4k", "uhd", "8k", "1080", "1080p", "720", "720p", "2160", "2160p"
+    ]
+
+    // Motion graphic keywords — STERK: ondubbelzinnig een template of element, geen
+    // afgeleverde video. Geeft high confidence.
+    private let strongMotionGraphicKeywords = [
+        "mogrt", "lower third", "lower-third", "bumper", "opener",
+        "end screen", "endscreen", "subscribe", "motiongraphic", "motion graphic"
+    ]
+
+    // Motion graphic keywords — ZWAK: komen net zo vaak voor in een AFGELEVERDE video als in
+    // een template. "Wedding Film Intro.mp4" en "Company Promo 2026.mov" zijn eindproducten.
+    // Deze geven daarom medium confidence, zodat de AI-stap het nog kan corrigeren; met high
+    // werd die stap overgeslagen en stond de fout vast.
+    private let weakMotionGraphicKeywords = [
+        "motion", "graphic", "title", "intro", "outro", "transition",
+        "overlay", "template", "promo", "animatie", "animation"
     ]
     
     // Stock footage platforms (in URL)
@@ -142,9 +182,10 @@ class DirectClassifier {
     
     private func classifyVideo(filename: String, lower: String, metadata: DownloadMetadata?, originUrl: String?) -> DirectClassificationResult {
 
-        // 0. Check voor camera/telefoon footage patronen (IMG_, MVI_, VID_, DCIM, DSC, GoPro, DJI)
-        let cameraPatterns = ["img_", "mvi_", "mov_", "vid_", "dsc_", "dscf", "gopr", "gh0", "dji_", "a7s", "a7r", "a7m", "a7c", "bmpcc"]
-        if cameraPatterns.contains(where: { lower.hasPrefix($0) }) {
+        // 0. Camera-originelen. Dit moet vóór alle stock-checks blijven staan: eigen
+        //    camera-materiaal hoort bij .footage, niet bij .stockFootage, en die twee wijzen
+        //    naar verschillende projectmappen.
+        if Self.looksLikeCameraOriginal(lower) {
             return DirectClassificationResult(assetType: .footage, confidence: .high, reason: "Camera/phone footage pattern")
         }
 
@@ -185,15 +226,44 @@ class DirectClassifier {
             #endif
             return DirectClassificationResult(assetType: .stockFootage, confidence: .high, reason: "Stock footage keyword in filename")
         }
-        
-        // 4. Check voor motion graphic keywords
-        if motionGraphicKeywords.contains(where: { lower.contains($0) }) {
+
+        // 4. Motion graphic (woordgrens!).
+        //    "Untitled.mov" — de standaard exportnaam — bevat "title" als substring
+        //    en werd daardoor met high confidence een Motion Graphic.
+        let videoTokens = Self.tokens(of: lower)
+        let genericExportNames = ["untitled", "naamloos", "sequence", "comp"]
+        let isGenericExport = videoTokens.contains { genericExportNames.contains($0) }
+
+        // 4a. Sterke signalen: een mogrt of lower third is geen afgeleverde video.
+        if !isGenericExport,
+           matchesAny(strongMotionGraphicKeywords, tokens: videoTokens, lower: lower) {
             #if DEBUG
-            print("DirectClassifier: Motion graphic keyword gevonden")
+            print("DirectClassifier: Sterk motion-graphic keyword gevonden")
             #endif
             return DirectClassificationResult(assetType: .motionGraphic, confidence: .high, reason: "Motion graphic keyword in filename")
         }
-        
+
+        // 4b. Zwakke signalen: intro/outro/promo/title. Exacte woordmatch — anders liftte
+        //     "promotional" mee op "promo" en "introduction" op "intro". Medium confidence,
+        //     zodat de AI-stap dit nog kan corrigeren bij een echte eindmontage.
+        if !isGenericExport,
+           weakMotionGraphicKeywords.contains(where: { videoTokens.contains($0) || ($0.contains(" ") && lower.contains($0)) }) {
+            #if DEBUG
+            print("DirectClassifier: Zwak motion-graphic keyword gevonden (medium)")
+            #endif
+            return DirectClassificationResult(assetType: .motionGraphic, confidence: .medium, reason: "Possible motion graphic keyword in filename")
+        }
+
+        // 4c. Resolutie-suffix (_4k, _1080p). Aannemelijk stock-signaal, maar zwakker dan de
+        //     bovenstaande: daarom hierNA, zodat "Logo_Outro_1080p.mov" motion graphic blijft
+        //     en niet als stockvideo wordt weggezet.
+        if videoTokens.contains(where: { resolutionSuffixTokens.contains($0) }) {
+            #if DEBUG
+            print("DirectClassifier: Resolutie-suffix gevonden (medium stock)")
+            #endif
+            return DirectClassificationResult(assetType: .stockFootage, confidence: .medium, reason: "Resolution suffix in filename")
+        }
+
         // 5. Check voor numeriek ID prefix (typisch voor stock footage)
         // Pattern: begint met nummer gevolgd door underscore
         let hasNumericPrefix = lower.first?.isNumber == true && lower.contains("_")
@@ -222,12 +292,81 @@ class DirectClassifier {
         return DirectClassificationResult(assetType: .stockFootage, confidence: .medium, reason: "Default for video files")
     }
     
+    // MARK: - Camera-originelen
+
+    /// Prefixen van consumenten- en systeemcamera's.
+    /// "gx0"/"gp0" zijn moderne GoPro's (GX010090.MP4); zonder die viel een GoPro-clip
+    /// door naar de video-default en werd het stockFootage.
+    private static let cameraPrefixes = [
+        "img_", "mvi_", "mov_", "vid_", "dsc_", "dscf", "gopr", "gh0", "gx0", "gp0",
+        "dji_", "a7s", "a7r", "a7m", "a7c", "bmpcc", "insv", "pxl_"
+    ]
+
+    /// Naamconventies van professionele camera's, op de kale bestandsnaam (zonder extensie).
+    /// Deze zijn ANKERD op begin én eind: stocknamen als "6586265_Emotional_..._Artlist_HD"
+    /// beginnen ook met cijfers, maar lopen door in woorden en matchen daarom niet.
+    private static let cameraNamePatterns = [
+        #"^[a-z]\d{3}c\d{3}"#,   // RED / ARRI / Blackmagic reel-clip: A001C002
+        #"^c\d{4}$"#,            // Sony & Canon Cinema: C0001
+        #"^\d{3}_\d{4}$"#,       // Sony XDCAM reel_clip: 446_9009
+        #"^p\d{7}$"#,            // Panasonic: P1000123
+        #"^clip\d{3,4}$"#,       // diverse camera's: CLIP0042
+    ]
+
+    /// Is dit een originele camera-opname (dus .footage, niet .stockFootage)?
+    static func looksLikeCameraOriginal(_ lower: String) -> Bool {
+        if cameraPrefixes.contains(where: { lower.hasPrefix($0) }) { return true }
+
+        let base = (lower as NSString).deletingPathExtension
+        return cameraNamePatterns.contains { pattern in
+            base.range(of: pattern, options: .regularExpression) != nil
+        }
+    }
+
+    // MARK: - Keyword matching op woordgrenzen
+
+    /// Split een bestandsnaam in woorden (op niet-alfanumerieke tekens).
+    /// Nodig omdat naïeve `contains` desastreus is voor korte keywords:
+    /// "Guitar Loop.wav" bevat "ui" → SFX, "Love Story.mp3" bevat "vo" → VO.
+    static func tokens(of lower: String) -> [String] {
+        lower.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    }
+
+    /// Matcht een keyword op woordgrens. Meerwoordige keywords ("sound effect")
+    /// worden als substring gematcht; korte keywords (< 5 tekens) alleen als heel woord;
+    /// langere keywords mogen ook als woord-prefix matchen ("explosion" in "explosions").
+    static func matchesKeyword(_ keyword: String, tokens: [String], lower: String) -> Bool {
+        if keyword.contains(" ") || keyword.contains("-") {
+            return lower.contains(keyword)
+        }
+        if keyword.count < 5 {
+            return tokens.contains(keyword)
+        }
+        return tokens.contains { $0 == keyword || $0.hasPrefix(keyword) }
+    }
+
+    private func matchesAny(_ keywords: [String], tokens: [String], lower: String) -> Bool {
+        keywords.contains { Self.matchesKeyword($0, tokens: tokens, lower: lower) }
+    }
+
     // MARK: - Audio Classification
-    
+
     private func classifyAudio(filename: String, lower: String, metadata: DownloadMetadata?, originUrl: String?) -> DirectClassificationResult {
-        
-        // 1. STEMS check - hoogste prioriteit, altijd Music
-        if stemsKeywords.contains(where: { lower.contains($0) }) {
+        let tokens = Self.tokens(of: lower)
+
+        // Voorbereiding: welke signalen zitten er in de naam? (woordgrens-matching)
+        let hasStrongSfx = matchesAny(strongSfxKeywords, tokens: tokens, lower: lower)
+        let hasWeakSfx = matchesAny(weakSfxKeywords, tokens: tokens, lower: lower)
+        let hasMusicKeyword = matchesAny(musicKeywords, tokens: tokens, lower: lower)
+        let hasVoKeyword = matchesAny(voKeywords, tokens: tokens, lower: lower)
+
+        // 1. STEMS check — alleen als er GEEN expliciet SFX-signaal is.
+        //    "Bass Rumble SFX.wav" is geen muziekstem. Kale instrumentnamen
+        //    ("bass", "drums") tellen bovendien alleen mee samen met "stem(s)".
+        let explicitStem = tokens.contains("stem") || tokens.contains("stems")
+        let instrumentWords = ["bass", "drums", "instruments", "melody", "vocals", "vocal"]
+        let instrumentHits = instrumentWords.filter { tokens.contains($0) }.count
+        if !hasStrongSfx && (explicitStem || instrumentHits >= 2) {
             #if DEBUG
             print("DirectClassifier: STEMS keyword gevonden - Music")
             #endif
@@ -248,8 +387,16 @@ class DirectClassifier {
             return DirectClassificationResult(assetType: .vo, confidence: .high, reason: "Recording/opname pattern in filename (likely VO/Adobe Podcast)")
         }
 
-        // 2. VO check - specifieke VO indicators
-        if voKeywords.contains(where: { lower.contains($0) }) {
+        // 2. VO check - specifieke VO indicators.
+        //    Bij tegenstrijdige signalen (ook een music-keyword) niet zelf beslissen:
+        //    lage confidence zodat de AI/metadata de knoop doorhakt.
+        if hasVoKeyword {
+            if hasMusicKeyword {
+                return DirectClassificationResult(
+                    assetType: .vo, confidence: .low,
+                    reason: "VO- én music-signaal in bestandsnaam — onzeker"
+                )
+            }
             #if DEBUG
             print("DirectClassifier: VO keyword gevonden")
             #endif
@@ -273,21 +420,34 @@ class DirectClassifier {
         }
         
         // 4. SFX check - specifieke SFX indicators (alleen als geen music keywords)
-        let hasSfxKeyword = sfxKeywords.contains(where: { lower.contains($0) })
-        let hasMusicKeyword = musicKeywords.contains(where: { lower.contains($0) })
-        
-        if hasSfxKeyword && !hasMusicKeyword {
+        // Artiest-patroon "Titel - Artiest" is het sterkste MUZIEK-signaal.
+        // Dat mag niet worden uitgeschakeld door een zwak SFX-woord: anders wordt
+        // "Ooyy - Wind of Change.mp3" een geluidseffect.
+        let platformSuffixList = ["epidemic sound", "artlist", "freesound", "pond5", "shutterstock"]
+        let looksLikeArtistTitle = lower.contains(" - ")
+            && !platformSuffixList.contains(where: { lower.contains("- \($0)") })
+
+        if hasStrongSfx && !hasMusicKeyword {
             #if DEBUG
-            print("DirectClassifier: SFX keyword gevonden (geen music keywords)")
+            print("DirectClassifier: sterk SFX keyword gevonden")
             #endif
             return DirectClassificationResult(assetType: .sfx, confidence: .high, reason: "SFX keyword in filename")
+        }
+
+        if hasWeakSfx && !hasMusicKeyword && !looksLikeArtistTitle {
+            // Zwak signaal (wind/water/bell/…): mogelijk SFX, maar de AI/metadata
+            // moet het laatste woord hebben — nooit high confidence.
+            #if DEBUG
+            print("DirectClassifier: zwak SFX keyword — medium confidence")
+            #endif
+            return DirectClassificationResult(assetType: .sfx, confidence: .medium, reason: "Mogelijk SFX (zwak trefwoord)")
         }
         
         // 5. Artist pattern check: "Song Title - Artist Name" of "Artist - Song"
         // Negeer " - " als het deel is van een platform suffix (bijv. "- Epidemic Sound")
         let platformSuffixes = ["epidemic sound", "artlist", "freesound", "pond5", "shutterstock"]
         let hasPlatformSuffix = platformSuffixes.contains(where: { lower.contains("- \($0)") })
-        let hasArtistPattern = lower.contains(" - ") && !hasSfxKeyword && !hasPlatformSuffix
+        let hasArtistPattern = lower.contains(" - ") && !hasStrongSfx && !hasPlatformSuffix
         if hasArtistPattern || hasMusicKeyword {
             #if DEBUG
             print("DirectClassifier: Music pattern gevonden (artist of music keyword)")
@@ -388,7 +548,7 @@ class HeuristicClassificationStrategy: ClassificationStrategy {
         case "png", "jpg", "jpeg", "svg", "psd", "gif", "webp", "tiff", "tif":
             return .graphic
             
-        case "mp4", "mov", "avi", "mxf", "mkv", "webm", "m4v":
+        case "mp4", "mov", "avi", "mxf", "mkv", "webm", "m4v", "r3d", "braw", "ari", "mts", "m2ts":
             // Video - classify Stock Footage vs Motion Graphic using metadata
             return classifyVideoType(filename: filename, metadata: metadata)
             
@@ -479,23 +639,31 @@ class HeuristicClassificationStrategy: ClassificationStrategy {
     
     private func classifyVideoType(filename: String, metadata: DownloadMetadata?) -> AssetType {
         let lowerFilename = filename.lowercased()
-        
-        // Check filename patterns
+
+        // Camera-originelen eerst, net als in DirectClassifier: eigen materiaal is .footage.
+        if DirectClassifier.looksLikeCameraOriginal(lowerFilename) {
+            return .footage
+        }
+
+        // Woordgrens-matching, niet contains: met een kale substring werd "Untitled.mov"
+        // een motion graphic via "title", en "Beach Clip.mp4" stockfootage via "clip".
+        let tokens = DirectClassifier.tokens(of: lowerFilename)
         let motionGraphicKeywords = ["mogrt", "motion", "graphic", "title", "lower third", "bumper", "intro", "outro", "transition", "overlay", "template"]
         let stockFootageKeywords = ["stock", "footage", "b-roll", "broll", "clip", "scene", "shot"]
-        
-        for keyword in motionGraphicKeywords {
-            if lowerFilename.contains(keyword) {
+        let genericExportNames = ["untitled", "naamloos", "sequence", "comp"]
+
+        if !tokens.contains(where: { genericExportNames.contains($0) }) {
+            for keyword in motionGraphicKeywords
+            where DirectClassifier.matchesKeyword(keyword, tokens: tokens, lower: lowerFilename) {
                 return .motionGraphic
             }
         }
-        
-        for keyword in stockFootageKeywords {
-            if lowerFilename.contains(keyword) {
-                return .stockFootage
-            }
+
+        for keyword in stockFootageKeywords
+        where DirectClassifier.matchesKeyword(keyword, tokens: tokens, lower: lowerFilename) {
+            return .stockFootage
         }
-        
+
         // Use metadata to distinguish
         if let meta = metadata {
             // Motion graphics are typically shorter (< 60 seconds) and often have specific resolutions
@@ -599,7 +767,7 @@ class HeuristicClassificationStrategy: ClassificationStrategy {
         var motionGraphicCount = 0
         
         let audioExts = ["wav", "aiff", "mp3", "m4a", "aac", "flac", "ogg"]
-        let videoExts = ["mp4", "mov", "avi", "mxf", "mkv", "webm", "m4v"]
+        let videoExts = ["mp4", "mov", "avi", "mxf", "mkv", "webm", "m4v", "r3d", "braw", "ari", "mts", "m2ts"]
         let imageExts = ["png", "jpg", "jpeg", "svg", "psd", "gif", "webp", "tiff", "tif"]
         let motionGraphicExts = ["mogrt", "aep", "aet"]
         
@@ -885,9 +1053,25 @@ class Classifier {
                         print("Classifier: Claude API voor genre/mood detectie (type al bekend)")
                         #endif
                         let result = await claude.classifyWithDetails(url: url, uti: uti, metadata: metadata, originUrl: originUrl)
-                        if predictedGenre == nil { predictedGenre = result.genre }
-                        if predictedMood == nil { predictedMood = result.mood }
-                        if predictedSfxCategory == nil { predictedSfxCategory = result.sfxCategory }
+
+                        // Claude ziet de volledige context. Bij MEDIUM zekerheid van de
+                        // heuristiek is zijn oordeel over het TYPE leidend — voorheen werd
+                        // dat weggegooid (bv. "Interview Jan.m4a" bleef Music i.p.v. VO).
+                        if result.assetType != .unknown && result.assetType != directType {
+                            #if DEBUG
+                            print("Classifier: Claude corrigeert type \(directType.displayName) → \(result.assetType.displayName)")
+                            #endif
+                            assetType = result.assetType
+                        }
+
+                        // Genre/mood alleen overnemen als ze bij het uiteindelijke type passen
+                        if assetType == .music {
+                            if predictedGenre == nil { predictedGenre = result.genre }
+                            if predictedMood == nil { predictedMood = result.mood }
+                        }
+                        if assetType == .sfx, predictedSfxCategory == nil {
+                            predictedSfxCategory = result.sfxCategory
+                        }
                     }
                 } else if let claude = claudeStrategy, config.useClaudeClassification {
                     // STAP 3: Claude API classificatie (primaire AI)
@@ -936,6 +1120,23 @@ class Classifier {
             }
         }
         
+        // Veiligheidsnet: een video-container (mp4/mov/…) mag NOOIT als audio-type
+        // (music/sfx/vo) eindigen — bv. een 4K-download die op naam/metadata verkeerd
+        // geraden werd. Forceer dan naar stockFootage ("nooit muziek, meestal stock video").
+        if !isDirectory.boolValue {
+            let ext = url.pathExtension.lowercased()
+            let videoContainers: Set<String> = ["mp4", "mov", "avi", "mxf", "mkv", "webm", "m4v", "prores", "mts", "m2ts"]
+            if videoContainers.contains(ext), assetType == .music || assetType == .sfx || assetType == .vo {
+                #if DEBUG
+                print("Classifier: video-container '\(ext)' was \(assetType.displayName) → corrigeer naar stockFootage")
+                #endif
+                assetType = .stockFootage
+                predictedGenre = nil
+                predictedMood = nil
+                predictedSfxCategory = nil
+            }
+        }
+
         return DownloadItem(
             path: url.path,
             uti: uti,
@@ -1003,7 +1204,7 @@ class Classifier {
                 
                 if ["wav", "aiff", "mp3", "m4a", "aac", "flac", "ogg"].contains(ext) {
                     audioCount += 1
-                } else if ["mp4", "mov", "avi", "mxf", "mkv", "webm", "m4v"].contains(ext) {
+                } else if ["mp4", "mov", "avi", "mxf", "mkv", "webm", "m4v", "r3d", "braw", "ari", "mts", "m2ts"].contains(ext) {
                     videoCount += 1
                 } else if ["png", "jpg", "jpeg", "svg", "psd", "gif", "webp", "tiff", "tif"].contains(ext) {
                     imageCount += 1

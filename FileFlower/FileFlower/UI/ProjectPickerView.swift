@@ -164,7 +164,7 @@ struct ProjectPickerView: View {
                         Image(systemName: "arrow.right")
                             .font(.system(size: 9))
                             .foregroundColor(.secondary.opacity(0.6))
-                        Text("\(project.name) → \(selectedType.displayName)\(customSubfolder.isEmpty ? "" : " → \(customSubfolder)")")
+                        Text("\(project.name) → \(selectedType.displayName)\(effectivePreviewSubfolder.isEmpty ? "" : " → \(effectivePreviewSubfolder)")")
                             .font(.system(size: 10))
                             .foregroundColor(.secondary)
                             .lineLimit(1)
@@ -224,19 +224,16 @@ struct ProjectPickerView: View {
         }
     }
     
-    private func iconForType(_ type: AssetType) -> String {
-        switch type {
-        case .music: return "music.note"
-        case .sfx: return "waveform"
-        case .vo: return "mic"
-        case .footage: return "video.fill"
-        case .motionGraphic: return "video"
-        case .graphic: return "photo"
-        case .stockFootage: return "film"
-        case .unknown: return "questionmark"
+    /// De submap die nu écht van toepassing is, afhankelijk van het type. Zorgt dat de
+    /// preview meebeweegt met de mood/genre- of sfx-dropdown (niet alleen met het tekstveld).
+    private var effectivePreviewSubfolder: String {
+        switch selectedType {
+        case .music: return selectedSubfolder
+        case .sfx: return selectedSfxCategory
+        default: return customSubfolder
         }
     }
-    
+
     private var subfolderOptions: [String] {
         if appState.config.musicClassification == .mood {
             return MoodList.shared.moods
@@ -247,7 +244,23 @@ struct ProjectPickerView: View {
     
     private func confirmSelection() {
         guard let project = selectedProject else { return }
-        
+
+        // Trigger re-analyse als dit project nog niet gescand is
+        let structure = appState.config.mappings[project.projectPath]?.discoveredStructure
+        if structure == nil || !structure!.isValid {
+            Task {
+                await MainActor.run { appState.isAnalyzing = true }
+                let _ = await PathResolver.shared.invalidateAndRediscover(for: project)
+                await MainActor.run { appState.isAnalyzing = false }
+            }
+        }
+
+        // Mapindeling nog niet bevestigd? Toon het eenmalige bevestigings-paneel
+        // (QueueView observeert pendingMappingProject).
+        if structure?.confirmed != true {
+            appState.pendingMappingProject = project
+        }
+
         // Update the specific item if provided
         if let item = item {
             if let index = appState.queuedItems.firstIndex(where: { $0.id == item.id }) {

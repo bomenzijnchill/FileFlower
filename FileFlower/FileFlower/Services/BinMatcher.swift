@@ -51,9 +51,11 @@ class BinMatcher {
             options: [.skipsHiddenFiles]
         ) else { return nil }
 
+        // Cache/NLE-mappen mogen nooit als bin-match dienen
         let folders = contents.filter { url in
             var isDir: ObjCBool = false
             return fileManager.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
+                && !PathSafetyPolicy.isBlockedFolderName(url.lastPathComponent)
         }
 
         // Stap 1: Zoek op huidig niveau

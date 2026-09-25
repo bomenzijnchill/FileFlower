@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 struct DownloadItem: Identifiable, Codable {
     let id: UUID
@@ -23,6 +24,9 @@ struct DownloadItem: Identifiable, Codable {
     var childFiles: [String]?            // Bestanden binnen een map-item (uit ZIP extractie)
     var failureReason: String?           // Reden waarom verwerking is mislukt
     var previewPath: String?             // Leesbaar preview-pad (bijv. "Project → Audio → Music → Mood → Chill")
+    var manualTargetPath: String?        // Handmatig overschreven doelpad (overschrijft PathResolver)
+    var needsPathConfirmation: Bool      // PathResolver is onzeker over het pad
+    var pathConfidence: Double?          // 0.0-1.0 confidence score van PathResolver
 
     /// Of dit item een map is (bijv. uitgepakte ZIP)
     var isFolder: Bool {
@@ -52,7 +56,10 @@ struct DownloadItem: Identifiable, Codable {
         needsManualClassification: Bool = false,
         childFiles: [String]? = nil,
         failureReason: String? = nil,
-        previewPath: String? = nil
+        previewPath: String? = nil,
+        manualTargetPath: String? = nil,
+        needsPathConfirmation: Bool = false,
+        pathConfidence: Double? = nil
     ) {
         self.id = id
         self.path = path
@@ -76,6 +83,38 @@ struct DownloadItem: Identifiable, Codable {
         self.childFiles = childFiles
         self.failureReason = failureReason
         self.previewPath = previewPath
+        self.manualTargetPath = manualTargetPath
+        self.needsPathConfirmation = needsPathConfirmation
+        self.pathConfidence = pathConfidence
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        path = try container.decode(String.self, forKey: .path)
+        uti = try container.decodeIfPresent(String.self, forKey: .uti)
+        size = try container.decode(Int64.self, forKey: .size)
+        originUrl = try container.decodeIfPresent(String.self, forKey: .originUrl)
+        createdAt = try container.decode(TimeInterval.self, forKey: .createdAt)
+        metadata = try container.decodeIfPresent(DownloadMetadata.self, forKey: .metadata)
+        predictedType = try container.decode(AssetType.self, forKey: .predictedType)
+        detectedSource = try container.decodeIfPresent(DetectedSource.self, forKey: .detectedSource)
+        status = try container.decode(ItemStatus.self, forKey: .status)
+        targetProject = try container.decodeIfPresent(ProjectInfo.self, forKey: .targetProject)
+        targetSubfolder = try container.decodeIfPresent(String.self, forKey: .targetSubfolder)
+        targetPath = try container.decodeIfPresent(String.self, forKey: .targetPath)
+        predictedGenre = try container.decodeIfPresent(String.self, forKey: .predictedGenre)
+        predictedMood = try container.decodeIfPresent(String.self, forKey: .predictedMood)
+        predictedSfxCategory = try container.decodeIfPresent(String.self, forKey: .predictedSfxCategory)
+        originalPrediction = try container.decodeIfPresent(AssetType.self, forKey: .originalPrediction)
+        isCloudDownload = try container.decodeIfPresent(Bool.self, forKey: .isCloudDownload) ?? false
+        needsManualClassification = try container.decodeIfPresent(Bool.self, forKey: .needsManualClassification) ?? false
+        childFiles = try container.decodeIfPresent([String].self, forKey: .childFiles)
+        failureReason = try container.decodeIfPresent(String.self, forKey: .failureReason)
+        previewPath = try container.decodeIfPresent(String.self, forKey: .previewPath)
+        manualTargetPath = try container.decodeIfPresent(String.self, forKey: .manualTargetPath)
+        needsPathConfirmation = try container.decodeIfPresent(Bool.self, forKey: .needsPathConfirmation) ?? false
+        pathConfidence = try container.decodeIfPresent(Double.self, forKey: .pathConfidence)
     }
 }
 
@@ -186,15 +225,30 @@ struct ProjectInfo: Identifiable, Codable, Equatable, Hashable {
     var rootPath: String
     var projectPath: String
     var lastModified: TimeInterval
-    
-    init(id: UUID = UUID(), name: String, rootPath: String, projectPath: String, lastModified: TimeInterval) {
-        self.id = id
+
+    /// Standaard wordt de id DETERMINISTISCH afgeleid van het projectpad.
+    /// Voorheen kreeg elke constructie een verse UUID, waardoor hetzelfde project na
+    /// elke 30s-rescan een andere id had: id-gebaseerde membership-checks faalden dan
+    /// en een handmatig gekozen project werd stilzwijgend teruggezet.
+    init(id: UUID? = nil, name: String, rootPath: String, projectPath: String, lastModified: TimeInterval) {
+        self.id = id ?? Self.stableID(for: projectPath)
         self.name = name
         self.rootPath = rootPath
         self.projectPath = projectPath
         self.lastModified = lastModified
     }
-    
+
+    /// Stabiele UUID afgeleid van het projectpad (zelfde pad → zelfde id).
+    static func stableID(for projectPath: String) -> UUID {
+        let digest = SHA256.hash(data: Data(projectPath.utf8))
+        var bytes = Array(digest.prefix(16))
+        // Zet UUID-versie (4) en variant-bits zodat het een geldige UUID is
+        bytes[6] = (bytes[6] & 0x0F) | 0x40
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                           bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }

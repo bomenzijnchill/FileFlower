@@ -30,16 +30,77 @@ struct FileSafeView: View {
     // Scan state
     @State private var scanProgress: FileSafeScanner.ScanProgress?
     @State private var scanTask: Task<Void, Never>?
+    @State private var scanIsActive: Bool = false
+    @State private var scanIsDone: Bool = false
+    /// Foutmelding van de laatste scan (nil = geen fout). Zonder dit bleef de wizard
+    /// eeuwig op "wachten op scan" hangen als de scan faalde.
+    @State private var scanError: String?
+    @State private var scanStatusBarHidden: Bool = false
 
     // Dashboard state
     @State private var selectedTransferId: UUID?
+
+    // Tracks the just-completed transfer for the Done step
+    @State private var lastCompletedTransferId: UUID?
+    @State private var copyCompletionWatcher: Task<Void, Never>?
 
     var body: some View {
         VStack(spacing: 0) {
             // Step indicator — altijd zichtbaar (behalve empty state en dashboard)
             if currentStep != .emptyState && currentStep != .dashboard {
-                FileSafeStepIndicator(currentStep: currentStep)
-                Divider()
+                FileSafeStepIndicator(
+                    currentStep: currentStep,
+                    onTap: { stage in goBackToStage(stage) }
+                )
+            }
+
+            // Async scan-statusbar (op stappen 1-3 totdat scan + 1.5s done-fade)
+            if showScanStatusBar {
+                FileSafeScanStatusBar(
+                    isActive: scanIsActive,
+                    isDone: scanIsDone && !scanStatusBarHidden,
+                    filesFound: scanResult?.files.count ?? scanProgress?.filesFound ?? 0,
+                    currentDirectory: scanProgress?.currentDirectory ?? "",
+                    onCancel: scanIsActive ? { cancelScan() } : nil
+                )
+            }
+
+            // Onleesbare bestanden tijdens de scan: prominent melden. Een "geslaagde"
+            // scan die stilzwijgend bestanden miste is precies wat FileSafe moet voorkomen.
+            if let unreadable = scanResult?.unreadablePaths, !unreadable.isEmpty {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.octagon.fill")
+                        .foregroundColor(.red)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(String(localized: "filesafe.unreadable_files \(unreadable.count)"))
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(String(localized: "filesafe.unreadable_files_description"))
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color.red.opacity(0.10))
+            }
+
+            // Scanfout: zichtbaar met retry, zodat de wizard nooit stil vastloopt
+            if let scanError = scanError, !scanIsActive {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text(scanError)
+                        .font(.system(size: 12))
+                        .lineLimit(2)
+                    Spacer()
+                    Button(String(localized: "filesafe.rescan")) { startScan() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(Color.orange.opacity(0.10))
             }
 
             // Content per stap
@@ -63,6 +124,7 @@ struct FileSafeView: View {
                         volumeDetector: volumeDetector,
                         onSelect: { volume in
                             selectedVolume = volume
+                            startScan()  // scan async — gebruiker gaat direct door
                             withAnimation { currentStep = .projectSelect }
                         }
                     )
@@ -74,9 +136,17 @@ struct FileSafeView: View {
                         newProjectName: $newProjectName,
                         selectedProjectPath: $selectedProjectPath,
                         selectedProjectRootPath: $selectedProjectRootPath,
+                        scanIsDone: scanIsDone,
                         onConfirm: {
                             confirmProject()
-                            startScan()
+                            // Scan loopt al — direct door naar layout (cardConfig combineert oude project+card)
+                            if let result = scanResult, cardConfig == nil {
+                                cardConfig = FileSafeCardConfig.defaultFor(
+                                    scanResult: result,
+                                    projectConfig: projectConfig
+                                )
+                            }
+                            withAnimation { currentStep = .cardConfig }
                         },
                         onBack: {
                             if transferManager.hasTransfers {
@@ -88,64 +158,61 @@ struct FileSafeView: View {
                     )
 
                 case .scanning:
-                    FileSafeScanningView(
-                        volumeName: selectedVolume?.name ?? "",
-                        progress: scanProgress,
-                        onCancel: {
-                            scanTask?.cancel()
-                            withAnimation { currentStep = .projectSelect }
-                        }
-                    )
+                    // Behouden voor compat — niet meer gerendered (overgeslagen)
+                    Color.clear.onAppear {
+                        withAnimation { currentStep = .projectSelect }
+                    }
 
                 case .projectConfig:
-                    FileSafeProjectConfigView(
-                        config: $projectConfig,
-                        scanResult: scanResult!,
-                        onContinue: {
-                            // Bouw default card config op basis van scan + project config
-                            if let result = scanResult {
-                                cardConfig = FileSafeCardConfig.defaultFor(
-                                    scanResult: result,
-                                    projectConfig: projectConfig
-                                )
-                            }
-                            withAnimation { currentStep = .cardConfig }
-                        },
-                        onBack: { withAnimation { currentStep = .projectSelect } }
-                    )
+                    // Compat — route naar gecombineerde layout view
+                    Color.clear.onAppear {
+                        if let result = scanResult, cardConfig == nil {
+                            cardConfig = FileSafeCardConfig.defaultFor(
+                                scanResult: result,
+                                projectConfig: projectConfig
+                            )
+                        }
+                        withAnimation { currentStep = .cardConfig }
+                    }
 
                 case .cardConfig:
-                    if let binding = Binding($cardConfig) {
-                        FileSafeCardConfigView(
+                    if let binding = Binding($cardConfig), let result = scanResult {
+                        FileSafeLayoutView(
+                            projectConfig: $projectConfig,
                             cardConfig: binding,
-                            projectConfig: projectConfig,
-                            scanResult: scanResult!,
+                            scanResult: result,
                             folderPreset: appState.config.folderStructurePreset,
                             customTemplate: appState.config.customFolderTemplate,
                             projectPath: selectedProjectPath,
-                            onPreview: { buildPreview() },
-                            onBack: { withAnimation { currentStep = .projectConfig } }
+                            onContinue: { buildPreview() },
+                            onBack: { withAnimation { currentStep = .projectSelect } }
                         )
+                    } else {
+                        // Wachten op scan-result
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text(String(localized: "filesafe.layout.waiting_scan"))
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
 
                 case .structurePreview:
-                    if let tree = structurePreview {
-                        FileSafeStructurePreviewView(
+                    if let tree = structurePreview, let cc = Binding($cardConfig) {
+                        FileSafeConfirmView(
                             tree: tree,
-                            totalFiles: fileMappings.count,
-                            totalSize: fileMappings.reduce(0) { $0 + $1.source.fileSize },
-                            duplicateCount: fileMappings.filter { $0.isDuplicate }.count,
-                            duplicateSize: fileMappings.filter { $0.isDuplicate }.reduce(0) { $0 + $1.source.fileSize },
-                            duplicateFileIds: Set(fileMappings.filter { $0.isDuplicate }.map { $0.source.id }),
+                            fileMappings: fileMappings,
                             skipDuplicates: $skipDuplicates,
+                            verifyAfterCopy: cc.verifyAfterCopy,
+                            destinationPath: selectedProjectPath,
                             onStartCopy: { startCopy() },
                             onBack: { withAnimation { currentStep = .cardConfig } }
                         )
                     }
 
                 case .copying:
-                    // Legacy — wordt niet meer direct gebruikt,
-                    // transfers worden via dashboard getoond
+                    // Korte tussentoestand tijdens copy-start; dashboard toont voortgang.
                     if transferManager.hasTransfers {
                         FileSafeDashboardView(
                             transferManager: transferManager,
@@ -155,22 +222,30 @@ struct FileSafeView: View {
                                 withAnimation { currentStep = .volumeSelect }
                             }
                         )
+                    } else {
+                        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
 
                 case .report:
-                    // Legacy — rapporten worden via dashboard getoond
-                    if transferManager.hasTransfers {
-                        FileSafeDashboardView(
-                            transferManager: transferManager,
-                            selectedTransferId: $selectedTransferId,
-                            onNewImport: {
-                                resetWizardForNewImport()
-                                withAnimation { currentStep = .volumeSelect }
-                            }
-                        )
-                    }
+                    FileSafeDoneView(
+                        completedTransferId: lastCompletedTransferId,
+                        transferManager: transferManager,
+                        verifyEnabled: cardConfig?.verifyAfterCopy ?? true,
+                        onShowFinder: { revealCompletedTransferInFinder() },
+                        onCopyLog: { copyTransferLogToPasteboard() },
+                        onEject: { ejectSourceVolume() },
+                        onNextImport: {
+                            resetWizardForNewImport(keepProject: true)
+                            withAnimation { currentStep = .volumeSelect }
+                        },
+                        onClose: {
+                            withAnimation { currentStep = .dashboard }
+                        }
+                    )
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(currentStep == .emptyState || currentStep == .dashboard ? Color.clear : Color.fsCardBg)
             .transition(.opacity)
 
             // Persistent transfer status bar — altijd zichtbaar als er transfers zijn
@@ -189,8 +264,11 @@ struct FileSafeView: View {
             if transferManager.hasTransfers {
                 withAnimation { currentStep = .dashboard }
             } else if let volume = initialVolume {
-                // Pre-geselecteerde volume vanuit drive-cards
+                // Pre-geselecteerde volume vanuit drive-cards (popup) — start scan direct
                 selectedVolume = volume
+                if !scanIsActive && !scanIsDone {
+                    startScan()
+                }
                 withAnimation { currentStep = .projectSelect }
             }
         }
@@ -240,8 +318,19 @@ struct FileSafeView: View {
 
     private func startScan() {
         guard let volume = selectedVolume else { return }
-        withAnimation { currentStep = .scanning }
+        // Vorige scan altijd afbreken: anders kan een tragere scan van het VORIGE volume
+        // later klaar zijn en het resultaat van het huidige volume overschrijven.
+        scanTask?.cancel()
         scanProgress = nil
+        scanIsActive = true
+        scanIsDone = false
+        scanError = nil
+        scanStatusBarHidden = false
+        scanResult = nil
+
+        // Onthoud voor welk volume deze scan draait, zodat een laat resultaat
+        // van een ander volume herkend en genegeerd wordt.
+        let scanningVolumeURL = volume.url
 
         scanTask = Task {
             do {
@@ -252,9 +341,10 @@ struct FileSafeView: View {
                     self.scanProgress = progress
                 }
                 await MainActor.run {
+                    // Resultaat hoort bij een inmiddels verlaten volume → weggooien
+                    guard self.selectedVolume?.url == scanningVolumeURL else { return }
                     self.scanResult = result
 
-                    // Auto-detectie multi-day op basis van gedetecteerde datums
                     if !self.hasExistingProjectConfig {
                         if result.uniqueCalendarDays.count > 1 {
                             projectConfig.isMultiDayShoot = true
@@ -263,15 +353,58 @@ struct FileSafeView: View {
                         }
                     }
 
-                    // Altijd projectConfig stap tonen (pre-filled met opgeslagen config)
-                    withAnimation { self.currentStep = .projectConfig }
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        self.scanIsActive = false
+                        self.scanIsDone = true
+                    }
+
+                    // Hide statusbar 1.5s after done
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        if self.scanIsDone {
+                            withAnimation(.easeOut(duration: 0.4)) {
+                                self.scanStatusBarHidden = true
+                            }
+                        }
+                    }
                 }
             } catch {
                 await MainActor.run {
-                    withAnimation { self.currentStep = .projectSelect }
+                    guard self.selectedVolume?.url == scanningVolumeURL else { return }
+                    // Fout zichtbaar maken i.p.v. stil blijven hangen op "wachten op scan"
+                    if !(error is CancellationError) {
+                        self.scanError = error.localizedDescription
+                    }
+                    withAnimation { self.scanIsActive = false; self.scanIsDone = false }
                 }
             }
         }
+    }
+
+    private func cancelScan() {
+        scanTask?.cancel()
+        scanIsActive = false
+        scanIsDone = false
+        scanError = String(localized: "filesafe.scan_cancelled")
+    }
+
+    /// Show statusbar tijdens stap 1-3 zolang scan nog draait of net klaar is
+    private var showScanStatusBar: Bool {
+        let stage = WizardStage.stage(for: currentStep)
+        let onEarlyStage = stage == .source || stage == .destination || stage == .layout
+        return onEarlyStage && (scanIsActive || (scanIsDone && !scanStatusBarHidden))
+    }
+
+    private func goBackToStage(_ stage: WizardStage) {
+        let target: FileSafeStep
+        switch stage {
+        case .source:      target = .volumeSelect
+        case .destination: target = .projectSelect
+        case .layout:      target = .cardConfig
+        case .confirm:     target = .structurePreview
+        case .done:        target = .report
+        }
+        withAnimation { currentStep = target }
     }
 
     // MARK: - Structuur preview
@@ -296,6 +429,10 @@ struct FileSafeView: View {
             return values
         } ?? [:]
 
+        // NB: deze structuur-opbouw doet recursieve schijf-scans synchroon. Het off-main
+        // halen (Task.detached) liet de Swift 6.2-compiler crashen in de SIL-pass
+        // "ClosureLifetimeFixup" — uitgesteld tot een nieuwere toolchain of een andere opzet.
+        // Het gebeurt eenmalig op de "Volgende"-actie (niet per toetsaanslag).
         let (tree, mappings) = FileSafeStructureBuilder.shared.buildStructure(
             projectPath: projectPath,
             scanResult: scanResult,
@@ -422,7 +559,11 @@ struct FileSafeView: View {
             mappings: mappingsToTransfer
         )
 
-        // Bepaal footage path voor rapport
+        // Bepaal footage path voor rapport — MET existingProjectPath, exact zoals
+        // buildPreview dat doet. Zonder die parameter viel dit terug op de preset-default
+        // ("01_Footage") en maakte writeTxtReport een spookmap naast de bestaande
+        // footage-map van het project.
+        let existingPathForResolve: String? = isNewProject ? nil : projectPath
         let footagePath: String
         if let template = TemplateDeployFlow.activeTemplate(for: appState.config) {
             var values = TemplateDeployFlow.defaultValues(for: template)
@@ -435,12 +576,14 @@ struct FileSafeView: View {
             }
             footagePath = FileSafeStructureBuilder.shared.resolveBasePaths(
                 template: template,
-                values: values
+                values: values,
+                existingProjectPath: existingPathForResolve
             ).footagePath
         } else {
             footagePath = FileSafeStructureBuilder.shared.resolveBasePaths(
                 preset: appState.config.folderStructurePreset,
-                customTemplate: appState.config.customFolderTemplate
+                customTemplate: appState.config.customFolderTemplate,
+                existingProjectPath: existingPathForResolve
             ).footagePath
         }
 
@@ -449,6 +592,7 @@ struct FileSafeView: View {
             mappings: mappingsToTransfer,
             projectName: projectConfig.projectName,
             volumeName: selectedVolume?.name ?? "",
+            volumeURL: selectedVolume?.url,
             projectPath: projectPath,
             footagePath: footagePath,
             projectConfig: projectConfig,
@@ -457,24 +601,76 @@ struct FileSafeView: View {
         )
 
         selectedTransferId = transferId
-        withAnimation { currentStep = .dashboard }
+        lastCompletedTransferId = transferId
+        withAnimation { currentStep = .copying }
+
+        // Watch for completion → transition to .report (Done step)
+        copyCompletionWatcher?.cancel()
+        copyCompletionWatcher = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                if let transfer = transferManager.transfers.first(where: { $0.id == transferId }),
+                   transfer.isCompleted {
+                    await MainActor.run {
+                        withAnimation { currentStep = .report }
+                    }
+                    return
+                }
+            }
+        }
     }
 
     // MARK: - Acties
 
-    private func resetWizardForNewImport() {
+    private func resetWizardForNewImport(keepProject: Bool = false) {
         selectedVolume = nil
         scanResult = nil
-        selectedProjectPath = nil
-        selectedProjectRootPath = nil
-        isNewProject = true
-        newProjectName = ""
-        projectConfig = .default
+        if !keepProject {
+            selectedProjectPath = nil
+            selectedProjectRootPath = nil
+            isNewProject = true
+            newProjectName = ""
+            projectConfig = .default
+            hasExistingProjectConfig = false
+        }
         cardConfig = nil
-        hasExistingProjectConfig = false
         structurePreview = nil
         fileMappings = []
         skipDuplicates = true
         scanProgress = nil
+        scanIsActive = false
+        scanIsDone = false
+        scanStatusBarHidden = false
+        copyCompletionWatcher?.cancel()
+        copyCompletionWatcher = nil
+    }
+
+    // MARK: - Done step acties
+
+    private func revealCompletedTransferInFinder() {
+        guard let id = lastCompletedTransferId,
+              let transfer = transferManager.transfers.first(where: { $0.id == id }) else { return }
+        let url = URL(fileURLWithPath: transfer.projectPath)
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func copyTransferLogToPasteboard() {
+        guard let id = lastCompletedTransferId,
+              let transfer = transferManager.transfers.first(where: { $0.id == id }),
+              let report = transfer.report else { return }
+        let lines = [
+            "FileFlower copy report",
+            "Project: \(report.projectName)",
+            "Volume: \(report.volumeName)",
+            "Files: \(report.totalFiles)  Verified: \(report.successCount)  Failed: \(report.failCount)  Skipped: \(report.skippedCount)",
+            "Duration: \(report.formattedDuration)"
+        ]
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+    }
+
+    private func ejectSourceVolume() {
+        guard let volume = selectedVolume else { return }
+        try? NSWorkspace.shared.unmountAndEjectDevice(at: volume.url)
     }
 }

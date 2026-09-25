@@ -7,15 +7,32 @@ enum FileSafeCopyEngine {
     // MARK: - Log schrijven
 
     static func writeLog(_ report: FileSafeCopyReport, to projectPath: String) throws {
-        let logURL = URL(fileURLWithPath: projectPath)
-            .appendingPathComponent(".filesafe-log.json")
-
+        let projectURL = URL(fileURLWithPath: projectPath)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-
         let data = try encoder.encode(report)
+
+        // Per-transfer log: bij meerdere kaarten in hetzelfde project blijft elk
+        // verificatiebewijs bewaard (voorheen overschreef import 4 die van 1-3).
+        let historyDir = projectURL.appendingPathComponent(".filesafe-logs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: historyDir, withIntermediateDirectories: true)
+        let stamped = historyDir.appendingPathComponent("\(Self.reportStamp(report)).json")
+        try? data.write(to: stamped, options: .atomic)
+
+        // Laatste run blijft op de bekende locatie staan (voor bestaande lezers)
+        let logURL = projectURL.appendingPathComponent(".filesafe-log.json")
         try data.write(to: logURL, options: .atomic)
+    }
+
+    /// Unieke, sorteerbare naam per transfer: <volume>_<datum-tijd>
+    private static func reportStamp(_ report: FileSafeCopyReport) -> String {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd_HHmmss"
+        let volume = report.volumeName
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: " ", with: "-")
+        return "\(df.string(from: report.startTime))_\(volume)"
     }
 
     /// Genereer een leesbaar TXT rapport in de footage-map
@@ -85,12 +102,21 @@ enum FileSafeCopyEngine {
             baseURL = URL(fileURLWithPath: projectPath)
         }
 
-        let txtURL = baseURL.appendingPathComponent("FileSafe_Report_\(sanitizedName).txt")
+        // Unieke bestandsnaam per transfer (volume + tijdstip): een tweede kaart-import
+        // in hetzelfde project overschrijft het eerdere rapport nu niet meer.
+        let txtURL = baseURL.appendingPathComponent("FileSafe_Report_\(sanitizedName)_\(reportStamp(report)).txt")
         try text.write(to: txtURL, atomically: true, encoding: .utf8)
     }
 
-    /// Pad naar het TXT rapport
-    static func txtReportPath(projectName: String, projectPath: String, footagePath: String? = nil) -> String {
+    /// Pad naar het TXT rapport van een specifieke transfer.
+    /// Valt terug op het nieuwste rapport van dit project als het exacte bestand ontbreekt
+    /// (bv. rapporten geschreven vóór de timestamp-naamgeving).
+    static func txtReportPath(
+        projectName: String,
+        projectPath: String,
+        footagePath: String? = nil,
+        report: FileSafeCopyReport? = nil
+    ) -> String {
         let sanitizedName = projectName.replacingOccurrences(of: "/", with: "_")
         let baseURL: URL
         if let footagePath = footagePath {
@@ -98,8 +124,33 @@ enum FileSafeCopyEngine {
         } else {
             baseURL = URL(fileURLWithPath: projectPath)
         }
-        return baseURL
-            .appendingPathComponent("FileSafe_Report_\(sanitizedName).txt")
-            .path
+
+        if let report = report {
+            let exact = baseURL.appendingPathComponent("FileSafe_Report_\(sanitizedName)_\(reportStamp(report)).txt")
+            if FileManager.default.fileExists(atPath: exact.path) {
+                return exact.path
+            }
+        }
+
+        // Fallback: nieuwste rapport van dit project in deze map
+        let prefix = "FileSafe_Report_\(sanitizedName)"
+        if let contents = try? FileManager.default.contentsOfDirectory(
+            at: baseURL,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            let matches = contents
+                .filter { $0.lastPathComponent.hasPrefix(prefix) && $0.pathExtension == "txt" }
+                .sorted { a, b in
+                    let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                    let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                    return da > db
+                }
+            if let newest = matches.first {
+                return newest.path
+            }
+        }
+
+        return baseURL.appendingPathComponent("\(prefix).txt").path
     }
 }

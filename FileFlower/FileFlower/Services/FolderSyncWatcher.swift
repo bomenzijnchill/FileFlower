@@ -85,16 +85,32 @@ class FolderSyncWatcher {
     
     /// Stop monitoring voor een folder sync
     func stopWatching(syncId: UUID) {
+        // Openstaande batch-timer annuleren: zonder dit importeerde een sync die de
+        // gebruiker net had uitgeschakeld alsnog de bestanden die in het 2s-venster zaten.
+        accessQueue.sync(flags: .barrier) {
+            batchTimers[syncId]?.cancel()
+            batchTimers.removeValue(forKey: syncId)
+            pendingFiles.removeValue(forKey: syncId)
+        }
+
         guard let stream = streams[syncId] else { return }
-        
+
         FSEventStreamStop(stream)
         FSEventStreamInvalidate(stream)
         FSEventStreamRelease(stream)
         streams.removeValue(forKey: syncId)
-        
+
         #if DEBUG
         print("FolderSyncWatcher: Gestopt met monitoring voor sync: \(syncId)")
         #endif
+    }
+
+    /// Wis de in-memory hash-administratie voor een sync (bv. bij projectwissel),
+    /// zodat bestaande bestanden opnieuw naar het nieuwe project gesynct worden.
+    func resetProcessedFiles(for syncId: UUID) {
+        accessQueue.sync(flags: .barrier) {
+            processedFiles[syncId] = []
+        }
     }
     
     /// Stop alle actieve watchers
@@ -202,25 +218,30 @@ class FolderSyncWatcher {
                flags & UInt32(kFSEventStreamEventFlagItemModified) != 0 {
                 
                 let url = URL(fileURLWithPath: path)
-                
+
                 // Skip hidden files en directories
                 if url.lastPathComponent.hasPrefix(".") {
                     continue
                 }
-                
+
+                // Skip NLE-cache paden (Premiere render-/preview-bestanden zijn geen assets!)
+                if PathSafetyPolicy.firstBlockedComponent(in: path) != nil {
+                    continue
+                }
+
                 // Check of het een bestand is (geen directory)
                 var isDirectory: ObjCBool = false
                 guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
                       !isDirectory.boolValue else {
                     continue
                 }
-                
+
                 // Check extensie
                 let ext = url.pathExtension.lowercased()
                 guard !ext.isEmpty, allowedExtensions.contains(ext) else {
                     continue
                 }
-                
+
                 newFiles.append(url)
             }
         }
@@ -280,10 +301,26 @@ class FolderSyncWatcher {
             return
         }
         
+        // Tweede vangrail: sync kan in het batch-venster zijn uitgeschakeld
+        guard sync.isEnabled else {
+            #if DEBUG
+            print("FolderSyncWatcher: Sync uitgeschakeld — batch genegeerd")
+            #endif
+            return
+        }
+
+        // Licentie-vangrail (stond eerder in het ongebruikte processFile)
+        guard LicenseManager.shared.canUseApp else {
+            #if DEBUG
+            print("FolderSyncWatcher: Geen geldige licentie — sync overgeslagen")
+            #endif
+            return
+        }
+
         #if DEBUG
         print("FolderSyncWatcher: Verwerken batch van \(filesToProcess.count) bestanden")
         #endif
-        
+
         Task {
             await self.processBatch(files: filesToProcess, sync: sync)
         }
@@ -349,9 +386,17 @@ class FolderSyncWatcher {
         let fileManager = FileManager.default
         var files: [URL] = []
         for case let fileURL as URL in enumerator {
+            // NLE-cache mappen volledig overslaan (Premiere render/preview bestanden)
+            if PathSafetyPolicy.isBlockedFolderName(fileURL.lastPathComponent) {
+                enumerator.skipDescendants()
+                continue
+            }
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
                   !isDirectory.boolValue else {
+                continue
+            }
+            if PathSafetyPolicy.firstBlockedComponent(in: fileURL.path) != nil {
                 continue
             }
             let ext = fileURL.pathExtension.lowercased()
@@ -365,6 +410,14 @@ class FolderSyncWatcher {
 
     /// Voer initiële sync uit voor alle bestaande bestanden in de map (geen kopiëren)
     private func performInitialSync(sync: FolderSync) async {
+        // Licentie-vangrail (zelfde als processPendingBatch)
+        guard LicenseManager.shared.canUseApp else {
+            #if DEBUG
+            print("FolderSyncWatcher: Geen geldige licentie — initiële sync overgeslagen")
+            #endif
+            return
+        }
+
         let folderURL = URL(fileURLWithPath: sync.folderPath)
         let fileManager = FileManager.default
 

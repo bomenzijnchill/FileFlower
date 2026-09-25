@@ -3,60 +3,55 @@ import AppKit
 
 struct MenuBarView: View {
     @StateObject private var appState = AppState.shared
-    @State private var showingSettings = false
     @State private var selectedItemForPicker: DownloadItem?
     @State private var isShowingFolderSyncForm = false
     @State private var isShowingClearConfirmation = false
+    /// Project waarvoor de mapindeling-editor open staat (via de headerknop).
+    @State private var mappingEditorProject: ProjectInfo?
     @AppStorage("userPopoverHeight") private var userPopoverHeight: Double = 0
     @State private var isDragging = false
     @State private var dragStartHeight: CGFloat = 0
 
-    // Bereken dynamische breedte op basis van content
+    // Standaard popover-breedte
     private var calculatedWidth: CGFloat {
-        if showingSettings {
-            return 700 // Breedte voor settings
-        } else {
-            return 520 // Standaard breedte (iets breder voor tabs)
-        }
+        return 520
     }
-    
+
     // Bereken dynamische hoogte op basis van content
     private var calculatedHeight: CGFloat {
         let headerHeight: CGFloat = 56
+        let tabBarHeight: CGFloat = 56
         let footerHeight: CGFloat = 56
-        let tabBarHeight: CGFloat = 56 // Tab bar hoogte
-        let toolbarHeight: CGFloat = 52 // 36 + padding
-        let itemHeight: CGFloat = 80
-        let formHeight: CGFloat = 380 // Hoogte voor add/edit formulier
-        let confirmationHeight: CGFloat = 100 // Hoogte voor clear queue confirmatie
-        let minContentHeight: CGFloat = 200 // Minimale hoogte voor content area (300px totaal minimum)
-        
-        if showingSettings {
-            return 700 // Hoogte voor settings
-        } else if selectedItemForPicker != nil {
-            return 600 // Vaste hoogte voor picker
+        let sectionHeaderHeight: CGFloat = 28
+        let attentionRowHeight: CGFloat = 90
+        let readyRowHeight: CGFloat = 70
+        let formHeight: CGFloat = 380
+        let confirmationHeight: CGFloat = 100
+        let minContentHeight: CGFloat = 200
+
+        if selectedItemForPicker != nil {
+            return 600
         } else if isShowingFolderSyncForm {
-            // Extra hoogte voor het folder sync formulier
             return headerHeight + tabBarHeight + formHeight + footerHeight
         } else {
-            // Bereken op basis van queue items of folder syncs
-            let queueItemCount = min(appState.queuedItems.count, 5)
+            let grouped = appState.groupedQueueItems
+            let attentionCount = min(grouped.attention.count, 3)
+            let readyCount = min(grouped.ready.count, 4)
             let folderSyncCount = min(appState.config.folderSyncs.count, 5)
-            let maxItems = max(queueItemCount, folderSyncCount, 0)
             let resizeHandleHeight: CGFloat = 20
-
-            // Extra hoogte als clear confirmatie wordt getoond
             let extraConfirmationHeight = isShowingClearConfirmation ? confirmationHeight : 0
 
             let contentBasedHeight: CGFloat
-            if maxItems == 0 || (appState.queuedItems.isEmpty && appState.config.folderSyncs.isEmpty) {
+            if appState.queuedItems.isEmpty && appState.config.folderSyncs.isEmpty {
                 contentBasedHeight = headerHeight + tabBarHeight + minContentHeight + footerHeight
             } else {
-                let listHeight = max(toolbarHeight + (CGFloat(maxItems) * itemHeight), minContentHeight)
+                let attentionSectionHeight = attentionCount > 0 ? sectionHeaderHeight + CGFloat(attentionCount) * attentionRowHeight : 0
+                let readySectionHeight = readyCount > 0 ? sectionHeaderHeight + CGFloat(readyCount) * readyRowHeight : 0
+                let folderSyncHeight = CGFloat(folderSyncCount) * 72
+                let listHeight = max(attentionSectionHeight + readySectionHeight, folderSyncHeight, minContentHeight)
                 contentBasedHeight = headerHeight + tabBarHeight + listHeight + footerHeight + extraConfirmationHeight + 10
             }
 
-            // Gebruik de door de gebruiker ingestelde hoogte als die groter is dan de content-based hoogte
             if userPopoverHeight > 0 {
                 return max(CGFloat(userPopoverHeight), contentBasedHeight) + resizeHandleHeight
             } else {
@@ -67,43 +62,69 @@ struct MenuBarView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Header - vast, altijd zichtbaar
+            // Header — dark cocoa gradient
             HStack(spacing: 10) {
-                Image("FileFlowerTitle")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(height: 22)
-                    .fixedSize()
+                // Brand block
+                HStack(spacing: 8) {
+                    Image("FileFlowerLogo")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 24, height: 24)
+                        .shadow(color: .black.opacity(0.2), radius: 1, y: 1)
+                    Text("FileFlower")
+                        .font(.brandSerifItalic(size: 18))
+                        .foregroundColor(.headerInk)
+                }
 
-                // Project selector — vult de ruimte tussen logo en pauzeknop
+                // Project selector
                 ProjectSelectorView(appState: appState)
+
+                // Mapindeling van het actieve project aanpassen
+                if let project = appState.activeProject {
+                    Button(action: { mappingEditorProject = project }) {
+                        Image(systemName: "folder.badge.gearshape")
+                            .font(.system(size: 13))
+                            .foregroundColor(.headerInk)
+                            .frame(width: 28, height: 28)
+                            .background(Color.headerGlass)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(.plain)
+                    .help(String(localized: "mapping.edit_button"))
+                }
 
                 if appState.isPaused {
                     Text(String(localized: "menu.paused"))
                         .font(.caption)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.3))
-                        .foregroundColor(.white)
+                        .background(Color.white.opacity(0.15))
+                        .foregroundColor(.headerInk)
                         .clipShape(Capsule())
                         .fixedSize()
                 }
 
-                // Pauze knop
-                Button(action: {
-                    appState.togglePause()
-                }) {
+                // Pause/play button
+                Button(action: { appState.togglePause() }) {
                     Image(systemName: appState.isPaused ? "play.fill" : "pause.fill")
                         .font(.system(size: 14))
-                        .foregroundColor(.white)
+                        .foregroundColor(.headerInk)
+                        .frame(width: 28, height: 28)
+                        .background(Color.headerGlass)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
                 .buttonStyle(.plain)
                 .help(appState.isPaused ? String(localized: "menu.resume") : String(localized: "menu.pause"))
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
             .frame(height: 56)
-            .background(Color.brandBurntPeach)
+            .background(
+                LinearGradient(
+                    colors: [.headerTop, .headerBottom],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
 
             // Content area met tabs of settings/picker
             Group {
@@ -129,14 +150,6 @@ struct MenuBarView: View {
                         Spacer()
                     }
                     .padding(.horizontal, 32)
-                } else if showingSettings {
-                    Divider()
-                    SettingsView(onDismiss: {
-                        withAnimation {
-                            showingSettings = false
-                        }
-                    })
-                    .transition(.move(edge: .trailing))
                 } else if let item = selectedItemForPicker {
                     Divider()
                     ProjectPickerView(item: item, onDismiss: {
@@ -146,7 +159,6 @@ struct MenuBarView: View {
                 } else {
                     // Main tab view met DownloadSync en FolderSync tabs
                     MainTabView(
-                        showingSettings: $showingSettings,
                         selectedItemForPicker: $selectedItemForPicker,
                         isShowingFolderSyncForm: $isShowingFolderSyncForm,
                         isShowingClearConfirmation: $isShowingClearConfirmation
@@ -156,51 +168,10 @@ struct MenuBarView: View {
             }
             .layoutPriority(0)
             
-            Divider()
-            
-            // Actions - vast, altijd zichtbaar
-            HStack {
-                Button(action: {
-                    withAnimation {
-                        if showingSettings {
-                            showingSettings = false
-                        } else {
-                            selectedItemForPicker = nil
-                            showingSettings = true
-                        }
-                    }
-                }) {
-                    Text(String(localized: "common.settings"))
-                }
-                .buttonStyle(.plain)
-                .fixedSize()
-
-                Spacer()
-
-                Button(String(localized: "common.close")) {
-                    StatusBarController.shared.hidePopover()
-                }
-                .buttonStyle(.plain)
-                .fixedSize()
-
-                Divider()
-                    .frame(height: 16)
-                    .padding(.horizontal, 8)
-
-                Button(String(localized: "menu.quit")) {
-                    NSApp.terminate(nil)
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.red)
-                .fixedSize()
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-            .frame(height: 56)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            // Footer is now per-tab inside MainTabView
 
             // Resize handle — alleen in normale modus
-            if !showingSettings && selectedItemForPicker == nil && LicenseManager.shared.canUseApp {
+            if selectedItemForPicker == nil && LicenseManager.shared.canUseApp {
                 ResizeHandleView(
                     onDrag: { translation in
                         let newHeight = dragStartHeight + translation
@@ -219,6 +190,17 @@ struct MenuBarView: View {
             }
         }
         .frame(width: calculatedWidth, height: calculatedHeight)
+        .sheet(item: $mappingEditorProject) { project in
+            ProjectMappingConfirmationSheet(
+                project: project,
+                onConfirm: {
+                    // Herbereken de queue zodat previews de nieuwe mapping volgen.
+                    appState.reresolveQueuedItems(for: project)
+                    mappingEditorProject = nil
+                },
+                onCancel: { mappingEditorProject = nil }
+            )
+        }
         // Taal wordt bepaald door UserDefaults "AppleLanguages" (herstart nodig)
         .onChange(of: appState.shouldOpenWindow) { _, shouldOpen in
             if shouldOpen {
@@ -229,11 +211,12 @@ struct MenuBarView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .popoverDidClose)) { _ in
             // Reset navigatie zodat de popover bij heropenen op het hoofdscherm start
-            showingSettings = false
             selectedItemForPicker = nil
         }
-        .onReceive(VolumeDetector.shared.newVolumeDidMount) { _ in
-            // Auto-popup bij aansluiten externe schijf
+        .onReceive(VolumeDetector.shared.newVolumeDidMount) { volume in
+            // Auto-popup bij aansluiten van een kaart/externe schijf. Netwerk/server-shares
+            // poppen bewust NIET automatisch op (geen nag bij elke server-mount).
+            guard volume.kind != .networkVolume else { return }
             if !StatusBarController.shared.isShown {
                 StatusBarController.shared.showPopover()
             }

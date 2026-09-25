@@ -12,5 +12,9 @@
 	<true/>
 	<key>SUScheduledCheckInterval</key>
 	<integer>3600</integer>
+	<!-- Xcode's synchronized groups platten Resources/Fonts/ uit naar Contents/Resources/,
+	     dus moet dit pad de Resources-root zijn. Met "Fonts/" registreerden de merkfonts nooit. -->
+	<key>ATSApplicationFontsPath</key>
+	<string>.</string>
 </dict>
 </plist>

@@ -2,4 +2,22 @@
   "name": "fileflower-proxy",
   "main": "src/index.js",
   "compatibility_date": "2024-01-01"
+
+  // Dit is het ENIGE configbestand dat wrangler leest. Er stond hiernaast een wrangler.toml
+  // die stilzwijgend genegeerd werd — die is verwijderd om die val te sluiten.
+  //
+  // Secrets gaan via `wrangler secret put`, nooit in dit bestand:
+  //   wrangler secret put ANTHROPIC_API_KEY
+  //   wrangler secret put RESEND_API_KEY
+  //
+  // Rate limiting: src/index.js gebruikt env.ANALYZE_LIMITER en env.FEEDBACK_LIMITER zodra die
+  // bestaan, en valt anders terug op een best-effort teller per isolate. Activeer het blok
+  // hieronder (en verhoog compatibility_date naar een datum die de Rate Limiting-binding
+  // ondersteunt) voor een echte limiet. Alternatief zonder codewijziging: een WAF
+  // rate-limiting-regel in het Cloudflare-dashboard op beide /api/*-paden.
+  //
+  // "ratelimits": [
+  //   { "name": "ANALYZE_LIMITER",  "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
+  //   { "name": "FEEDBACK_LIMITER", "namespace_id": "1002", "simple": { "limit": 5,  "period": 60 } }
+  // ]
 }

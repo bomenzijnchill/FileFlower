@@ -1,10 +1,12 @@
 import SwiftUI
+#if canImport(BridgeKit)
+import BridgeKit
+#endif
 
 /// Hoofdview met tabs voor DownloadSync en FolderSync
 struct MainTabView: View {
     @StateObject private var appState = AppState.shared
     @StateObject private var volumeDetector = VolumeDetector.shared
-    @Binding var showingSettings: Bool
     @Binding var selectedItemForPicker: DownloadItem?
     @Binding var isShowingFolderSyncForm: Bool
     @Binding var isShowingClearConfirmation: Bool
@@ -14,6 +16,9 @@ struct MainTabView: View {
         case folderSync = "FolderSync"
         case loadFolder = "LoadFolder"
         case fileSafe = "FileSafe"
+        #if canImport(BridgeKit)
+        case bridge = "Bridge"
+        #endif
 
         var icon: String {
             switch self {
@@ -21,6 +26,21 @@ struct MainTabView: View {
             case .folderSync: return "arrow.triangle.2.circlepath"
             case .loadFolder: return "folder.badge.plus"
             case .fileSafe: return "externaldrive.badge.checkmark"
+            #if canImport(BridgeKit)
+            case .bridge: return "arrow.left.arrow.right.circle"
+            #endif
+            }
+        }
+
+        var displayTitle: String {
+            switch self {
+            case .downloadSync: return String(localized: "tab.downloads")
+            case .folderSync: return String(localized: "tab.folder_sync")
+            case .loadFolder: return String(localized: "tab.quick_load")
+            case .fileSafe: return String(localized: "tab.filesafe")
+            #if canImport(BridgeKit)
+            case .bridge: return String(localized: "tab.bridge", defaultValue: "Bridge")
+            #endif
             }
         }
     }
@@ -33,6 +53,9 @@ struct MainTabView: View {
         if !volumeDetector.externalVolumes.isEmpty {
             tabs.append(.fileSafe)
         }
+        #if canImport(BridgeKit)
+        tabs.append(.bridge)
+        #endif
         return tabs
     }
 
@@ -42,7 +65,7 @@ struct MainTabView: View {
             HStack(spacing: 0) {
                 ForEach(visibleTabs, id: \.self) { tab in
                     TabButton(
-                        title: tab.rawValue,
+                        title: tab.displayTitle,
                         icon: tab.icon,
                         isSelected: selectedTab == tab,
                         badgeCount: badgeCount(for: tab)
@@ -73,9 +96,18 @@ struct MainTabView: View {
                     LoadFolderView()
                 case .fileSafe:
                     FileSafeLauncherView()
+                #if canImport(BridgeKit)
+                case .bridge:
+                    BridgePopoverView {
+                        BridgeExplorerWindowController.show()
+                    }
+                #endif
                 }
             }
             .transition(.opacity)
+
+            // Per-tab footer
+            tabFooter
         }
         .onAppear {
             volumeDetector.startMonitoring()
@@ -98,6 +130,75 @@ struct MainTabView: View {
         }
     }
 
+    @ViewBuilder
+    private var tabFooter: some View {
+        switch selectedTab {
+        case .downloadSync:
+            // De teller moet de WERKELIJKE actie weerspiegelen: bij een actieve selectie
+            // verwerkt de knop alleen die selectie (voorheen stond er "Verwerk (5)"
+            // terwijl er maar 1 geselecteerd item verwerkt werd).
+            let selection = appState.selectedQueueItemCount
+            let count = selection > 0 ? selection : appState.readyToProcessCount
+            let total = appState.queuedItems.count
+            PopoverFooter(
+                leftText: total > 0 ? "\(total) \(String(localized: "common.items"))" : "",
+                ctaTitle: String(localized: "footer.process"),
+                ctaCount: count,
+                ctaEnabled: count > 0,
+                ctaAction: {
+                    NotificationCenter.default.post(name: .processAllFromFooter, object: nil)
+                },
+                secondaryIcon: total > 0 ? "trash" : nil,
+                secondaryHelp: String(localized: "queue.clear_queue"),
+                secondaryAction: {
+                    // Nogmaals klikken sluit de bevestiging weer; het echte legen
+                    // gebeurt pas na bevestiging in ClearQueueConfirmation.
+                    isShowingClearConfirmation.toggle()
+                }
+            ) {
+                footerMenuItems
+            }
+        case .folderSync:
+            let enabledCount = appState.config.folderSyncs.filter(\.isEnabled).count
+            PopoverFooter(leftText: enabledCount > 0 ? String(localized: "footer.sync_active") : "") {
+                footerMenuItems
+            }
+        case .loadFolder:
+            PopoverFooter(leftText: String(localized: "footer.load_hint")) {
+                footerMenuItems
+            }
+        case .fileSafe:
+            PopoverFooter(leftText: String(localized: "footer.connect_drive")) {
+                footerMenuItems
+            }
+        #if canImport(BridgeKit)
+        case .bridge:
+            // Zelfde patroon als FolderSync en LoadFolder: een vaste hint links, en de
+            // acties staan in de weergave zelf. Bewust geen live status hier — de footer
+            // observeert de client niet, dus die zou pas bijwerken als er toevallig iets
+            // anders hertekent. De echte status staat bovenin het tabblad.
+            PopoverFooter(leftText: String(localized: "footer.bridge_hint",
+                                           defaultValue: "Deel mappen met je andere machines")) {
+                footerMenuItems
+            }
+        #endif
+        }
+    }
+
+    @ViewBuilder
+    private var footerMenuItems: some View {
+        Button(action: { SettingsWindowController.show() }) {
+            Label(String(localized: "common.settings"), systemImage: "gear")
+        }
+        Button(action: { StatusBarController.shared.hidePopover() }) {
+            Label(String(localized: "common.close"), systemImage: "xmark")
+        }
+        Divider()
+        Button(role: .destructive, action: { NSApp.terminate(nil) }) {
+            Label(String(localized: "menu.quit"), systemImage: "power")
+        }
+    }
+
     private func badgeCount(for tab: Tab) -> Int {
         switch tab {
         case .downloadSync:
@@ -108,6 +209,10 @@ struct MainTabView: View {
             return appState.config.loadFolderPresets.count
         case .fileSafe:
             return volumeDetector.externalVolumes.count
+        #if canImport(BridgeKit)
+        case .bridge:
+            return 0
+        #endif
         }
     }
 }
@@ -119,30 +224,24 @@ struct TabButton: View {
     let isSelected: Bool
     let badgeCount: Int
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 12))
-                
-                // Gebruik overlay om stabiele breedte te behouden ongeacht font weight
+                    .font(.system(size: 11))
+
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .opacity(isSelected ? 1 : 0)
-                    .overlay(alignment: .center) {
-                        Text(title)
-                            .font(.system(size: 12, weight: .regular))
-                            .opacity(isSelected ? 0 : 1)
-                    }
-                
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .fixedSize()
+
                 if badgeCount > 0 {
                     Text("\(badgeCount)")
                         .font(.system(size: 10, weight: .medium))
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
-                        .background(isSelected ? Color.accentColor : Color.secondary.opacity(0.3))
-                        .foregroundColor(isSelected ? .white : .secondary)
+                        .background(isSelected ? Color.brandBurntPeach : Color.ink4.opacity(0.3))
+                        .foregroundColor(isSelected ? .white : .ink3)
                         .clipShape(Capsule())
                 }
             }
@@ -150,11 +249,14 @@ struct TabButton: View {
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                    .fill(isSelected ? Color.brandBurntPeach.opacity(0.12) : Color.clear)
             )
-            .foregroundColor(isSelected ? .accentColor : .secondary)
+            .foregroundColor(isSelected ? .brandBurntPeach : .ink3)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(isSelected ? String(localized: "queue.selected") : "")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -188,6 +290,7 @@ struct DownloadSyncContent: View {
 /// Empty state view voor DownloadSync
 struct EmptyDownloadSyncView: View {
     @State private var showHistory = false
+    @State private var todayCount: Int = 0
     private let isFirstRun = !UserDefaults.standard.bool(forKey: "firstImportCompleted")
 
     var body: some View {
@@ -249,7 +352,6 @@ struct EmptyDownloadSyncView: View {
                 .foregroundColor(.secondary.opacity(0.7))
                 .multilineTextAlignment(.center)
 
-            let todayCount = ProcessingHistoryManager.shared.todayRecords().count
             if todayCount > 0 {
                 Button(action: { showHistory = true }) {
                     Label(String(localized: "history.show_today \(todayCount)"), systemImage: "clock.arrow.circlepath")
@@ -267,6 +369,13 @@ struct EmptyDownloadSyncView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task {
+            await refreshTodayCount()
+        }
+    }
+
+    private func refreshTodayCount() async {
+        todayCount = ProcessingHistoryManager.shared.todayRecords().count
     }
 }
 
@@ -290,44 +399,78 @@ struct FileSafeLauncherView: View {
     }
 
     private var driveList: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                ForEach(volumeDetector.externalVolumes) { volume in
-                    Button(action: { openFileSafeWindow(volume: volume) }) {
+        VStack(spacing: 0) {
+            QueueSectionHeader(
+                title: String(localized: "filesafe.connected_drives"),
+                count: volumeDetector.externalVolumes.count,
+                style: .ready
+            )
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(volumeDetector.externalVolumes) { volume in
                         HStack(spacing: 12) {
                             Image(systemName: "externaldrive.fill")
                                 .font(.system(size: 20))
-                                .foregroundColor(.accentColor)
+                                .foregroundColor(.brandBurntPeach)
                                 .frame(width: 32)
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(volume.name)
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("\(volume.formattedTotalSize) \u{2022} \(volume.formattedFreeSpace) free")
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    Text(volume.name)
+                                        .font(.system(size: 13, weight: .medium))
+
+                                    if volume.usedPercentage > 0.85 {
+                                        HStack(spacing: 3) {
+                                            Image(systemName: "exclamationmark.triangle.fill")
+                                                .font(.system(size: 8))
+                                            Text(String(localized: "filesafe.almost_full"))
+                                                .font(.system(size: 11, weight: .medium))
+                                        }
+                                        .foregroundColor(.statusWarn)
+                                    }
+                                }
+
+                                // Capacity bar
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(Color.ink4.opacity(0.2))
+                                        RoundedRectangle(cornerRadius: 2)
+                                            .fill(capacityColor(for: volume.usedPercentage))
+                                            .frame(width: geo.size.width * CGFloat(volume.usedPercentage))
+                                    }
+                                }
+                                .frame(height: 4)
+
+                                Text("\(volume.formattedTotalSize) \u{2022} \(volume.formattedFreeSpace) vrij")
                                     .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(.ink3)
                             }
 
                             Spacer()
 
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary)
+                            Button(String(localized: "filesafe.open_safe")) {
+                                openFileSafeWindow(volume: volume)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                         }
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color(.controlBackgroundColor))
-                        )
+                        .padding(.vertical, 10)
+                        .overlay(alignment: .bottom) {
+                            Rectangle().fill(Color.line).frame(height: 1)
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
                 }
             }
-            .padding(.bottom, 8)
         }
+    }
+
+    private func capacityColor(for percentage: Double) -> Color {
+        if percentage > 0.90 { return .statusBad }
+        if percentage > 0.75 { return .statusWarn }
+        return .statusOk
     }
 
     private var emptyContent: some View {
@@ -356,7 +499,6 @@ struct FileSafeLauncherView: View {
 
 #Preview {
     MainTabView(
-        showingSettings: .constant(false),
         selectedItemForPicker: .constant(nil),
         isShowingFolderSyncForm: .constant(false),
         isShowingClearConfirmation: .constant(false)

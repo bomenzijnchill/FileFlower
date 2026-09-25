@@ -37,12 +37,15 @@ struct CorrectionRecord: Codable, Identifiable {
 
 /// Manager voor opslaan en ophalen van user correcties op classificaties.
 /// Wordt gebruikt voor few-shot learning in de Claude API prompt.
-class CorrectionHistoryManager {
+class CorrectionHistoryManager: @unchecked Sendable {
     static let shared = CorrectionHistoryManager()
 
     private let maxRecords = 200
     private var records: [CorrectionRecord] = []
     private let fileURL: URL
+    /// Serialiseert alle toegang: recordCorrection draait op de main thread (UI-picker)
+    /// terwijl relevantExamples vanaf de classificatie-achtergrondtaak leest.
+    private let lock = NSLock()
 
     private init() {
         let appSupportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -74,12 +77,33 @@ class CorrectionHistoryManager {
             originUrl: item.originUrl
         )
 
+        lock.lock()
+        // Revert-detectie: corrigeert de gebruiker terug naar het oorspronkelijke type
+        // (Music→SFX→Music), dan de eerdere correctie voor ditzelfde bestand verwijderen
+        // i.p.v. twee tegenstrijdige few-shot voorbeelden te bewaren.
+        if let inverseIndex = records.lastIndex(where: {
+            $0.filename == filename &&
+            $0.originalPrediction == correctedType &&
+            $0.correctedType == originalType
+        }) {
+            records.remove(at: inverseIndex)
+            lock.unlock()
+            saveToDisk()
+            #if DEBUG
+            print("CorrectionHistory: Revert gedetecteerd — eerdere correctie verwijderd voor \(filename)")
+            #endif
+            return
+        }
+
+        // Eerdere correctie voor hetzelfde bestand vervangen (alleen netto-resultaat bewaren)
+        records.removeAll { $0.filename == filename }
         records.append(record)
 
         // Prune als we boven max zitten
         if records.count > maxRecords {
             records = Array(records.suffix(maxRecords))
         }
+        lock.unlock()
 
         saveToDisk()
 
@@ -102,8 +126,13 @@ class CorrectionHistoryManager {
     func relevantExamples(for filename: String, source: DetectedSource?, limit: Int = 10) -> [CorrectionRecord] {
         let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
 
+        // Snapshot onder lock: recordCorrection kan tegelijk vanaf de main thread muteren
+        lock.lock()
+        let snapshot = records
+        lock.unlock()
+
         // Score elke record op relevantie
-        var scored: [(record: CorrectionRecord, score: Int)] = records.map { record in
+        var scored: [(record: CorrectionRecord, score: Int)] = snapshot.map { record in
             var score = 0
 
             // Zelfde bron + extensie = meest relevant
@@ -142,11 +171,15 @@ class CorrectionHistoryManager {
 
     /// Alle records ophalen (voor debug/UI)
     func allRecords() -> [CorrectionRecord] {
+        lock.lock(); defer { lock.unlock() }
         return records
     }
 
     /// Aantal correcties
-    var count: Int { records.count }
+    var count: Int {
+        lock.lock(); defer { lock.unlock() }
+        return records.count
+    }
 
     // MARK: - Metadata Summary Builder
 
@@ -184,10 +217,13 @@ class CorrectionHistoryManager {
     }
 
     private func saveToDisk() {
+        lock.lock()
+        let snapshot = records
+        lock.unlock()
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = .prettyPrinted
-            let data = try encoder.encode(records)
+            let data = try encoder.encode(snapshot)
             try data.write(to: fileURL, options: .atomic)
         } catch {
             #if DEBUG

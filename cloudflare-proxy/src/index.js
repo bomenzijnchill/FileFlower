@@ -17,12 +17,14 @@ const ANTHROPIC_VERSION = '2023-06-01';
 const SYSTEM_PROMPT = `You are an expert in video/audio production folder structures. You analyze folder trees and determine which folders correspond to which media asset types.
 
 Given a folder tree structure, identify the best matching folder path for each of these asset types:
+- RawFootage: The folder where raw camera footage from SD cards should be imported to (e.g. "01_Footage/01_Raw", "02_Footage/01_Raw", "Footage/Raw"). This is the primary folder for new camera material.
+- Photo: The folder for photos from cameras (e.g. "06_Photos", "Photos", "Stills"). If there is no dedicated photo folder, set to null — photos will then go into the RawFootage folder.
 - Music: Background music, songs, instrumentals, soundtrack files
 - SFX: Sound effects, foley, ambience, impacts, swooshes
 - VO: Voice-over, narration, dialogue recordings
 - Graphic: Static images, photos, illustrations, logos, thumbnails
 - MotionGraphic: Motion graphic templates, animated titles, lower thirds, animated overlays
-- StockFootage: Stock video clips, B-roll footage, video downloads
+- StockFootage: Stock video clips, B-roll footage, video downloads (NOT raw camera footage)
 
 Important rules:
 - Return the RELATIVE path from the project root (e.g. "03_Audio/01_Music", not an absolute path)
@@ -31,39 +33,70 @@ Important rules:
 - Look for common naming patterns: numbered prefixes (01_, 02_), Dutch/English/German names
 - Consider the folder hierarchy: audio folders often contain music/sfx/vo subfolders
 - "Muziek" = Music, "Geluidseffecten" = SFX, "Vormgeving" = Graphics in Dutch
+- "Footage/Raw" or "Footage/01_Raw" is typically for RawFootage, while "Footage/02_Stock" is for StockFootage
+- "Foto" or "Foto's" = Photo in Dutch, "Stills" = Photo in English production terminology
+- RawFootage should point to the deepest suitable subfolder (e.g. "02_Footage/01_Raw" not just "02_Footage")
 
 Respond with ONLY a valid JSON object in this exact format:
 {
   "mapping": {
+    "RawFootage": "path/to/raw/footage" or null,
+    "Photo": "path/to/photos" or null,
     "Music": "path/to/music" or null,
     "SFX": "path/to/sfx" or null,
     "VO": "path/to/vo" or null,
     "Graphic": "path/to/graphics" or null,
     "MotionGraphic": "path/to/motion" or null,
-    "StockFootage": "path/to/footage" or null
+    "StockFootage": "path/to/stock/footage" or null
   },
   "description": "Brief description of the folder structure pattern"
 }`;
 
-// Rate limiting voor feedback endpoint
-const FEEDBACK_RATE_LIMIT = new Map();
-const MAX_FEEDBACK_PER_HOUR = 5;
+// Maximale lengte van een mappenboom. De app scant een beperkt aantal niveaus diep, dus een
+// echte boom blijft hier ver onder. Zonder deze grens kon één verzoek het hele contextvenster
+// van het model vullen — honderd keer de kosten van een normaal verzoek.
+const MAX_FOLDER_TREE_LENGTH = 20000;
 
-function checkFeedbackRateLimit(deviceId) {
+/// Best-effort rate limit per IP.
+///
+/// Dit is een vangnet, geen slot: de teller leeft per isolate en is dus niet sluitend.
+///
+/// De echte limiet komt uit een van deze twee, allebei buiten deze code:
+///   1. een Rate Limiting-binding in wrangler.jsonc (zie het commentaar daar), of
+///   2. een WAF rate-limiting-regel in het Cloudflare-dashboard.
+/// Zodra binding (1) bestaat gebruikt de code die automatisch en wordt deze teller genegeerd.
+///
+/// De vorige versie hing aan de header X-Device-Id — een waarde die de aanroeper zelf verzint,
+/// dus willekeurig te omzeilen. IP is niet perfect (VPN, NAT) maar tenminste niet zelfgekozen.
+const IP_HITS = new Map();
+
+function withinBestEffortLimit(ip, limit, windowMs) {
   const now = Date.now();
-  const entry = FEEDBACK_RATE_LIMIT.get(deviceId);
-
+  const entry = IP_HITS.get(ip);
   if (!entry || now > entry.resetTime) {
-    FEEDBACK_RATE_LIMIT.set(deviceId, { count: 1, resetTime: now + 3600000 });
+    IP_HITS.set(ip, { count: 1, resetTime: now + windowMs });
     return true;
   }
-
-  if (entry.count >= MAX_FEEDBACK_PER_HOUR) {
-    return false;
-  }
-
+  if (entry.count >= limit) return false;
   entry.count++;
   return true;
+}
+
+/// Controleer de limiet: eerst de echte binding als die er is, anders de best-effort teller.
+async function allowRequest(request, binding, limit, windowMs) {
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  if (binding) {
+    const { success } = await binding.limit({ key: ip });
+    return success;
+  }
+  return withinBestEffortLimit(ip, limit, windowMs);
+}
+
+function tooManyRequests(corsHeaders) {
+  return new Response(JSON.stringify({ error: 'Too many requests. Please try again later.' }), {
+    status: 429,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
 }
 
 function escapeHtml(str) {
@@ -77,6 +110,11 @@ function escapeHtml(str) {
 // --- Route handlers ---
 
 async function handleAnalyzeFolderStructure(request, env, corsHeaders) {
+  // Dit endpoint staat vóór een betaalde API-key: eerst de limiet, dan pas werk doen.
+  if (!(await allowRequest(request, env.ANALYZE_LIMITER, 10, 60000))) {
+    return tooManyRequests(corsHeaders);
+  }
+
   if (!env.ANTHROPIC_API_KEY) {
     return new Response(JSON.stringify({ error: 'API key not configured' }), {
       status: 500,
@@ -93,6 +131,13 @@ async function handleAnalyzeFolderStructure(request, env, corsHeaders) {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    if (folderTree.length > MAX_FOLDER_TREE_LENGTH) {
+      return new Response(
+        JSON.stringify({ error: `folderTree too large (max ${MAX_FOLDER_TREE_LENGTH} characters)` }),
+        { status: 413, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     const deviceId = request.headers.get('X-Device-Id') || 'unknown';
@@ -146,11 +191,8 @@ async function handleAnalyzeFolderStructure(request, env, corsHeaders) {
 async function handleFeedback(request, env, corsHeaders) {
   const deviceId = request.headers.get('X-Device-Id') || 'unknown';
 
-  if (!checkFeedbackRateLimit(deviceId)) {
-    return new Response(JSON.stringify({ error: 'Too many feedback requests. Please try again later.' }), {
-      status: 429,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+  if (!(await allowRequest(request, env.FEEDBACK_LIMITER, 5, 60000))) {
+    return tooManyRequests(corsHeaders);
   }
 
   if (!env.RESEND_API_KEY) {
@@ -249,8 +291,12 @@ async function handleFeedback(request, env, corsHeaders) {
 
 export default {
   async fetch(request, env) {
+    // De proxy wordt alleen aangeroepen door de native macOS-app (URLSession negeert CORS).
+    // Géén wildcard 'Access-Control-Allow-Origin: *' meer: dat liet elke willekeurige
+    // webpagina de gefinancierde Anthropic/Resend-keys via deze proxy aanspreken.
+    // Zonder ACAO-header kan een browser de respons niet cross-origin lezen; de native
+    // app werkt ongewijzigd.
     const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type, X-Device-Id',
     };

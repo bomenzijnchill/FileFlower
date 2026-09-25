@@ -10,6 +10,7 @@
 		5B13695E2EC67D6D001CF7C9 /* NIO in Frameworks */ = {isa = PBXBuildFile; productRef = 5B13695D2EC67D6D001CF7C9 /* NIO */; };
 		5B1369602EC67D6D001CF7C9 /* NIOHTTP1 in Frameworks */ = {isa = PBXBuildFile; productRef = 5B13695F2EC67D6D001CF7C9 /* NIOHTTP1 */; };
 		5B7047DF2EFEABF000BD3D60 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5B7047DE2EFEABF000BD3D60 /* Sparkle */; };
+		BDBDBD00000000000000000C /* BridgeKit in Frameworks */ = {isa = PBXBuildFile; productRef = BDBDBD00000000000000000B /* BridgeKit */; };
 		5BB38DB22F476B040030A79F /* FileFlowerFinderSync.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 5BB38DAB2F476B040030A79F /* FileFlowerFinderSync.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -53,10 +54,11 @@
 		5BB38DBA2F476D280030A79F /* Exceptions for "FileFlower" folder in "FileFlowerFinderSync" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Services/PathSafetyPolicy.swift,
+				Services/TemplatePlaceholderResolver.swift,
 				Shared/SharedConfig.swift,
 				Shared/SharedConfigReader.swift,
 				Shared/TemplateDeployer.swift,
-				Services/TemplatePlaceholderResolver.swift,
 			);
 			target = 5BB38DAA2F476B040030A79F /* FileFlowerFinderSync */;
 		};
@@ -97,6 +99,7 @@
 				5B7047DF2EFEABF000BD3D60 /* Sparkle in Frameworks */,
 				5B13695E2EC67D6D001CF7C9 /* NIO in Frameworks */,
 				5B1369602EC67D6D001CF7C9 /* NIOHTTP1 in Frameworks */,
+				BDBDBD00000000000000000C /* BridgeKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -154,6 +157,7 @@
 				5B13695D2EC67D6D001CF7C9 /* NIO */,
 				5B13695F2EC67D6D001CF7C9 /* NIOHTTP1 */,
 				5B7047DE2EFEABF000BD3D60 /* Sparkle */,
+				BDBDBD00000000000000000B /* BridgeKit */,
 			);
 			productName = FileFlower;
 			productReference = 5B1369142EC67B6F001CF7C9 /* FileFlower.app */;
@@ -215,6 +219,7 @@
 			packageReferences = (
 				5B13695C2EC67D6D001CF7C9 /* XCRemoteSwiftPackageReference "swift-nio" */,
 				5B7047DD2EFEABF000BD3D60 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				BDBDBD00000000000000000A /* XCLocalSwiftPackageReference "BridgeKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5B1369152EC67B6F001CF7C9 /* Products */;
@@ -428,7 +433,7 @@
 				CODE_SIGN_ENTITLEMENTS = FileFlower/FileFlower.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 33;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = JWD857B8TF;
 				ENABLE_APP_SANDBOX = NO;
@@ -445,7 +450,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2.1.2;
+				MARKETING_VERSION = 2.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.fileflower.app;
 				PRODUCT_NAME = FileFlower;
 				REGISTER_APP_GROUPS = YES;
@@ -468,7 +473,7 @@
 				CODE_SIGN_ENTITLEMENTS = FileFlower/FileFlower.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 33;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = JWD857B8TF;
 				ENABLE_APP_SANDBOX = NO;
@@ -485,7 +490,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 2.1.2;
+				MARKETING_VERSION = 2.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.fileflower.app;
 				PRODUCT_NAME = FileFlower;
 				REGISTER_APP_GROUPS = YES;
@@ -504,7 +509,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 33;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = JWD857B8TF;
 				ENABLE_APP_SANDBOX = YES;
@@ -521,7 +526,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 2.1.2;
+				MARKETING_VERSION = 2.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.fileflower.app.FileFlowerFinderSync;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -538,7 +543,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 31;
+				CURRENT_PROJECT_VERSION = 33;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = JWD857B8TF;
 				ENABLE_APP_SANDBOX = YES;
@@ -555,7 +560,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 2.1.2;
+				MARKETING_VERSION = 2.2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.fileflower.app.FileFlowerFinderSync;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -599,6 +604,13 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		BDBDBD00000000000000000A /* XCLocalSwiftPackageReference "BridgeKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../CBfilesync/packages/BridgeKit";
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCRemoteSwiftPackageReference section */
 		5B13695C2EC67D6D001CF7C9 /* XCRemoteSwiftPackageReference "swift-nio" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -633,6 +645,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5B7047DD2EFEABF000BD3D60 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		BDBDBD00000000000000000B /* BridgeKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BDBDBD00000000000000000A /* XCLocalSwiftPackageReference "BridgeKit" */;
+			productName = BridgeKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

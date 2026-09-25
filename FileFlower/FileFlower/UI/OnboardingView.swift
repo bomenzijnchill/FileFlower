@@ -1614,8 +1614,9 @@ struct OnboardingView: View {
         case .chromeExtension:
             SetupManager.shared.selectedBrowser = selectedBrowser
             if extensionCheckFailed {
-                // Skip: gebruiker heeft al een mislukte check gehad, ga door
-                SetupManager.shared.markChromeExtensionInstalled()
+                // Skip: doorgaan zonder extensie. NIET als geïnstalleerd markeren —
+                // dan claimde het afsluitscherm ten onrechte dat de extensie werkt en
+                // bleef de gebruiker zich afvragen waarom downloads niet gedetecteerd worden.
             } else {
                 // Start connectie-check, navigeer niet direct door
                 isCheckingExtensionConnection = true

@@ -44,36 +44,50 @@ class ProjectScanner {
         return Array(projects.prefix(limit))
     }
 
-    /// Scan met timeout — als het langer dan `timeout` seconden duurt, geef terug wat we tot nu toe hebben
-    private func findProjectsWithTimeout(in root: URL, timeout: TimeInterval) async -> [ProjectInfo] {
-        await withTaskGroup(of: [ProjectInfo].self) { group in
-            group.addTask {
-                await self.findProjects(in: root, maxDepth: 5)
-            }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                return [] // Timeout sentinel
-            }
-
-            // Return whichever finishes first
-            if let first = await group.next() {
-                group.cancelAll()
-                return first
-            }
-            return []
+    /// Thread-safe verzamelbak zodat een timeout de tot dan toe gevonden projecten behoudt.
+    final class ProjectBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var items: [ProjectInfo] = []
+        func append(_ project: ProjectInfo) {
+            lock.lock(); defer { lock.unlock() }
+            items.append(project)
+        }
+        var all: [ProjectInfo] {
+            lock.lock(); defer { lock.unlock() }
+            return items
         }
     }
 
-    /// Recursieve scan met depth limit
-    private func findProjects(in root: URL, maxDepth: Int) async -> [ProjectInfo] {
-        return findProjectsRecursive(in: root, rootPath: root.path, currentDepth: 0, maxDepth: maxDepth)
+    /// Scan met timeout — geeft daadwerkelijk terug wat er tot dat moment gevonden is.
+    /// (Voorheen leverde een timeout een LEGE lijst op, waardoor de projectlijst op trage
+    /// netwerkvolumes bij elke refresh leeg raakte.)
+    private func findProjectsWithTimeout(in root: URL, timeout: TimeInterval) async -> [ProjectInfo] {
+        let box = ProjectBox()
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                self.findProjectsRecursive(in: root, rootPath: root.path, currentDepth: 0, maxDepth: 5, into: box)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            }
+            // Eerste die klaar is (scan óf timeout) beëindigt de groep
+            await group.next()
+            group.cancelAll()
+        }
+        return box.all
     }
 
-    private func findProjectsRecursive(in directory: URL, rootPath: String, currentDepth: Int, maxDepth: Int) -> [ProjectInfo] {
-        guard currentDepth < maxDepth else { return [] }
+    private func findProjectsRecursive(
+        in directory: URL,
+        rootPath: String,
+        currentDepth: Int,
+        maxDepth: Int,
+        into box: ProjectBox
+    ) {
+        guard currentDepth < maxDepth else { return }
 
         // Check task cancellation (voor timeout support)
-        guard !Task.isCancelled else { return [] }
+        guard !Task.isCancelled else { return }
 
         let fileManager = FileManager.default
         guard let contents = try? fileManager.contentsOfDirectory(
@@ -81,13 +95,11 @@ class ProjectScanner {
             includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else {
-            return []
+            return
         }
 
-        var projects: [ProjectInfo] = []
-
         for item in contents {
-            guard !Task.isCancelled else { break }
+            guard !Task.isCancelled else { return }
 
             let ext = item.pathExtension.lowercased()
             if ext == "prproj" || ext == "drp" {
@@ -96,13 +108,12 @@ class ProjectScanner {
 
                 if let attrs = try? item.resourceValues(forKeys: [.contentModificationDateKey]),
                    let modDate = attrs.contentModificationDate {
-                    let project = ProjectInfo(
+                    box.append(ProjectInfo(
                         name: item.deletingPathExtension().lastPathComponent,
                         rootPath: rootPath,
                         projectPath: item.path,
                         lastModified: modDate.timeIntervalSince1970
-                    )
-                    projects.append(project)
+                    ))
                 }
             } else {
                 // Check of het een directory is en recurse
@@ -115,18 +126,16 @@ class ProjectScanner {
                         continue
                     }
 
-                    let subProjects = findProjectsRecursive(
+                    findProjectsRecursive(
                         in: item,
                         rootPath: rootPath,
                         currentDepth: currentDepth + 1,
-                        maxDepth: maxDepth
+                        maxDepth: maxDepth,
+                        into: box
                     )
-                    projects.append(contentsOf: subProjects)
                 }
             }
         }
-
-        return projects
     }
 
     // MARK: - Project File Discovery
@@ -180,20 +189,20 @@ class ProjectScanner {
     }
 
     private func scanTopLevelFoldersWithTimeout(in root: URL, timeout: TimeInterval) async -> [ProjectInfo] {
-        await withTaskGroup(of: [ProjectInfo].self) { group in
+        let box = ProjectBox()
+        await withTaskGroup(of: Void.self) { group in
             group.addTask {
-                self.scanTopLevelFolders(in: root)
+                for project in self.scanTopLevelFolders(in: root) {
+                    box.append(project)
+                }
             }
             group.addTask {
                 try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                return []
             }
-            if let first = await group.next() {
-                group.cancelAll()
-                return first
-            }
-            return []
+            await group.next()
+            group.cancelAll()
         }
+        return box.all
     }
 
     /// Lijst alle directe subdirectories in een root op, met hun wijzigingsdatum.
@@ -255,6 +264,7 @@ class ProjectScanner {
 
         var latestDate: Date?
         for item in contents {
+            if Task.isCancelled { break }
             if let attrs = try? item.resourceValues(forKeys: [.contentModificationDateKey]),
                let modDate = attrs.contentModificationDate {
                 if latestDate == nil || modDate > latestDate! {

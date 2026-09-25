@@ -55,13 +55,22 @@ struct HistoryView: View {
 /// Rij voor een enkel history item
 struct HistoryItemRow: View {
     let record: HistoryItem
+
+    init(record: HistoryItem) {
+        self.record = record
+        _selectedType = State(initialValue: record.assetType)
+    }
+
     @StateObject private var appState = AppState.shared
     @State private var isHovered = false
     @State private var showingMovePicker = false
     @State private var selectedProject: ProjectInfo?
-    @State private var selectedType: AssetType = .music
+    /// Start op het WERKELIJKE type van het record (was hardcoded .music, waardoor
+    /// één klik footage in de Music/Mood-structuur plaatste).
+    @State private var selectedType: AssetType
     @State private var moveError: String?
     @State private var moveSuccess = false
+    @State private var isMoving = false
 
     private var timeString: String {
         let formatter = DateFormatter()
@@ -217,19 +226,38 @@ struct HistoryItemRow: View {
     }
 
     private func performMove() {
-        guard let project = selectedProject else { return }
+        guard let project = selectedProject, !isMoving else { return }
 
-        do {
-            _ = try FileProcessor.shared.moveExistingFile(
-                record: record,
-                to: project,
-                assetType: selectedType
-            )
-            moveSuccess = true
-            showingMovePicker = false
-            moveError = nil
-        } catch {
-            moveError = error.localizedDescription
+        // Verplaatsen kan over volumegrenzen gaan (copy+delete van GB's) — nooit
+        // synchroon op de main thread, dat bevriest de hele menubar-app.
+        isMoving = true
+        moveError = nil
+        let capturedRecord = record
+        let capturedType = selectedType
+        let capturedMusicMode = appState.config.musicClassification
+
+        Task {
+            do {
+                _ = try await Task.detached(priority: .userInitiated) {
+                    try FileProcessor.shared.moveExistingFile(
+                        record: capturedRecord,
+                        to: project,
+                        assetType: capturedType,
+                        musicMode: capturedMusicMode
+                    )
+                }.value
+                await MainActor.run {
+                    isMoving = false
+                    moveSuccess = true
+                    showingMovePicker = false
+                    moveError = nil
+                }
+            } catch {
+                await MainActor.run {
+                    isMoving = false
+                    moveError = error.localizedDescription
+                }
+            }
         }
     }
 
@@ -250,18 +278,6 @@ struct HistoryItemRow: View {
         }
     }
 
-    private func iconForType(_ type: AssetType) -> String {
-        switch type {
-        case .music: return "music.note"
-        case .sfx: return "waveform"
-        case .vo: return "mic"
-        case .footage: return "video.fill"
-        case .motionGraphic: return "video"
-        case .graphic: return "photo"
-        case .stockFootage: return "film"
-        case .unknown: return "questionmark"
-        }
-    }
 }
 
 /// Compacte status badge voor history items

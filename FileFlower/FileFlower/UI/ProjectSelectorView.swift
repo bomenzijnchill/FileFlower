@@ -36,16 +36,36 @@ struct ProjectSelectorView: View {
 
     /// Folder-projecten zonder NLE-actieve en zonder template-mappen
     private var nonNLEProjects: [ProjectInfo] {
-        let nleIDs = Set(appState.nleActiveProjects.map(\.id))
+        let nleePaths = Set(appState.nleActiveProjects.map(\.projectPath))
         return appState.allFolderProjects
-            .filter { !nleIDs.contains($0.id) }
-            .filter { project in
-                let normalized = project.name.lowercased()
-                    .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespaces)
-                return !Self.templateFolderBlocklist.contains(normalized)
-            }
+            .filter { !nleePaths.contains($0.projectPath) }
+            .filter { !isLikelyTemplateFolder($0) }
             .sorted { $0.lastModified > $1.lastModified }
+    }
+
+    /// Een map met een generieke naam ("Video", "Export", "Music") is alleen een
+    /// TEMPLATE-submap als hij géén eigen projectstructuur bevat. Zonder die extra
+    /// check verdween een écht project met zo'n naam permanent uit de lijst — ook
+    /// bij zoeken, want het filter zit vóór de zoekfilter.
+    private func isLikelyTemplateFolder(_ project: ProjectInfo) -> Bool {
+        let normalized = project.name.lowercased()
+            .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        guard Self.templateFolderBlocklist.contains(normalized) else { return false }
+
+        // Bevat de map zelf asset-submappen? Dan is het een echt project.
+        let subfolders = (try? FileManager.default.contentsOfDirectory(
+            at: URL(fileURLWithPath: project.projectPath),
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ))?.compactMap { url -> String? in
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
+                  isDir.boolValue else { return nil }
+            return url.lastPathComponent
+        } ?? []
+
+        return !ProjectRootResolver.shared.looksLikeProjectRoot(subfolders)
     }
 
     /// Trim + check of we aan het zoeken zijn
@@ -98,18 +118,19 @@ struct ProjectSelectorView: View {
 
                 Spacer(minLength: 8)
 
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .opacity(0.7)
             }
-            .foregroundColor(.white)
-            .padding(.horizontal, 12)
+            .foregroundColor(.headerInk)
+            .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .frame(maxWidth: .infinity)
-            .background(Color.black.opacity(0.25))
+            .background(Color.headerGlass)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -238,6 +259,7 @@ struct ProjectSelectorView: View {
             Button {
                 appState.activeProject = project
                 showingProjectList = false
+                triggerReAnalysis(for: project)
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: icon)
@@ -362,14 +384,20 @@ struct ProjectSelectorView: View {
     }
 
     private func handleOpenProject(_ project: ProjectInfo) {
-        scanningProjectID = project.id
         let projectID = project.id
-        let rootPath = project.rootPath
+        let projectPath = project.projectPath
+
+        if NLEType.from(projectPath: projectPath) != nil {
+            openProjectFile(URL(fileURLWithPath: projectPath))
+            showingProjectList = false
+            return
+        }
+
+        scanningProjectID = project.id
         Task {
-            let files = await ProjectScanner.shared.findProjectFiles(in: rootPath)
+            let files = await ProjectScanner.shared.findProjectFiles(in: projectPath)
             await MainActor.run {
                 projectFilesByID[projectID] = files
-                // Enkel onze eigen spinner uitzetten
                 if scanningProjectID == projectID {
                     scanningProjectID = nil
                 }
@@ -378,7 +406,6 @@ struct ProjectSelectorView: View {
                     openProjectFile(files[0])
                     showingProjectList = false
                 } else {
-                    // 0 of >1: toon popover (leeg = "no project file", meer = kies)
                     expandedProjectID = projectID
                 }
             }
@@ -468,6 +495,20 @@ struct ProjectSelectorView: View {
             showingProjectList = false
         } catch {
             createError = error.localizedDescription
+        }
+    }
+
+    private func triggerReAnalysis(for project: ProjectInfo) {
+        Task {
+            await MainActor.run { appState.isAnalyzing = true }
+
+            let _ = await PathResolver.shared.invalidateAndRediscover(for: project)
+
+            await MainActor.run {
+                appState.isAnalyzing = false
+                // Herbereken de hele queue naar de juiste paden van het nieuw gekozen project.
+                appState.reresolveQueuedItems(for: project)
+            }
         }
     }
 }

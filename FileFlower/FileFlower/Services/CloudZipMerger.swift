@@ -100,9 +100,12 @@ class CloudZipMerger {
     /// Pak alle delen uit en voeg samen tot één map
     /// Retourneert de URLs van alle uitgepakte bestanden
     func mergeGroup(baseName: String) throws -> [URL] {
+        // Claim de groep ATOMAIR: de 5s-timeouttimer kan dezelfde groep anders een
+        // tweede keer starten terwijl de eerste merge (multi-GB) nog loopt — twee
+        // merges pakten dan dezelfde ZIPs uit en verwijderden elkaars bronbestanden.
         var group: CloudZipGroup?
-        queue.sync {
-            group = pendingGroups[baseName]
+        queue.sync(flags: .barrier) {
+            group = pendingGroups.removeValue(forKey: baseName)
         }
 
         guard let group = group else {
@@ -184,23 +187,21 @@ class CloudZipMerger {
                     allExtractedFiles.append(finalDestination)
                 }
 
-                // Ruim temp map op
+                // Ruim temp map op en verwijder de bron-ZIP — ALLEEN bij succes.
                 try? fileManager.removeItem(at: tempFolder)
+                try? fileManager.removeItem(at: part.url)
             } catch {
                 #if DEBUG
                 print("CloudZipMerger: Fout bij uitpakken deel \(part.partNumber): \(error)")
                 #endif
                 try? fileManager.removeItem(at: tempFolder)
+                // Bron-ZIP BEWAREN: verwijderen na een mislukte unzip zou de inhoud
+                // van dit deel permanent weggooien. De gebruiker kan hem opnieuw
+                // uitpakken of opnieuw downloaden.
             }
-
-            // Verwijder originele ZIP
-            try? fileManager.removeItem(at: part.url)
         }
 
-        // Verwijder groep uit pending
-        queue.sync(flags: .barrier) {
-            pendingGroups.removeValue(forKey: baseName)
-        }
+        // (Groep is al bij aanvang uit pendingGroups gehaald — zie mergeGroup)
 
         #if DEBUG
         print("CloudZipMerger: Merge voltooid — \(allExtractedFiles.count) bestanden in \(mergedFolder.path)")

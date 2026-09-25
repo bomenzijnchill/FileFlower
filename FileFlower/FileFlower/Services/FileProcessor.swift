@@ -10,7 +10,9 @@ class FileProcessor {
     ///   - item: Het te verwerken download item
     ///   - createNLEJob: Als `false`, wordt het bestand alleen verplaatst zonder NLE import job.
     ///     Gebruik dit wanneer het geselecteerde project niet overeenkomt met het actieve NLE project.
-    func process(_ item: DownloadItem, createNLEJob: Bool = true) async throws {
+    ///   - allowOverwrite: Als `true` (gebruiker koos expliciet "Overschrijven" in de conflict-dialog)
+    ///     wordt een bestaand doelbestand vervangen i.p.v. stilletjes als `_2` geversioneerd.
+    func process(_ item: DownloadItem, createNLEJob: Bool = true, allowOverwrite: Bool = false) async throws {
         guard let project = item.targetProject,
               let targetPath = item.targetPath else {
             throw FileProcessorError.missingTarget
@@ -18,9 +20,19 @@ class FileProcessor {
         
         let sourceURL = URL(fileURLWithPath: item.path)
         let targetURL = URL(fileURLWithPath: targetPath)
-        
-        // Ensure target directory exists
+
+        // HARDE GUARD (laatste verdedigingslinie): nooit schrijven in een NLE-cache map,
+        // en — tenzij de gebruiker het pad zelf handmatig koos — nooit buiten de projectmap.
         let targetDir = targetURL.deletingLastPathComponent()
+        let isManualChoice = item.manualTargetPath != nil
+        let mainFolder = isManualChoice ? nil : findProjectMainFolder(
+            from: targetDir,
+            projectPath: project.projectPath,
+            configuredRootHint: project.rootPath
+        )
+        try PathSafetyPolicy.validateWriteTarget(targetDir, projectMainFolder: mainFolder)
+
+        // Ensure target directory exists
         try FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
         
         var filesToImport: [String] = []
@@ -36,12 +48,22 @@ class FileProcessor {
         
         if isDirectory.boolValue {
             // Handle directory (e.g., extracted music folder from ZIP)
-            // Move the entire directory
-            try fileManager.moveItem(at: sourceURL, to: targetURL)
-            
+            // Move the entire directory (uniek pad zodat een bestaande map niet wordt geraakt,
+            // tenzij de gebruiker expliciet voor overschrijven koos)
+            let finalTargetURL: URL
+            if allowOverwrite {
+                if fileManager.fileExists(atPath: targetURL.path) {
+                    try fileManager.removeItem(at: targetURL)
+                }
+                finalTargetURL = targetURL
+            } else {
+                finalTargetURL = uniqueDestination(targetURL)
+            }
+            try fileManager.moveItem(at: sourceURL, to: finalTargetURL)
+
             // Remove quarantine from all files in the directory
             if let enumerator = fileManager.enumerator(
-                at: targetURL,
+                at: finalTargetURL,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: [.skipsHiddenFiles]
             ) {
@@ -54,14 +76,14 @@ class FileProcessor {
                     }
                 }
             }
-            
+
             // Import the folder as a whole (Premiere will import all contents)
-            filesToImport = [targetURL.path]
-            
+            filesToImport = [finalTargetURL.path]
+
             // Log move
             Logger.shared.logMove(
                 from: item.path,
-                to: targetPath,
+                to: finalTargetURL.path,
                 itemId: item.id
             )
         } else if sourceURL.pathExtension.lowercased() == "zip" {
@@ -79,18 +101,28 @@ class FileProcessor {
                 try? Quarantine.removeQuarantineAttribute(from: extractedURL)
             }
         } else {
-            // Move file
-            try FileManager.default.moveItem(at: sourceURL, to: targetURL)
-            
+            // Move file (uniek pad zodat een bestaand bestand niet wordt overschreven of hard faalt,
+            // tenzij de gebruiker expliciet voor overschrijven koos in de conflict-dialog)
+            let finalTargetURL: URL
+            if allowOverwrite {
+                if fileManager.fileExists(atPath: targetURL.path) {
+                    try fileManager.removeItem(at: targetURL)
+                }
+                finalTargetURL = targetURL
+            } else {
+                finalTargetURL = uniqueDestination(targetURL)
+            }
+            try FileManager.default.moveItem(at: sourceURL, to: finalTargetURL)
+
             // Remove quarantine
-            try Quarantine.removeQuarantineAttribute(from: targetURL)
-            
-            filesToImport = [targetPath]
-            
+            try Quarantine.removeQuarantineAttribute(from: finalTargetURL)
+
+            filesToImport = [finalTargetURL.path]
+
             // Log move
             Logger.shared.logMove(
                 from: item.path,
-                to: targetPath,
+                to: finalTargetURL.path,
                 itemId: item.id
             )
         }
@@ -109,7 +141,11 @@ class FileProcessor {
                 #endif
             } else {
                 // Default: create bin path from folder structure relative to project main folder
-                let projectMainFolder = findProjectMainFolder(from: targetDir, projectPath: project.projectPath)
+                let projectMainFolder = findProjectMainFolder(
+                    from: targetDir,
+                    projectPath: project.projectPath,
+                    configuredRootHint: project.rootPath
+                )
 
                 // Bepaal relative path; voorkom lege string als targetDir gelijk is aan projectMainFolder
                 let relativePath: String
@@ -123,25 +159,18 @@ class FileProcessor {
                     relativePath = path
                 }
 
-                var components = relativePath.split(separator: "/").filter { !$0.isEmpty }.map { String($0) }
+                let components = relativePath.split(separator: "/").filter { !$0.isEmpty }.map { String($0) }
 
-                // Smart matching: check of er al een bestaande Finder-map is die beter matcht
-                if !components.isEmpty {
-                    if let matchedFolder = BinMatcher.shared.findMatchingFolder(
-                        for: item.predictedType,
-                        in: projectMainFolder
-                    ) {
-                        let normalizedFirst = BinMatcher.shared.normalizeName(components[0])
-                        let normalizedMatch = BinMatcher.shared.normalizeName(matchedFolder)
-                        if normalizedFirst != normalizedMatch {
-                            #if DEBUG
-                            print("FileProcessor: Smart match - '\(components[0])' → '\(matchedFolder)' voor type \(item.predictedType.rawValue)")
-                            #endif
-                            components[0] = matchedFolder
-                        }
-                    }
-                }
-
+                // GEEN "smart matching" meer op het eerste padsegment.
+                // Dat zocht met findMatchingFolder tot 3 niveaus diep naar een map die bij
+                // het assettype paste en plakte die KALE NAAM over component[0]. Voor een
+                // bestand in "03_Audio/02_SFX/Meme" vond het de geneste map "02_SFX" en
+                // maakte er "02_SFX/02_SFX/Meme" van — een dubbele bin op projectniveau,
+                // terwijl er al een SFX-bin onder AUDIO bestond.
+                //
+                // Het relatieve schijfpad ÍS het juiste bin-pad: de plugin normaliseert
+                // mapnamen (strip "03_"/"01_"), dus "03_Audio/02_SFX" vindt netjes de
+                // bestaande bin "03_AUDIO/01_SFX".
                 premiereBinPath = components.isEmpty ? targetDir.lastPathComponent : components.joined(separator: "/")
                 #if DEBUG
                 print("FileProcessor: Project main folder: \(projectMainFolder.path)")
@@ -191,63 +220,32 @@ class FileProcessor {
         return nil
     }
     
-    /// Vindt de project main folder (waar 03_Muziek, 04_SFX etc. staan)
-    /// door omhoog te navigeren vanaf de target directory
-    private func findProjectMainFolder(from targetDir: URL, projectPath: String) -> URL {
-        let fileManager = FileManager.default
-        let projectURL = URL(fileURLWithPath: projectPath)
-        let prprojParent = projectURL.deletingLastPathComponent()
-
-        // Virtueel Resolve pad: gebruik targetDir als startpunt (is al een echte directory)
-        // De fallback-logica hieronder zou anders een virtueel pad teruggeven
-        let isVirtualResolvePath = projectPath.hasPrefix("/resolve-project/")
-
-        // Walk up from target directory to find the project structure folder
-        var current = targetDir
-        
-        while current.path != "/" {
-            // Check if this folder has project structure markers
-            if let contents = try? fileManager.contentsOfDirectory(
-                at: current,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-            ) {
-                let folderNames = contents.compactMap { url -> String? in
-                    var isDir: ObjCBool = false
-                    guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir),
-                          isDir.boolValue else { return nil }
-                    return url.lastPathComponent
-                }
-                
-                // Look for numbered folders (03_, 04_, 05_, etc.) that indicate project structure
-                let hasProjectStructure = folderNames.contains { name in
-                    name.hasPrefix("02_") || name.hasPrefix("03_") ||
-                    name.hasPrefix("04_") || name.hasPrefix("05_") ||
-                    name.hasPrefix("06_")
-                }
-                
-                if hasProjectStructure {
-                    return current
-                }
-            }
-            
-            // Also check if we're at the parent of the .prproj file
-            // (the project main folder often contains the Adobe folder with the .prproj)
-            if current.path == prprojParent.deletingLastPathComponent().path {
-                return current
-            }
-            
-            let parent = current.deletingLastPathComponent()
-            if parent.path == current.path { break }
-            current = parent
-        }
-        
-        // Fallback: go up two levels from .prproj (from 01_Adobe/project.prproj to project root)
-        // Voor virtuele Resolve paden: gebruik targetDir zelf als fallback (is een echte directory)
-        if isVirtualResolvePath {
+    /// Vindt de project main folder (waar 03_Audio, 02_Footage etc. horen).
+    /// Forwardt naar `ProjectRootResolver` — dezelfde gezaghebbende bron als de queue-plaatsing,
+    /// zodat de berekende Premiere-bin-naam altijd consistent is met waar het bestand op disk belandt.
+    private func findProjectMainFolder(from targetDir: URL, projectPath: String, configuredRootHint: String? = nil) -> URL {
+        // Virtueel Resolve-pad: targetDir is al een echte directory; gebruik die.
+        if projectPath.hasPrefix("/resolve-project/") {
             return targetDir
         }
-        return prprojParent.deletingLastPathComponent()
+        return ProjectRootResolver.shared.mainFolder(forProjectPath: projectPath, configuredRootHint: configuredRootHint)
+    }
+
+    /// Geef een uniek doelpad: voegt `_2`, `_3`, … toe als er al iets op `target` staat,
+    /// zodat een verplaatsing nooit een bestaand bestand/map overschrijft of hard faalt.
+    private func uniqueDestination(_ target: URL) -> URL {
+        guard FileManager.default.fileExists(atPath: target.path) else { return target }
+        let dir = target.deletingLastPathComponent()
+        let name = target.deletingPathExtension().lastPathComponent
+        let ext = target.pathExtension
+        var candidate = target
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            let newName = ext.isEmpty ? "\(name)_\(counter)" : "\(name)_\(counter).\(ext)"
+            candidate = dir.appendingPathComponent(newName)
+            counter += 1
+        }
+        return candidate
     }
 
     /// Verplaats een bestaand (eerder verwerkt) bestand naar een nieuw project/type.
@@ -271,14 +269,41 @@ class FileProcessor {
             throw FileProcessorError.missingTarget
         }
 
-        // Bereken nieuw pad via PathResolver
-        let targetFolder = try PathResolver.shared.resolveTarget(
+        // De queue blokkeert verwerken tot de mapindeling van het project bevestigd is
+        // (QueueView.processItems). Deze route — verplaatsen vanuit de geschiedenis — kende
+        // die eis niet, terwijl het projectlijstje daar automatisch gevuld wordt met gescande
+        // en via Spotlight gevonden projecten. Zonder bevestiging mag de structuurlaag hier
+        // geen bestemming verzinnen.
+        let mappingConfirmed = AppState.shared.config.mappings[project.projectPath]?
+            .discoveredStructure?.confirmed == true
+        if !mappingConfirmed, AppState.shared.config.folderStructurePreset == .standard {
+            throw FileProcessorError.uncertainDestination(
+                String(localized: "error.mapping_not_confirmed",
+                       defaultValue: "De mapindeling van dit project is nog niet bevestigd. Kies het project één keer in de wachtrij en bevestig de mappen.")
+            )
+        }
+
+        // Bereken nieuw pad via het volledige lagen-systeem (geleerde regels → evidence → structuur)
+        // zodat verplaatsen-vanuit-history dezelfde kwaliteit heeft als queue-verwerking.
+        let resolution = PathResolver.shared.resolveTargetWithConfidence(
             project: project,
             assetType: assetType,
             subfolder: subfolder ?? sfxCategory,
-            musicMode: effectiveMusicMode
+            musicMode: effectiveMusicMode,
+            fileName: sourceURL.lastPathComponent
         )
-        let targetDir = targetFolder.url
+        guard resolution.confidence >= PathResolver.shared.confidenceThreshold else {
+            throw FileProcessorError.uncertainDestination(resolution.reason)
+        }
+        let targetDir = resolution.targetFolder.url
+
+        // HARDE GUARD: nooit schrijven in een NLE-cache map of buiten de projectmap
+        let mainFolder = findProjectMainFolder(
+            from: targetDir,
+            projectPath: project.projectPath,
+            configuredRootHint: project.rootPath
+        )
+        try PathSafetyPolicy.validateWriteTarget(targetDir, projectMainFolder: mainFolder)
 
         try FileManager.default.createDirectory(at: targetDir, withIntermediateDirectories: true)
 
@@ -286,17 +311,7 @@ class FileProcessor {
         let targetURL = targetDir.appendingPathComponent(filename)
 
         // Conflict handling: voeg suffix toe als bestand al bestaat
-        var finalTarget = targetURL
-        if FileManager.default.fileExists(atPath: finalTarget.path) {
-            let name = targetURL.deletingPathExtension().lastPathComponent
-            let ext = targetURL.pathExtension
-            var counter = 2
-            while FileManager.default.fileExists(atPath: finalTarget.path) {
-                let newName = ext.isEmpty ? "\(name)_\(counter)" : "\(name)_\(counter).\(ext)"
-                finalTarget = targetDir.appendingPathComponent(newName)
-                counter += 1
-            }
-        }
+        let finalTarget = uniqueDestination(targetURL)
 
         // Verplaats
         try FileManager.default.moveItem(at: sourceURL, to: finalTarget)
@@ -320,16 +335,9 @@ class FileProcessor {
                 if path.hasPrefix("/") { path.removeFirst() }
                 relativePath = path
             }
-            var components = relativePath.split(separator: "/").filter { !$0.isEmpty }.map { String($0) }
-            if !components.isEmpty {
-                if let matchedFolder = BinMatcher.shared.findMatchingFolder(for: assetType, in: projectMainFolder) {
-                    let normalizedFirst = BinMatcher.shared.normalizeName(components[0])
-                    let normalizedMatch = BinMatcher.shared.normalizeName(matchedFolder)
-                    if normalizedFirst != normalizedMatch {
-                        components[0] = matchedFolder
-                    }
-                }
-            }
+            // Zie process(): geen "smart matching" op component[0] — dat maakte van
+            // "03_Audio/02_SFX/Meme" het pad "02_SFX/02_SFX/Meme".
+            let components = relativePath.split(separator: "/").filter { !$0.isEmpty }.map { String($0) }
             premiereBinPath = components.isEmpty ? targetDir.lastPathComponent : components.joined(separator: "/")
         }
 
@@ -362,6 +370,7 @@ class FileProcessor {
 enum FileProcessorError: LocalizedError {
     case missingTarget
     case moveFailed
+    case uncertainDestination(String)
 
     var errorDescription: String? {
         switch self {
@@ -369,6 +378,8 @@ enum FileProcessorError: LocalizedError {
             return String(localized: "status.failed.missing_target")
         case .moveFailed:
             return String(localized: "status.failed.move_failed")
+        case .uncertainDestination(let reason):
+            return reason
         }
     }
 }

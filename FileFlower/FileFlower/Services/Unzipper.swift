@@ -3,27 +3,30 @@ import Compression
 
 class Unzipper {
     static func unzip(_ sourceURL: URL, to destinationURL: URL) throws -> [URL] {
-        let fileManager = FileManager.default
-        
-        // Create destination folder with zip name (without extension)
-        let zipName = sourceURL.deletingPathExtension().lastPathComponent
-        let extractFolder = destinationURL.appendingPathComponent(zipName, isDirectory: true)
-        
-        try fileManager.createDirectory(at: extractFolder, withIntermediateDirectories: true)
-        
-        // Use Archive framework (macOS 10.15+)
-        if #available(macOS 10.15, *) {
-            return try unzipWithArchive(sourceURL: sourceURL, destination: extractFolder)
-        } else {
-            // Fallback to command line unzip
-            return try unzipWithCommandLine(sourceURL: sourceURL, destination: extractFolder)
-        }
+        return try unzipReturningFolder(sourceURL, to: destinationURL).files
     }
-    
-    @available(macOS 10.15, *)
-    private static func unzipWithArchive(sourceURL: URL, destination: URL) throws -> [URL] {
-        // Archive framework doesn't have direct zip support, use command line
-        return try unzipWithCommandLine(sourceURL: sourceURL, destination: destination)
+
+    /// Pak een ZIP uit naar een UNIEKE submap van `destinationURL` en geef zowel de
+    /// daadwerkelijk gebruikte map als de bestanden terug.
+    ///
+    /// Bestaat er al een map met de ZIP-naam, dan wordt "naam_2" etc. gekozen — nooit
+    /// stil overschrijven (unzip -o) in een bestaande map, en nooit bestaande vreemde
+    /// bestanden absorberen in de teruggegeven lijst.
+    static func unzipReturningFolder(_ sourceURL: URL, to destinationURL: URL) throws -> (folder: URL, files: [URL]) {
+        let fileManager = FileManager.default
+
+        let zipName = sourceURL.deletingPathExtension().lastPathComponent
+        var extractFolder = destinationURL.appendingPathComponent(zipName, isDirectory: true)
+        var counter = 2
+        while fileManager.fileExists(atPath: extractFolder.path) {
+            extractFolder = destinationURL.appendingPathComponent("\(zipName)_\(counter)", isDirectory: true)
+            counter += 1
+        }
+
+        try fileManager.createDirectory(at: extractFolder, withIntermediateDirectories: true)
+
+        let files = try unzipWithCommandLine(sourceURL: sourceURL, destination: extractFolder)
+        return (extractFolder, files)
     }
     
     private static func unzipWithCommandLine(sourceURL: URL, destination: URL) throws -> [URL] {

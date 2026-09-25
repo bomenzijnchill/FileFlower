@@ -26,10 +26,17 @@ class FileSafeScanner {
             .nameKey
         ]
 
+        // Verzamel onleesbare paden i.p.v. ze stil over te slaan
+        let unreadableBox = UnreadableBox()
+
         guard let enumerator = fileManager.enumerator(
             at: volumeURL,
             includingPropertiesForKeys: resourceKeys,
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            options: [.skipsHiddenFiles, .skipsPackageDescendants],
+            errorHandler: { url, _ in
+                unreadableBox.add(url.path)
+                return true  // doorgaan met de rest van de scan
+            }
         ) else {
             throw FileSafeScanError.cannotAccessVolume
         }
@@ -48,6 +55,8 @@ class FileSafeScanner {
             try Task.checkCancellation()
 
             guard let resources = try? fileURL.resourceValues(forKeys: Set(resourceKeys)) else {
+                // Attributen onleesbaar → registreren, niet stil negeren
+                unreadableBox.add(fileURL.path)
                 continue
             }
 
@@ -143,11 +152,27 @@ class FileSafeScanner {
             files: files,
             totalSize: totalSize,
             scanDate: Date(),
+            unreadablePaths: unreadableBox.paths,
             detectedBrand: detectedBrand,
             uniqueCalendarDays: dateAnalysis.uniqueDays,
             earliestDate: dateAnalysis.earliest,
             latestDate: dateAnalysis.latest
         )
+    }
+
+    /// Thread-safe verzamelaar voor onleesbare paden (errorHandler draait op de
+    /// enumerator-thread, de scan-loop op de task-executor).
+    private final class UnreadableBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [String] = []
+        func add(_ path: String) {
+            lock.lock(); defer { lock.unlock() }
+            if storage.count < 500 { storage.append(path) }
+        }
+        var paths: [String] {
+            lock.lock(); defer { lock.unlock() }
+            return storage
+        }
     }
 
     // MARK: - Camera Merk Detectie

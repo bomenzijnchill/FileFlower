@@ -43,17 +43,178 @@ class FileSafeQuickLookCoordinator: NSObject, QLPreviewPanelDataSource {
 
 struct FileSafeStepIndicator: View {
     let currentStep: FileSafeStep
-    private let visibleSteps: [FileSafeStep] = [.volumeSelect, .projectSelect, .projectConfig, .cardConfig, .structurePreview, .copying, .report]
+    var onTap: ((WizardStage) -> Void)? = nil
+
+    private var currentStage: WizardStage? { WizardStage.stage(for: currentStep) }
+
+    private enum StepState { case done, active, upcoming }
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(visibleSteps, id: \.rawValue) { step in
-                Circle()
-                    .fill(step.rawValue <= currentStep.rawValue ? Color.accentColor : Color.secondary.opacity(0.3))
-                    .frame(width: 6, height: 6)
+        HStack(spacing: 0) {
+            ForEach(Array(WizardStage.allCases.enumerated()), id: \.element.id) { idx, stage in
+                stepView(stage)
+                if idx < WizardStage.allCases.count - 1 {
+                    Text("›")
+                        .font(.brandMono(size: 11))
+                        .foregroundColor(Color(.tertiaryLabelColor))
+                        .padding(.horizontal, 10)
+                }
             }
         }
-        .padding(.vertical, 6)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.fsSurface2)
+        .overlay(alignment: .bottom) { Color.line.frame(height: 1) }
+    }
+
+    @ViewBuilder
+    private func stepView(_ stage: WizardStage) -> some View {
+        let state = stateFor(stage)
+        Button(action: { if state == .done { onTap?(stage) } }) {
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle().fill(bg(state)).frame(width: 20, height: 20)
+                    Group {
+                        if state == .done {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(.fsStepDoneInk)
+                        } else {
+                            Text("\(stage.rawValue)")
+                                .font(.brandMono(size: 10.5, weight: .medium))
+                                .foregroundColor(ink(state))
+                        }
+                    }
+                }
+                Text(stage.localizedLabel)
+                    .font(.system(size: 12, weight: state == .active ? .semibold : .regular))
+                    .foregroundColor(textColor(state))
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(state == .done ? Color(.controlBackgroundColor).opacity(0.001) : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(state != .done)
+    }
+
+    private func stateFor(_ stage: WizardStage) -> StepState {
+        guard let curr = currentStage else { return .upcoming }
+        if stage.rawValue < curr.rawValue { return .done }
+        if stage.rawValue == curr.rawValue { return .active }
+        return .upcoming
+    }
+
+    private func bg(_ s: StepState) -> Color {
+        switch s {
+        case .done:     return .fsStepDoneBg
+        case .active:   return .fsStepActiveBg
+        case .upcoming: return .fsStepIdleBg
+        }
+    }
+
+    private func ink(_ s: StepState) -> Color {
+        switch s {
+        case .done:     return .fsStepDoneInk
+        case .active:   return .fsStepActiveInk
+        case .upcoming: return .fsStepIdleInk
+        }
+    }
+
+    private func textColor(_ s: StepState) -> Color {
+        switch s {
+        case .done:     return .ink2
+        case .active:   return .ink
+        case .upcoming: return Color(.tertiaryLabelColor)
+        }
+    }
+}
+
+// MARK: - Scan Status Bar
+
+struct FileSafeScanStatusBar: View {
+    let isActive: Bool
+    let isDone: Bool
+    let filesFound: Int
+    let currentDirectory: String
+    var onCancel: (() -> Void)? = nil
+
+    @State private var pulse = false
+
+    var body: some View {
+        if !isActive && !isDone {
+            EmptyView()
+        } else {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(isDone ? Color.statusOk : Color.brandSkyBlue)
+                    .frame(width: 8, height: 8)
+                    .opacity(pulse && !isDone ? 0.4 : 1.0)
+
+                Text(isDone
+                     ? String(format: String(localized: "filesafe.scan.completed"), filesFound)
+                     : (filesFound > 0
+                        ? String(format: String(localized: "filesafe.scan.scanning_count"), filesFound)
+                        : String(localized: "filesafe.scan.scanning")))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.ink)
+
+                if !isDone && !currentDirectory.isEmpty {
+                    Text(currentDirectory)
+                        .font(.brandMono(size: 11))
+                        .foregroundColor(.ink3)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 200, alignment: .leading)
+                }
+
+                Spacer()
+
+                if isDone {
+                    ProgressView(value: 1.0)
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: 160)
+                        .tint(.statusOk)
+                } else {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: 160)
+                        .tint(.brandSkyBlue)
+                }
+
+                if isActive, let cancel = onCancel {
+                    Button(action: cancel) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.ink3)
+                    }
+                    .buttonStyle(.plain)
+                    .help(String(localized: "filesafe.scan.cancel"))
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+            .background(
+                LinearGradient(
+                    colors: [Color.fsBannerInfo, Color.brandTeaGreen.opacity(0.20)],
+                    startPoint: .leading, endPoint: .trailing
+                )
+            )
+            .overlay(alignment: .bottom) { Color.line.frame(height: 1) }
+            .onAppear {
+                if !isDone {
+                    withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
+                        pulse = true
+                    }
+                }
+            }
+            .transition(.opacity)
+        }
     }
 }
 
@@ -86,7 +247,7 @@ struct FileSafeVolumeSelectView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            FileSafeNavBar(title: String(localized: "filesafe.volume.title"))
+            FileSafeNavBar(title: String(localized: "filesafe.source.title"))
 
             if volumeDetector.externalVolumes.isEmpty {
                 VStack(spacing: 12) {
@@ -98,14 +259,21 @@ struct FileSafeVolumeSelectView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    VStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(String(localized: "filesafe.source.subtitle"))
+                            .font(.system(size: 13))
+                            .foregroundColor(.ink2)
+                            .padding(.horizontal, 4)
+                            .padding(.bottom, 4)
+
                         ForEach(volumeDetector.externalVolumes) { volume in
                             VolumeRow(volume: volume) {
                                 onSelect(volume)
                             }
                         }
                     }
-                    .padding(12)
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -116,46 +284,88 @@ struct VolumeRow: View {
     let volume: ExternalVolume
     let onTap: () -> Void
 
+    @State private var isHovered = false
+
+    private var volumeIconName: String {
+        switch volume.kind {
+        case .sdCard: return "sdcard.fill"
+        case .networkVolume: return "externaldrive.connected.to.line.below.fill"
+        case .externalDrive, .unknown: return "externaldrive.fill"
+        }
+    }
+
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 12) {
-                Image(systemName: "externaldrive.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(.accentColor)
+            HStack(spacing: 14) {
+                // Icon — gradient sandyClay → powderBlush
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(
+                            LinearGradient(
+                                colors: [.brandSandyClay, .brandPowderBlush],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 42, height: 42)
+                    Image(systemName: volumeIconName)
+                        .font(.system(size: 18))
+                        .foregroundColor(.white)
+                }
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(volume.name)
-                        .font(.system(size: 13, weight: .medium))
-
-                    Text("\(volume.formattedTotalSize) \u{2022} \(volume.formattedFreeSpace) free")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(volume.name)
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundColor(.ink)
+                        // "What the cable" — interface/soort-badge
+                        if let transport = volume.transport, !transport.isEmpty {
+                            Text(transport)
+                                .font(.system(size: 9, weight: .semibold))
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(volume.kind == .sdCard ? Color.brandSkyBlue.opacity(0.18) : Color.line2.opacity(0.6))
+                                .foregroundColor(.ink3)
+                                .clipShape(Capsule())
+                        }
+                    }
+                    Text("\(volume.formattedTotalSize) · \(volume.formattedFreeSpace) \(String(localized: "filesafe.volume.free_suffix"))")
+                        .font(.brandMono(size: 11))
+                        .foregroundColor(.ink3)
                 }
 
                 Spacer()
 
-                // Capacity indicator
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.secondary.opacity(0.2))
-                        .frame(width: 40, height: 4)
-
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(volume.usedPercentage > 0.9 ? Color.red : Color.accentColor)
-                        .frame(width: CGFloat(40 * volume.usedPercentage), height: 4)
+                // Capacity bar + percentage
+                HStack(spacing: 10) {
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.line2).frame(width: 64, height: 5)
+                        Capsule()
+                            .fill(volume.usedPercentage > 0.9 ? Color.statusWarn : Color.brandSkyBlue)
+                            .frame(width: CGFloat(64 * volume.usedPercentage), height: 5)
+                    }
+                    Text("\(Int(volume.usedPercentage * 100))%")
+                        .font(.brandMono(size: 11))
+                        .foregroundColor(.ink3)
                 }
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
             }
-            .padding(10)
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(.controlBackgroundColor))
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.fsCardBg)
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isHovered ? Color.line2 : Color.line, lineWidth: 1)
+            )
+            .shadow(color: isHovered ? Color.black.opacity(0.06) : Color.clear, radius: 4, y: 2)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) { isHovered = hovering }
+        }
     }
 }
 
@@ -167,32 +377,23 @@ struct FileSafeProjectSelectView: View {
     @Binding var newProjectName: String
     @Binding var selectedProjectPath: String?
     @Binding var selectedProjectRootPath: String?
+    var scanIsDone: Bool = true
     let onConfirm: () -> Void
     let onBack: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            FileSafeNavBar(title: String(localized: "filesafe.project.title"), onBack: onBack)
+            FileSafeNavBar(title: String(localized: "filesafe.destination.title"), onBack: onBack)
 
             ScrollView {
-                VStack(spacing: 12) {
-                    // New / Existing selection
-                    HStack(spacing: 10) {
-                        FileSafeSelectButton(
-                            title: String(localized: "filesafe.project.new"),
-                            icon: "folder.badge.plus",
-                            isSelected: isNewProject
-                        ) {
-                            isNewProject = true
-                        }
-                        FileSafeSelectButton(
-                            title: String(localized: "filesafe.project.existing"),
-                            icon: "folder",
-                            isSelected: !isNewProject
-                        ) {
-                            isNewProject = false
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(String(localized: "filesafe.destination.subtitle"))
+                        .font(.system(size: 13))
+                        .foregroundColor(.ink2)
+                        .padding(.horizontal, 4)
+
+                    // Segmented control — bestaand / nieuw
+                    fsSegmented
 
                     if isNewProject {
                         newProjectContent
@@ -200,20 +401,85 @@ struct FileSafeProjectSelectView: View {
                         existingProjectContent
                     }
                 }
-                .padding(12)
+                .padding(16)
             }
 
-            // Confirm button
-            Button(action: onConfirm) {
-                Text(String(localized: "filesafe.project.confirm"))
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(maxWidth: .infinity)
+            // Confirm button + scan-status hint
+            HStack(spacing: 10) {
+                Button(action: onBack) {
+                    Text("‹ \(String(localized: "filesafe.action.back"))")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.ink2)
+
+                Spacer()
+
+                if !scanIsDone {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(String(localized: "filesafe.destination.waiting_scan"))
+                            .font(.system(size: 11.5))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                Button(action: onConfirm) {
+                    Text(String(localized: "filesafe.destination.next"))
+                        .font(.system(size: 13, weight: .medium))
+                        .padding(.horizontal, 16)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .disabled(!canConfirm || !scanIsDone)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .disabled(!canConfirm)
-            .padding(12)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Color.fsSurface2)
+            .overlay(alignment: .top) { Color.line.frame(height: 1) }
         }
+        .task(id: appState.config.projectRoots) {
+            let roots = appState.config.projectRoots
+            loadedProjects = await Task.detached(priority: .userInitiated) {
+                Self.scanProjects(roots: roots)
+            }.value
+        }
+    }
+
+    private var fsSegmented: some View {
+        HStack(spacing: 2) {
+            segmentedButton(
+                title: String(localized: "filesafe.destination.tab.existing"),
+                isActive: !isNewProject
+            ) { isNewProject = false }
+            segmentedButton(
+                title: String(localized: "filesafe.destination.tab.new"),
+                isActive: isNewProject
+            ) { isNewProject = true }
+        }
+        .padding(3)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.line.opacity(0.6))
+        )
+        .frame(maxWidth: 320)
+    }
+
+    @ViewBuilder
+    private func segmentedButton(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12.5, weight: isActive ? .semibold : .medium))
+                .foregroundColor(isActive ? .ink : .ink2)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isActive ? Color.fsCardBg : Color.clear)
+                        .shadow(color: isActive ? Color.black.opacity(0.05) : .clear, radius: 1, y: 1)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private var canConfirm: Bool {
@@ -282,6 +548,8 @@ struct FileSafeProjectSelectView: View {
 
     @State private var searchText: String = ""
     @State private var sortMode: ProjectSortMode = .dateNewest
+    // Eénmalig van schijf geladen projecten; filteren/sorteren gebeurt goedkoop per render.
+    @State private var loadedProjects: [ProjectListItem] = []
 
     private var existingProjectContent: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -321,8 +589,8 @@ struct FileSafeProjectSelectView: View {
                     .fixedSize()
                 }
 
-                // Gefilterde en gesorteerde projectlijst
-                let projects = loadAndFilterProjects()
+                // Gefilterde en gesorteerde projectlijst (goedkoop, uit de cache)
+                let projects = filterAndSort(loadedProjects)
                 if projects.isEmpty {
                     Text(String(localized: "filesafe.project.no_results"))
                         .font(.system(size: 12))
@@ -559,38 +827,64 @@ struct FileSafeProjectSelectView: View {
         return names
     }()
 
-    private func loadAndFilterProjects() -> [ProjectListItem] {
-        var allProjects: [ProjectListItem] = []
+    /// Schijf-scan van de project-roots. Zwaar werk (directory-listing + mtime per map),
+    /// dus pure/static zodat het veilig off-main via `Task.detached` kan draaien.
+    /// Bevat geen star-status — die wordt goedkoop in `filterAndSort` afgeleid zodat
+    /// sterren live updaten zonder herscan.
+    private static func scanProjects(roots: [String]) -> [ProjectListItem] {
+        var result: [ProjectListItem] = []
+        let fm = FileManager.default
+        for root in roots {
+            guard let contents = try? fm.contentsOfDirectory(
+                at: URL(fileURLWithPath: root),
+                includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            ) else { continue }
 
-        for root in appState.config.projectRoots {
-            let subfolders = listSubfolders(at: root)
-            for folder in subfolders {
-                let name = URL(fileURLWithPath: folder).lastPathComponent
+            for url in contents {
+                let rv = try? url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey])
+                guard rv?.isDirectory == true else { continue }
+
+                let name = url.lastPathComponent
                 // Filter template/subfolder mappen (01_Adobe, FOOTAGE, etc.)
                 let normalized = name.lowercased()
                     .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
                     .trimmingCharacters(in: .whitespaces)
-                if Self.templateFolderBlocklist.contains(normalized) { continue }
+                if templateFolderBlocklist.contains(normalized) { continue }
 
-                let modDate = modificationDate(for: folder)
-                let isStarred = appState.config.starredProjects.contains(folder)
-                allProjects.append(ProjectListItem(
-                    id: folder,
-                    path: folder,
+                result.append(ProjectListItem(
+                    id: url.path,
+                    path: url.path,
                     name: name,
-                    modificationDate: modDate,
-                    isStarred: isStarred
+                    modificationDate: rv?.contentModificationDate,
+                    isStarred: false
                 ))
             }
+        }
+        return result
+    }
+
+    /// Goedkoop: filter + sorteer de gecachte lijst en leid star-status live af.
+    /// Geen disk-I/O, dus veilig om bij elke render (bv. per toetsaanslag) aan te roepen.
+    private func filterAndSort(_ projects: [ProjectListItem]) -> [ProjectListItem] {
+        let starredSet = Set(appState.config.starredProjects)
+        let withStars = projects.map { item in
+            ProjectListItem(
+                id: item.id,
+                path: item.path,
+                name: item.name,
+                modificationDate: item.modificationDate,
+                isStarred: starredSet.contains(item.path)
+            )
         }
 
         // Filter
         let filtered: [ProjectListItem]
-        if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-            filtered = allProjects
+        let query = searchText.trimmingCharacters(in: .whitespaces).lowercased()
+        if query.isEmpty {
+            filtered = withStars
         } else {
-            let query = searchText.lowercased()
-            filtered = allProjects.filter { $0.name.lowercased().contains(query) }
+            filtered = withStars.filter { $0.name.lowercased().contains(query) }
         }
 
         // Splits starred/unstarred
@@ -609,12 +903,6 @@ struct FileSafeProjectSelectView: View {
         }
 
         return starred.sorted(by: sortFn) + unstarred.sorted(by: sortFn)
-    }
-
-    private func modificationDate(for path: String) -> Date? {
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path),
-              let date = attrs[.modificationDate] as? Date else { return nil }
-        return date
     }
 
     private func toggleStar(for path: String) {
@@ -644,20 +932,6 @@ struct FileSafeProjectSelectView: View {
         if panel.runModal() == .OK, let url = panel.url {
             selectedProjectPath = url.path
         }
-    }
-
-    private func listSubfolders(at path: String) -> [String] {
-        let url = URL(fileURLWithPath: path)
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
-
-        return contents
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            .map { $0.path }
-            .sorted()
     }
 
     /// Kort home-pad af tot `~/...` voor compacte weergave onder projectnamen.
@@ -733,571 +1007,6 @@ struct ScanCountBadge: View {
             Text(label)
                 .font(.system(size: 9))
                 .foregroundColor(.secondary)
-        }
-    }
-}
-
-// MARK: - Project Config View
-
-struct FileSafeProjectConfigView: View {
-    @Binding var config: FileSafeProjectConfig
-    let scanResult: FileSafeScanResult
-    let onContinue: () -> Void
-    let onBack: () -> Void
-
-    var body: some View {
-        VStack(spacing: 0) {
-            FileSafeNavBar(title: String(localized: "filesafe.projectconfig.title"), onBack: onBack)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Detected camera brand badge
-                    if scanResult.detectedBrand != .unknown {
-                        HStack(spacing: 6) {
-                            Image(systemName: scanResult.detectedBrand.icon)
-                                .font(.system(size: 11))
-                            Text(scanResult.detectedBrand.rawValue)
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            Capsule()
-                                .fill(Color.accentColor.opacity(0.15))
-                        )
-                        .foregroundColor(.accentColor)
-                    }
-
-                    // General section
-                    generalSection
-
-                    // Video section
-                    if scanResult.hasVideo {
-                        videoSection
-                    }
-
-                    // Audio section
-                    if scanResult.hasAudio {
-                        audioSection
-                    }
-
-                    // Photo section
-                    if scanResult.hasPhoto {
-                        photoSection
-                    }
-                }
-                .padding(12)
-            }
-
-            // Continue button
-            Button(action: onContinue) {
-                Text(String(localized: "filesafe.projectconfig.continue"))
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .padding(12)
-        }
-    }
-
-    // MARK: - Sections
-
-    private var generalSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(title: String(localized: "filesafe.projectconfig.general"), icon: "gearshape")
-
-            // Multi-day toggle
-            HStack {
-                Toggle(String(localized: "filesafe.projectconfig.multiday"), isOn: $config.isMultiDayShoot)
-                    .font(.system(size: 12))
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                FileSafeHelpButton(text: String(localized: "filesafe.help.multiday"))
-            }
-
-            // Auto-detected multi-day info
-            if config.isMultiDayShoot && scanResult.uniqueCalendarDays.count > 1 {
-                Text(String(localized: "filesafe.projectconfig.multiday_auto \(scanResult.uniqueCalendarDays.count)"))
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .italic()
-            }
-
-            // Date source picker (alleen bij multi-day)
-            if config.isMultiDayShoot {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(String(localized: "filesafe.projectconfig.datesource"))
-                        .font(.system(size: 12))
-                    Picker("", selection: $config.dateSource) {
-                        ForEach(FileSafeDateSource.allCases, id: \.rawValue) { source in
-                            Text(source.displayName).tag(source)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                }
-            }
-
-        }
-    }
-
-    private var videoSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(
-                title: String(localized: "filesafe.projectconfig.video"),
-                icon: "film",
-                badge: "\(scanResult.videoCount)"
-            )
-
-            // Multiple cameras toggle
-            HStack {
-                Toggle(String(localized: "filesafe.projectconfig.multicam"), isOn: $config.hasMultipleCameras)
-                    .font(.system(size: 12))
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                FileSafeHelpButton(text: String(localized: "filesafe.help.multicam"))
-            }
-
-            if !config.hasMultipleCameras {
-                Text(String(localized: "filesafe.projectconfig.multicam.hint"))
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-            }
-
-            if config.hasMultipleCameras {
-                // Camera split mode picker
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(String(localized: "filesafe.projectconfig.splitmode"))
-                        .font(.system(size: 12))
-                    Picker("", selection: $config.cameraSplitMode) {
-                        Text(FileSafeCameraSplitMode.byType.displayName).tag(FileSafeCameraSplitMode.byType)
-                        Text(FileSafeCameraSplitMode.byAngle.displayName).tag(FileSafeCameraSplitMode.byAngle)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                }
-
-                // Camera labels
-                Text(config.cameraSplitMode == .byAngle
-                    ? String(localized: "filesafe.projectconfig.camera_angles.placeholder")
-                    : String(localized: "filesafe.projectconfig.camera_names.placeholder"))
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-
-    private var audioSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(
-                title: String(localized: "filesafe.projectconfig.audio"),
-                icon: "waveform",
-                badge: "\(scanResult.audioCount)"
-            )
-
-            TagInputView(
-                title: String(localized: "filesafe.projectconfig.persons"),
-                placeholder: String(localized: "filesafe.projectconfig.persons.placeholder"),
-                tags: $config.audioPersons
-            )
-
-            Toggle(String(localized: "filesafe.projectconfig.wildtrack"), isOn: $config.hasWildtrack)
-                .font(.system(size: 12))
-                .toggleStyle(.switch)
-                .controlSize(.small)
-
-            Toggle(String(localized: "filesafe.projectconfig.audio_per_day"), isOn: $config.linkAudioToDayStructure)
-                .font(.system(size: 12))
-                .toggleStyle(.switch)
-                .controlSize(.small)
-        }
-    }
-
-    private var photoSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(
-                title: String(localized: "filesafe.projectconfig.photos"),
-                icon: "photo",
-                badge: "\(scanResult.photoCount)"
-            )
-
-            Toggle(String(localized: "filesafe.projectconfig.split_raw"), isOn: $config.splitRawJpeg)
-                .font(.system(size: 12))
-                .toggleStyle(.switch)
-                .controlSize(.small)
-        }
-    }
-}
-
-// MARK: - Card Config View
-
-struct FileSafeCardConfigView: View {
-    @Binding var cardConfig: FileSafeCardConfig
-    let projectConfig: FileSafeProjectConfig
-    let scanResult: FileSafeScanResult
-    let folderPreset: FolderStructurePreset
-    let customTemplate: CustomFolderTemplate?
-    var projectPath: String? = nil
-    let onPreview: () -> Void
-    let onBack: () -> Void
-
-    private var dateFormatter: DateFormatter {
-        let f = DateFormatter()
-        f.dateFormat = "dd-MM-yyyy"
-        return f
-    }
-
-    /// Detecteer bestaande footage map + duplicaten met bestanden op de kaart
-    @State private var duplicateFileNames: Set<String> = []
-    @State private var footageFolderInfo: (found: Bool, folderName: String, fileCount: Int) = (false, "", 0)
-
-    private func scanForExistingFootage() {
-        guard let path = projectPath else {
-            footageFolderInfo = (false, "", 0)
-            duplicateFileNames = []
-            return
-        }
-
-        let projectURL = URL(fileURLWithPath: path)
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: projectURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
-        ) else { return }
-
-        let footageKeywords = ["footage", "raw", "materiaal", "beeldmateriaal", "video"]
-        var foundFolder: URL?
-
-        for folder in contents {
-            guard (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
-            let normalized = folder.lastPathComponent.lowercased()
-                .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
-            if footageKeywords.contains(where: { normalized.contains($0) }) {
-                foundFolder = folder
-                break
-            }
-        }
-
-        guard let footageURL = foundFolder else {
-            footageFolderInfo = (false, "", 0)
-            duplicateFileNames = []
-            return
-        }
-
-        // Scan recursief alle bestanden in de footage map
-        var existingFiles: [String: Set<Int64>] = [:]
-        var totalCount = 0
-        if let enumerator = FileManager.default.enumerator(
-            at: footageURL,
-            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        ) {
-            for case let fileURL as URL in enumerator {
-                guard let rv = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
-                      rv.isRegularFile == true, let size = rv.fileSize else { continue }
-                existingFiles[fileURL.lastPathComponent.lowercased(), default: []].insert(Int64(size))
-                totalCount += 1
-            }
-        }
-
-        footageFolderInfo = (true, footageURL.lastPathComponent, totalCount)
-
-        // Vergelijk met bestanden op de kaart
-        var dupes: Set<String> = []
-        for file in scanResult.files {
-            let key = file.fileName.lowercased()
-            if let sizes = existingFiles[key], sizes.contains(file.fileSize) {
-                dupes.insert(file.fileName)
-            }
-        }
-        duplicateFileNames = dupes
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            FileSafeNavBar(title: String(localized: "filesafe.cardconfig.title"), onBack: onBack)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Detected info banner
-                    detectedInfoBanner
-
-                    // Duplicaten waarschuwing (alleen als er bestanden zijn die al in het project staan)
-                    if !duplicateFileNames.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "doc.on.doc.fill")
-                                    .foregroundColor(.orange)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(String(localized: "filesafe.cardconfig.duplicates_found \(duplicateFileNames.count)"))
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text(String(localized: "filesafe.cardconfig.duplicates_will_skip"))
-                                        .font(.system(size: 11))
-                                        .foregroundColor(.secondary)
-                                }
-                                Spacer()
-                            }
-                        }
-                        .padding(10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.orange.opacity(0.1))
-                        )
-                    }
-
-                    // Day configuration (read-only)
-                    if projectConfig.isMultiDayShoot {
-                        multiDaySection
-                    } else {
-                        singleDaySection
-                    }
-
-                    // Path Editor (boven de bin-editors zodat gebruiker eerst het pad bepaalt)
-                    FileSafePathPreview(
-                        projectConfig: projectConfig,
-                        cardConfig: $cardConfig,
-                        scanResult: scanResult,
-                        folderPreset: folderPreset,
-                        customTemplate: customTemplate,
-                        projectPath: projectPath
-                    )
-
-                    // Section header: "Specific files in subfolders"
-                    if scanResult.hasVideo || scanResult.hasAudio || scanResult.hasPhoto {
-                        HStack {
-                            Text(String(localized: "filesafe.cardconfig.specific_files"))
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.secondary)
-                            Spacer()
-                        }
-                        .padding(.top, 8)
-                    }
-
-                    // Video bins + bestandsbrowser
-                    if scanResult.hasVideo {
-                        FileSafeCategoryBinEditor(
-                            category: .video,
-                            files: scanResult.videoFiles,
-                            shootDays: cardConfig.shootDays,
-                            isMultiDay: projectConfig.isMultiDayShoot,
-                            useTimestamp: projectConfig.useTimestampAssignment,
-                            bins: $cardConfig.videoBins,
-                            fileSubfolderMap: $cardConfig.fileSubfolderMap
-                        )
-                    }
-
-                    // Audio bins + bestandsbrowser
-                    if scanResult.hasAudio {
-                        FileSafeCategoryBinEditor(
-                            category: .audio,
-                            files: scanResult.audioFiles,
-                            shootDays: cardConfig.shootDays,
-                            isMultiDay: projectConfig.isMultiDayShoot,
-                            useTimestamp: projectConfig.useTimestampAssignment,
-                            bins: $cardConfig.audioBins,
-                            fileSubfolderMap: $cardConfig.fileSubfolderMap
-                        )
-                    }
-
-                    // Foto bins + bestandsbrowser
-                    if scanResult.hasPhoto {
-                        FileSafeCategoryBinEditor(
-                            category: .photo,
-                            files: scanResult.photoFiles,
-                            shootDays: cardConfig.shootDays,
-                            isMultiDay: projectConfig.isMultiDayShoot,
-                            useTimestamp: projectConfig.useTimestampAssignment,
-                            bins: $cardConfig.photoBins,
-                            fileSubfolderMap: $cardConfig.fileSubfolderMap
-                        )
-                    }
-                }
-                .padding(16)
-            }
-
-            // Preview button
-            Button(action: onPreview) {
-                Text(String(localized: "filesafe.cardconfig.preview"))
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .padding(16)
-        }
-        .onAppear {
-            scanForExistingFootage()
-            triggerAIAnalysisIfNeeded()
-        }
-    }
-
-    /// Trigger AI analyse als er een API key is en de keyword-scan niets vond
-    private func triggerAIAnalysisIfNeeded() {
-        guard let path = projectPath else { return }
-        guard ClaudeClassificationStrategy.loadAPIKey() != nil else { return }
-        guard !footageFolderInfo.found else { return } // Keyword scan vond al iets
-
-        Task {
-            if let result = await FolderStructureAnalyzer.shared.analyze(projectPath: path) {
-                await MainActor.run {
-                    // Cache in de builder voor gebruik bij resolveBasePaths
-                    FileSafeStructureBuilder.shared.aiAnalysisCache[path] = result
-                    // Update de UI als er een footage pad gevonden is
-                    if let footagePath = result.rawFootagePath {
-                        let footageURL = URL(fileURLWithPath: path).appendingPathComponent(footagePath)
-                        if FileManager.default.fileExists(atPath: footageURL.path) {
-                            footageFolderInfo = (true, footagePath, 0)
-                            // Hertel de duplicaat scan met het gevonden pad
-                            scanForExistingFootage()
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var detectedInfoBanner: some View {
-        HStack(spacing: 8) {
-            if scanResult.detectedBrand != .unknown {
-                HStack(spacing: 4) {
-                    Image(systemName: scanResult.detectedBrand.icon)
-                        .font(.system(size: 11))
-                    Text(scanResult.detectedBrand.rawValue)
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundColor(.accentColor)
-            }
-
-            if let earliest = scanResult.earliestDate {
-                HStack(spacing: 4) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 11))
-                    if let latest = scanResult.latestDate,
-                       !Calendar.current.isDate(earliest, inSameDayAs: latest) {
-                        Text(String(localized: "filesafe.cardconfig.material_from \(dateFormatter.string(from: earliest))") + " – \(dateFormatter.string(from: latest))")
-                            .font(.system(size: 11))
-                    } else {
-                        Text(String(localized: "filesafe.cardconfig.material_from \(dateFormatter.string(from: earliest))"))
-                            .font(.system(size: 11))
-                    }
-                }
-                .foregroundColor(.secondary)
-            }
-        }
-        .padding(8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(.controlBackgroundColor))
-        )
-    }
-
-    private var multiDaySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(title: String(localized: "filesafe.cardconfig.days"), icon: "calendar")
-
-            ForEach(cardConfig.shootDays.indices, id: \.self) { index in
-                HStack {
-                    // Bewerkbare dagnaam (standaard: "Day 1_13032026")
-                    TextField(
-                        cardConfig.shootDays[index].displayName(isMultiDay: true),
-                        text: Binding(
-                            get: { cardConfig.shootDays[index].label ?? "" },
-                            set: { cardConfig.shootDays[index].label = $0.isEmpty ? nil : $0 }
-                        )
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
-                    .frame(maxWidth: 200)
-
-                    Spacer()
-
-                    DatePicker("", selection: Binding(
-                        get: { cardConfig.shootDays[index].date ?? Date() },
-                        set: { cardConfig.shootDays[index].date = $0 }
-                    ), displayedComponents: .date)
-                    .labelsHidden()
-                    .datePickerStyle(.compact)
-                }
-            }
-        }
-    }
-
-    private var singleDaySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(title: String(localized: "filesafe.cardconfig.date"), icon: "calendar")
-
-            if !cardConfig.shootDays.isEmpty {
-                HStack {
-                    Text(String(localized: "filesafe.cardconfig.detected_date"))
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                    Spacer()
-                    DatePicker("", selection: Binding(
-                        get: { cardConfig.shootDays.first?.date ?? Date() },
-                        set: { newDate in
-                            if !cardConfig.shootDays.isEmpty {
-                                cardConfig.shootDays[0].date = newDate
-                            }
-                        }
-                    ), displayedComponents: .date)
-                    .labelsHidden()
-                    .datePickerStyle(.compact)
-                }
-
-                Toggle(isOn: $cardConfig.useDateSubfolder) {
-                    Text(String(localized: "filesafe.cardconfig.use_date_subfolder"))
-                        .font(.system(size: 12))
-                }
-                .toggleStyle(.checkbox)
-            }
-        }
-    }
-
-    private var videoSubfoldersSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if projectConfig.hasMultipleCameras {
-                SectionHeader(
-                    title: projectConfig.cameraSplitMode == .byAngle
-                        ? String(localized: "filesafe.projectconfig.camera_angles")
-                        : String(localized: "filesafe.projectconfig.camera_names"),
-                    icon: "video",
-                    badge: "\(scanResult.videoCount)"
-                )
-
-                SubfolderListEditor(
-                    subfolders: $cardConfig.videoSubfolders,
-                    placeholder: projectConfig.cameraSplitMode == .byAngle
-                        ? String(localized: "filesafe.cardconfig.camera_angle.placeholder")
-                        : String(localized: "filesafe.cardconfig.camera_label.placeholder"),
-                    minCount: 1
-                )
-            } else {
-                SectionHeader(
-                    title: String(localized: "filesafe.cardconfig.video_subfolders"),
-                    icon: "video",
-                    badge: "\(scanResult.videoCount)"
-                )
-
-                SubfolderListEditor(
-                    subfolders: $cardConfig.videoSubfolders,
-                    placeholder: String(localized: "filesafe.cardconfig.video_subfolder.placeholder")
-                )
-            }
-        }
-    }
-
-    private var photoSubfoldersSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionHeader(
-                title: String(localized: "filesafe.cardconfig.photo_subfolders"),
-                icon: "photo",
-                badge: "\(scanResult.photoCount)"
-            )
-
-            SubfolderListEditor(
-                subfolders: $cardConfig.photoSubfolders,
-                placeholder: String(localized: "filesafe.cardconfig.photo_subfolder.placeholder")
-            )
         }
     }
 }
@@ -1966,12 +1675,13 @@ struct FileSafeInteractivePathSegment: View {
     var onDelete: (() -> Void)? = nil
     var dragPayload: String? = nil
     var onDropSegment: ((String) -> Void)? = nil
+    var isRowHovered: Bool = false
 
     @State private var editingName = ""
     @State private var isEditing = false
     @State private var isDropTarget = false
+    @State private var isChipHovered = false
 
-    /// Werkelijke submappen op dit filesystem-niveau
     private var alternatives: [String] {
         guard let projectPath = projectPath,
               let parentRelative = parentRelativePath else { return [] }
@@ -1987,8 +1697,6 @@ struct FileSafeInteractivePathSegment: View {
             .sorted()
     }
 
-    /// Absoluut pad waar de alternatieven van dit segment leven (parent-folder).
-    /// Wordt door de dropdown gebruikt voor lazy drill-down.
     private var dropdownBasePath: String? {
         guard let projectPath = projectPath else { return nil }
         let parent = parentRelativePath ?? ""
@@ -1997,31 +1705,20 @@ struct FileSafeInteractivePathSegment: View {
     }
 
     var body: some View {
-        if segment.hasAlternatives {
-            // MODE A: Bestaande map met dropdown via AppKit NSMenu
-            PathSegmentDropdown(
-                value: segment.value,
-                alternatives: alternatives,
-                basePath: dropdownBasePath,
-                onValueChange: onValueChange
-            )
+        if segment.type == .token {
+            // Token chip — {date}, {camera}, etc.
+            tokenChip
+
+        } else if segment.hasAlternatives {
+            // Existing folder — sky-blue with dropdown
+            existingFolderChip
 
         } else if segment.isNameEditable {
-            // MODE B: Nieuwe map (oranje, bewerkbaar + verwijderbaar)
+            // New folder — burnt-peach, dashed
             if isEditing {
-                TextField(segment.value, text: $editingName)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12, design: .monospaced))
-                    .frame(width: 160)
-                    .onSubmit {
-                        if !editingName.trimmingCharacters(in: .whitespaces).isEmpty {
-                            onValueChange(editingName.trimmingCharacters(in: .whitespaces))
-                        }
-                        isEditing = false
-                    }
-                    .onAppear { editingName = segment.value }
+                editingChip
             } else {
-                editableSegmentRow
+                newFolderChip
                     .modifier(SegmentDragDropModifier(
                         dragPayload: dragPayload,
                         onDropPayload: onDropSegment,
@@ -2029,56 +1726,214 @@ struct FileSafeInteractivePathSegment: View {
                     ))
             }
 
+        } else if segment.type == .projectName {
+            projectChip
+
+        } else if segment.type == .fileName {
+            fileNameChip
+
         } else {
-            // MODE C: Vast segment (projectnaam, bestandsnaam, bestaande map zonder alternatieven)
-            Text(segment.value)
-                .font(.system(size: 12, design: .monospaced))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(segment.type == .projectName
-                              ? Color.green.opacity(0.1)
-                              : Color(.controlBackgroundColor).opacity(0.5))
-                )
+            // Fallback for non-editable category/subfolder segments
+            staticChip
         }
     }
 
-    /// Rij voor Mode B (editable segment) — rename-knop + optionele delete-knop
-    private var editableSegmentRow: some View {
-        HStack(spacing: 3) {
+    // MARK: - Project Chip (green tint)
+
+    private var projectChip: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "folder.badge.gearshape")
+                .font(.system(size: 10))
+                .opacity(0.55)
+            Text(segment.value)
+                .font(.brandMono(size: 12, weight: .semibold))
+        }
+        .foregroundColor(.pathProjectFg)
+        .padding(.horizontal, 9)
+        .frame(height: 26)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.pathProjectBg))
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.pathProjectBorder, lineWidth: 1))
+    }
+
+    // MARK: - Existing Folder Chip (sky-blue)
+
+    private var existingFolderChip: some View {
+        HStack(spacing: 0) {
+            PathSegmentDropdown(
+                value: segment.value,
+                alternatives: alternatives,
+                basePath: dropdownBasePath,
+                onValueChange: onValueChange
+            )
+        }
+        .padding(.leading, 5)
+        .frame(height: 26)
+        .background(
+            RoundedRectangle(cornerRadius: 7)
+                .fill(isChipHovered ? Color.pathExistHoverBg : Color.pathExistBg)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(isChipHovered ? Color.pathExistHoverBorder : Color.pathExistBorder, lineWidth: 1)
+        )
+        .overlay(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: 1)
+                .fill(Color.pathExistUnderline)
+                .frame(height: 2)
+                .padding(.horizontal, 7)
+                .offset(y: 3)
+                .opacity(isChipHovered ? 1 : 0)
+        }
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) { isChipHovered = hovering }
+        }
+        .help(String(localized: "filesafe.pathviewer.click_for_alternatives"))
+    }
+
+    // MARK: - New Folder Chip (burnt-peach, dashed)
+
+    private var newFolderChip: some View {
+        HStack(spacing: 4) {
+            Text("⋮⋮")
+                .font(.system(size: 9))
+                .foregroundColor(.pathNewHandle)
+                .opacity(isRowHovered ? 1 : 0)
+                .frame(width: isRowHovered ? 10 : 0)
+                .clipped()
+
+            Image(systemName: "sparkles")
+                .font(.system(size: 10))
+                .foregroundColor(.pathNewFg)
+                .opacity(0.85)
+
+            Text(segment.value)
+                .font(.brandMono(size: 12, weight: .medium))
+                .foregroundColor(.pathNewFg)
+
             Button(action: {
                 editingName = segment.value
                 isEditing = true
             }) {
-                Text(segment.value)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .padding(.leading, 10)
-                    .padding(.trailing, onDelete != nil ? 4 : 10)
-                    .padding(.vertical, 5)
+                Image(systemName: "pencil")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundColor(.pathNewFg.opacity(0.70))
+                    .frame(width: 18, height: 18)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.clear))
             }
             .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .onHover { h in
+                // Handled via cursor
+            }
 
             if let onDelete = onDelete {
                 Button(action: onDelete) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundColor(.orange.opacity(0.75))
-                        .padding(.trailing, 6)
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.pathNewFg.opacity(0.70))
+                        .frame(width: 18, height: 18)
                 }
                 .buttonStyle(.plain)
                 .help(String(localized: "filesafe.pathviewer.remove_folder"))
             }
         }
+        .padding(.leading, 9)
+        .padding(.trailing, 6)
+        .frame(height: 26)
         .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isDropTarget ? Color.accentColor.opacity(0.25) : Color.orange.opacity(0.2))
+            RoundedRectangle(cornerRadius: 7)
+                .fill(isDropTarget ? Color.accentColor.opacity(0.25)
+                      : isChipHovered ? Color.pathNewHoverBg : Color.pathNewBg)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(isDropTarget ? Color.accentColor : Color.orange.opacity(0.4),
-                        lineWidth: isDropTarget ? 1.5 : 0.5)
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(
+                    isDropTarget ? Color.accentColor
+                    : isChipHovered ? Color.pathNewBorder : Color.pathNewBorder,
+                    style: StrokeStyle(
+                        lineWidth: isDropTarget ? 1.5 : 1,
+                        dash: isChipHovered ? [] : [4, 3]
+                    )
+                )
         )
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) { isChipHovered = hovering }
+        }
+        .animation(.easeOut(duration: 0.15), value: isRowHovered)
+    }
+
+    // MARK: - Editing State
+
+    private var editingChip: some View {
+        TextField(segment.value, text: $editingName)
+            .textFieldStyle(.plain)
+            .font(.brandMono(size: 12, weight: .medium))
+            .frame(minWidth: 60, maxWidth: 160)
+            .padding(.horizontal, 9)
+            .frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color(.textBackgroundColor)))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.brandBurntPeach, lineWidth: 1))
+            .shadow(color: Color.brandBurntPeach.opacity(0.15), radius: 3, x: 0, y: 0)
+            .onSubmit {
+                if !editingName.trimmingCharacters(in: .whitespaces).isEmpty {
+                    onValueChange(editingName.trimmingCharacters(in: .whitespaces))
+                }
+                isEditing = false
+            }
+            .onAppear { editingName = segment.value }
+    }
+
+    // MARK: - Token Chip (tea-green, italic)
+
+    private var tokenChip: some View {
+        HStack(spacing: 2) {
+            Text("⟨").opacity(0.55)
+            Text(segment.value)
+                .italic()
+            Text("⟩").opacity(0.55)
+        }
+        .font(.brandMono(size: 12, weight: .medium))
+        .foregroundColor(.pathTokenFg)
+        .padding(.horizontal, 9)
+        .frame(height: 26)
+        .background(
+            RoundedRectangle(cornerRadius: 7)
+                .fill(
+                    LinearGradient(
+                        colors: [.pathTokenBgFrom, .pathTokenBgTo],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.pathTokenBorder, lineWidth: 1))
+        .help(String(localized: "filesafe.pathviewer.token_hint"))
+    }
+
+    // MARK: - Filename Chip
+
+    private var fileNameChip: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "doc.fill")
+                .font(.system(size: 10))
+                .opacity(0.45)
+            Text(segment.value)
+                .font(.brandMono(size: 12))
+        }
+        .foregroundColor(Color(.secondaryLabelColor))
+        .padding(.horizontal, 9)
+        .frame(height: 26)
+    }
+
+    // MARK: - Static Chip (fallback for non-editable segments)
+
+    private var staticChip: some View {
+        Text(segment.value)
+            .font(.brandMono(size: 12, weight: .medium))
+            .foregroundColor(Color(.secondaryLabelColor))
+            .padding(.horizontal, 9)
+            .frame(height: 26)
+            .background(RoundedRectangle(cornerRadius: 7).fill(Color(.controlBackgroundColor).opacity(0.5)))
     }
 }
 
@@ -2468,15 +2323,10 @@ struct FileSafeInteractivePath: View {
     let onSegmentChange: (PathSegment, String) -> Void
     var onInsertSegment: ((Int, String) -> Void)?
     var onSegmentDelete: ((PathSegment) -> Void)?
-    /// Sleep-herorderen: (srcPayload, target segment).
-    /// Payload formaat: "FS_SEG|{category}|{position}|{value}" — de preview
-    /// parseert deze en beperkt reordering tot dezelfde category + positie.
     var onSegmentReorder: ((String, PathSegment) -> Void)?
-    /// Optionele tekst die rechts van het pad wordt getoond (bv. "+ 12 files").
     var trailingBadge: String? = nil
+    var isRowHovered: Bool = false
 
-
-    /// Haal submappen op van een bestaande map op het gegeven relatief pad
     private func subfoldersAt(relativePath: String) -> [String] {
         guard let projectPath = projectPath else { return [] }
         let url: URL
@@ -2496,16 +2346,12 @@ struct FileSafeInteractivePath: View {
             .sorted()
     }
 
-    /// Toon + knop vóór dagfolders, bestandsnamen, en bins
     private func shouldShowInsertButton(beforeIndex index: Int) -> Bool {
         guard index > 0, onInsertSegment != nil else { return false }
         let curr = segments[index]
         return curr.type == .dayFolder || curr.type == .fileName || curr.type == .binName
     }
 
-    /// Bouw drag-payload voor een segment op basis van zijn positie t.o.v. de dagmap.
-    /// Payload formaat: "FS_SEG|{category}|{pre|post}|{value}"
-    /// Nil als segment niet editable is of geen category heeft.
     private func dragPayload(for segment: PathSegment, at index: Int) -> String? {
         guard segment.isNameEditable, let category = segment.category else { return nil }
         let dayIdx = segments.firstIndex(where: { $0.type == .dayFolder })
@@ -2523,11 +2369,8 @@ struct FileSafeInteractivePath: View {
             ForEach(Array(segments.enumerated()), id: \.element.id) { index, segment in
                 if index > 0 {
                     if shouldShowInsertButton(beforeIndex: index) {
-                        Text("/")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(.secondary.opacity(0.4))
+                        pathSeparator
 
-                        // ⊕ invoeg-knop — gebruikt NSPopover via AppKit voor betrouwbaarheid
                         PathInsertButton(
                             folders: subfoldersAt(relativePath: parentPath(for: index) ?? ""),
                             onSelectFolder: { folder in
@@ -2537,18 +2380,14 @@ struct FileSafeInteractivePath: View {
                                 onInsertSegment?(index, name)
                             }
                         )
-                        // Frame matched tekst hoogte (12pt mono ≈ 17pt line height)
-                        // zodat + visueel op baseline met "/" staat
-                        .frame(width: 16, height: 17)
+                        .frame(width: 18, height: 18)
+                        .opacity(isRowHovered ? 0.6 : 0)
+                        .scaleEffect(isRowHovered ? 1 : 0.8)
+                        .animation(.easeOut(duration: 0.15), value: isRowHovered)
 
-                        Text("/")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(.secondary.opacity(0.4))
+                        pathSeparator
                     } else {
-                        Text("/")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(.secondary.opacity(0.4))
-                            .padding(.horizontal, 1)
+                        pathSeparator
                     }
                 }
 
@@ -2565,17 +2404,25 @@ struct FileSafeInteractivePath: View {
                     dragPayload: dragPayload(for: segment, at: index),
                     onDropSegment: onSegmentReorder.map { reorder in
                         { payload in reorder(payload, segment) }
-                    }
+                    },
+                    isRowHovered: isRowHovered
                 )
             }
 
             if let badge = trailingBadge, !badge.isEmpty {
                 Text(badge)
-                    .font(.system(size: 11))
+                    .font(.brandMono(size: 11))
                     .foregroundColor(.secondary)
                     .padding(.leading, 4)
             }
         }
+    }
+
+    private var pathSeparator: some View {
+        Text("/")
+            .font(.brandMono(size: 12))
+            .foregroundColor(Color(.secondaryLabelColor).opacity(0.45))
+            .padding(.horizontal, 2)
     }
 
     private func parentPath(for index: Int) -> String? {
@@ -2598,147 +2445,7 @@ struct FileSafePathPreview: View {
 
     @State private var isExpanded: Bool = true
 
-    private var examplePaths: [String] {
-        var paths: [String] = []
-        let dayFormatter = DateFormatter()
-        dayFormatter.dateFormat = "ddMMyyyy"
-
-        // Bij single-day zonder useDateSubfolder → geen dagmap in pad
-        let skipDayInPath = !projectConfig.isMultiDayShoot && !cardConfig.useDateSubfolder
-        let dayLabel: String
-        if skipDayInPath {
-            dayLabel = ""
-        } else if let firstDay = cardConfig.shootDays.first, let date = firstDay.date {
-            if projectConfig.isMultiDayShoot {
-                let localizedDay = String(localized: "filesafe.cardconfig.day \(1)")
-                dayLabel = "\(localizedDay)_\(dayFormatter.string(from: date))"
-            } else {
-                // Single-day met useDateSubfolder: alleen datum, geen "Day 1"
-                dayLabel = dayFormatter.string(from: date)
-            }
-        } else {
-            dayLabel = dayFormatter.string(from: Date())
-        }
-
-        // Resolve dynamische basispaden uit template (met bestaande map herkenning)
-        let basePaths = FileSafeStructureBuilder.shared.resolveBasePaths(
-            preset: folderPreset,
-            customTemplate: customTemplate,
-            existingProjectPath: projectPath
-        )
-
-        // Bepaal video/foto base paths (zelfde logica als buildStructure)
-        let videoBase: String
-        let photoBase: String
-        if basePaths.photosInFootage && scanResult.hasVideo && scanResult.hasPhoto {
-            videoBase = "\(basePaths.footagePath)/Video"
-            photoBase = "\(basePaths.footagePath)/Photo"
-        } else {
-            videoBase = basePaths.footagePath
-            photoBase = basePaths.photoPath
-        }
-
-        // Helper: voeg dayLabel toe aan pad als die niet leeg is
-        func withDay(_ base: String) -> String {
-            dayLabel.isEmpty ? base : "\(base)/\(dayLabel)"
-        }
-
-        // Video example paths
-        if scanResult.hasVideo {
-            let videoBinNames = cardConfig.effectiveVideoBinNames
-            if !videoBinNames.isEmpty {
-                for binName in videoBinNames.prefix(2) {
-                    if let sampleFile = scanResult.videoFiles.first(where: {
-                        cardConfig.fileSubfolderMap[$0.id] == binName
-                    }) ?? scanResult.videoFiles.first {
-                        paths.append("\(withDay(videoBase))/\(binName)/\(sampleFile.fileName)")
-                    }
-                }
-                let assignedBins = Set(videoBinNames)
-                if let unassigned = scanResult.videoFiles.first(where: {
-                    guard let assignment = cardConfig.fileSubfolderMap[$0.id] else { return true }
-                    return !assignedBins.contains(assignment)
-                }) {
-                    paths.append("\(withDay(videoBase))/\(unassigned.fileName)")
-                }
-            } else if let sampleFile = scanResult.videoFiles.first {
-                var videoPath = withDay(videoBase)
-                for subfolder in cardConfig.effectiveVideoSubfolders {
-                    videoPath += "/\(subfolder)"
-                }
-                paths.append("\(videoPath)/\(sampleFile.fileName)")
-            }
-        }
-
-        // Audio example paths
-        if scanResult.hasAudio {
-            let audioBase = basePaths.audioPath
-            if let sampleFile = scanResult.audioFiles.first {
-                if !projectConfig.audioPersons.isEmpty {
-                    let person = projectConfig.audioPersons.first ?? "Person"
-                    if projectConfig.linkAudioToDayStructure && projectConfig.isMultiDayShoot {
-                        paths.append("\(audioBase)/\(dayLabel)/\(person)/\(sampleFile.fileName)")
-                    } else {
-                        paths.append("\(audioBase)/\(person)/\(sampleFile.fileName)")
-                    }
-                } else {
-                    paths.append("\(audioBase)/\(sampleFile.fileName)")
-                }
-            }
-        }
-
-        // Photo example paths
-        if scanResult.hasPhoto {
-            let photoBinNames = cardConfig.effectivePhotoBinNames
-
-            if !photoBinNames.isEmpty {
-                // Bin-gebaseerd: toon 1 voorbeeld per bin
-                for binName in photoBinNames.prefix(2) {
-                    if let sampleFile = scanResult.photoFiles.first(where: {
-                        cardConfig.fileSubfolderMap[$0.id] == binName
-                    }) ?? scanResult.photoFiles.first {
-                        let isRaw = ["cr3", "cr2", "arw", "nef", "raf", "dng"].contains(sampleFile.fileExtension.lowercased())
-                        var photoPath = photoBase
-                        if projectConfig.isMultiDayShoot { photoPath += "/\(dayLabel)" }
-                        photoPath += "/\(binName)"
-                        if projectConfig.splitRawJpeg {
-                            photoPath += "/\(isRaw ? "RAW" : "JPEG")"
-                        }
-                        paths.append("\(photoPath)/\(sampleFile.fileName)")
-                    }
-                }
-            } else if let sampleFile = scanResult.photoFiles.first {
-                let isRaw = ["cr3", "cr2", "arw", "nef", "raf", "dng"].contains(sampleFile.fileExtension.lowercased())
-
-                // Legacy: bouw foto-pad op
-                var photoPath = photoBase
-                if projectConfig.isMultiDayShoot { photoPath += "/\(dayLabel)" }
-                for subfolder in cardConfig.effectivePhotoSubfolders {
-                    photoPath += "/\(subfolder)"
-                }
-                if projectConfig.splitRawJpeg {
-                    photoPath += "/\(isRaw ? "RAW" : "JPEG")"
-                }
-                paths.append("\(photoPath)/\(sampleFile.fileName)")
-            }
-        }
-
-        // Wildtrack example
-        if projectConfig.hasWildtrack && scanResult.hasAudio {
-            let audioBase = basePaths.audioPath
-            if projectConfig.isMultiDayShoot && projectConfig.linkAudioToDayStructure {
-                paths.append("\(audioBase)/\(dayLabel)/Wildtrack/")
-            } else {
-                paths.append("\(audioBase)/Wildtrack/")
-            }
-        }
-
-        // Prepend project name to all paths
-        let projectPrefix = projectConfig.projectName
-        return paths.map { projectPrefix + "/" + $0 }
-    }
-
-    /// Segmented paths for interactive editing — mirrors examplePaths logic but builds PathSegment arrays
+    /// Segmented paths for interactive editing — builds PathSegment arrays for the path preview/editor
     private var segmentedPaths: [(segments: [PathSegment], isFolder: Bool, fileCount: Int)] {
         var result: [(segments: [PathSegment], isFolder: Bool, fileCount: Int)] = []
         let dayFormatter = DateFormatter()
@@ -2759,9 +2466,11 @@ struct FileSafePathPreview: View {
             dayLabel = dayFormatter.string(from: Date())
         }
 
-        let basePaths = FileSafeStructureBuilder.shared.resolveBasePaths(
-            preset: folderPreset,
-            customTemplate: customTemplate,
+        // Zelfde resolutie-ingang als de daadwerkelijke plaatsing (incl. actieve template),
+        // zodat de preview nooit een ander pad toont dan waar bestanden heen gaan.
+        let basePaths = FileSafeStructureBuilder.shared.resolveBasePathsForDisplay(
+            config: AppState.shared.config,
+            projectName: projectConfig.projectName,
             existingProjectPath: projectPath
         )
 
@@ -3259,32 +2968,91 @@ struct FileSafePathPreview: View {
         }
     }
 
+    // MARK: - Category Grouping
+
+    private struct CategoryGroup: Identifiable {
+        let id: String
+        let category: FileSafeFileCategory
+        var paths: [(index: Int, segments: [PathSegment], isFolder: Bool, fileCount: Int)]
+    }
+
+    private var groupedCategories: [CategoryGroup] {
+        let paths = segmentedPaths
+        var groups: [String: CategoryGroup] = [:]
+        var order: [String] = []
+
+        for (index, entry) in paths.enumerated() {
+            let cat = entry.segments.first(where: { $0.category != nil })?.category ?? .other
+            let key = cat.rawValue
+            if groups[key] == nil {
+                groups[key] = CategoryGroup(id: key, category: cat, paths: [])
+                order.append(key)
+            }
+            groups[key]?.paths.append((index: index, segments: entry.segments, isFolder: entry.isFolder, fileCount: entry.fileCount))
+        }
+        return order.compactMap { groups[$0] }
+    }
+
+    private func categoryFileCount(_ category: FileSafeFileCategory) -> Int {
+        switch category {
+        case .video: return scanResult.videoCount
+        case .audio: return scanResult.audioCount
+        case .photo: return scanResult.photoCount
+        case .other: return scanResult.otherFiles.count
+        }
+    }
+
+    private func categoryFileSize(_ category: FileSafeFileCategory) -> String {
+        let bytes: Int64
+        switch category {
+        case .video: bytes = scanResult.videoFiles.reduce(0) { $0 + $1.fileSize }
+        case .audio: bytes = scanResult.audioFiles.reduce(0) { $0 + $1.fileSize }
+        case .photo: bytes = scanResult.photoFiles.reduce(0) { $0 + $1.fileSize }
+        case .other: bytes = scanResult.otherFiles.reduce(0) { $0 + $1.fileSize }
+        }
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+
+    private func categoryDotColor(_ category: FileSafeFileCategory) -> Color {
+        switch category {
+        case .video: return .pathDotVideo
+        case .audio: return .pathDotAudio
+        case .photo: return .pathDotPhoto
+        case .other: return Color(.secondaryLabelColor)
+        }
+    }
+
     var body: some View {
         DisclosureGroup(
             isExpanded: $isExpanded,
             content: {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(segmentedPaths.enumerated()), id: \.offset) { pathIndex, entry in
-                        FileSafeInteractivePath(
-                            segments: entry.segments,
-                            projectPath: projectPath,
-                            onSegmentChange: handleSegmentChange,
-                            onInsertSegment: { segIndex, folderName in
-                                handleSegmentInsert(pathIndex: pathIndex, segmentIndex: segIndex, folderName: folderName)
-                            },
-                            onSegmentDelete: handleSegmentDelete,
-                            onSegmentReorder: handleSegmentReorder,
-                            trailingBadge: entry.fileCount > 1
-                                ? String(format: String(localized: "filesafe.pathviewer.files_count_suffix"), entry.fileCount - 1)
-                                : nil
-                        )
-                    }
+                VStack(alignment: .leading, spacing: 14) {
+                    // Legend
+                    PathEditorLegend(totalFiles: scanResult.files.count)
 
-                    if segmentedPaths.isEmpty {
+                    if groupedCategories.isEmpty {
                         Text(String(localized: "filesafe.cardconfig.no_preview"))
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
+                    } else {
+                        ForEach(groupedCategories) { group in
+                            PathEditorCategoryRow(
+                                category: group.category,
+                                dotColor: categoryDotColor(group.category),
+                                fileCount: categoryFileCount(group.category),
+                                fileSize: categoryFileSize(group.category),
+                                paths: group.paths,
+                                projectPath: projectPath,
+                                onSegmentChange: handleSegmentChange,
+                                onSegmentInsert: handleSegmentInsert,
+                                onSegmentDelete: handleSegmentDelete,
+                                onSegmentReorder: handleSegmentReorder
+                            )
+                        }
                     }
+
+                    // Token dock
+                    PathEditorTokenDock()
                 }
                 .padding(.top, 4)
             },
@@ -3306,272 +3074,220 @@ struct FileSafePathPreview: View {
     }
 }
 
-// MARK: - Structure Preview
+// MARK: - Path Editor Legend
 
-struct FileSafeStructurePreviewView: View {
-    let tree: FileSafeTargetFolder
+private struct PathEditorLegend: View {
     let totalFiles: Int
-    let totalSize: Int64
-    let duplicateCount: Int
-    let duplicateSize: Int64
-    var duplicateFileIds: Set<UUID> = []
-    @Binding var skipDuplicates: Bool
-    let onStartCopy: () -> Void
-    let onBack: () -> Void
-
-    private var filesToCopy: Int {
-        skipDuplicates ? totalFiles - duplicateCount : totalFiles
-    }
-
-    private var sizeToCopy: Int64 {
-        skipDuplicates ? totalSize - duplicateSize : totalSize
-    }
-
-    /// Bevat de tree ergens een folder met `isAffected == false`?
-    private func hasNonAffectedFolders(_ folder: FileSafeTargetFolder) -> Bool {
-        if !folder.isAffected { return true }
-        for child in folder.children {
-            if hasNonAffectedFolders(child) { return true }
-        }
-        return false
-    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            FileSafeNavBar(title: String(localized: "filesafe.preview.title"), onBack: onBack)
+        HStack(spacing: 14) {
+            legendItem(color: .pathExistBg, border: .pathExistBorder, dashed: false, label: String(localized: "filesafe.legend.exists"))
+            legendItem(color: .pathNewBg, border: .pathNewBorder, dashed: true, label: String(localized: "filesafe.legend.created"))
+            legendItem(color: .pathTokenBgFrom, border: .pathTokenBorder, dashed: false, label: "Token")
+            legendItem(color: Color(.controlBackgroundColor).opacity(0.5), border: .line, dashed: false, label: String(localized: "filesafe.legend.file"))
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    // Summary
-                    HStack {
-                        Text(String(localized: "filesafe.preview.summary \(totalFiles)"))
-                            .font(.system(size: 12))
-                        Spacer()
-                        Text(ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.bottom, 8)
+            Spacer()
 
-                    // Duplicate info blok
-                    if duplicateCount > 0 {
-                        VStack(spacing: 8) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.triangle.2.circlepath")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(.blue)
+            Text("Live preview · \(totalFiles) \(String(localized: "filesafe.legend.files_label"))")
+                .font(.system(size: 11))
+                .foregroundColor(Color(.secondaryLabelColor))
+        }
+        .padding(.horizontal, 2)
+    }
 
-                                Text(String(localized: "filesafe.preview.duplicates \(duplicateCount)"))
-                                    .font(.system(size: 12))
-
-                                Spacer()
-
-                                Text(ByteCountFormatter.string(fromByteCount: duplicateSize, countStyle: .file))
-                                    .font(.system(size: 11))
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Toggle(isOn: $skipDuplicates) {
-                                Text(String(localized: "filesafe.preview.skip_duplicates"))
-                                    .font(.system(size: 12))
-                            }
-                            .toggleStyle(.switch)
-                            .controlSize(.small)
-
-                            if skipDuplicates {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "doc.on.doc")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
-                                    Text(String(localized: "filesafe.preview.files_to_copy \(filesToCopy)"))
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(.secondary)
-                                    Spacer()
-                                    Text(ByteCountFormatter.string(fromByteCount: sizeToCopy, countStyle: .file))
-                                        .font(.system(size: 11, weight: .medium))
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                        .padding(10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.blue.opacity(0.08))
-                        )
-                        .padding(.bottom, 8)
-                    }
-
-                    // Legend — alleen als er non-affected bestaande mappen zijn
-                    if hasNonAffectedFolders(tree) {
-                        HStack(spacing: 10) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "folder.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.accentColor)
-                                Text(String(localized: "filesafe.preview.legend.affected"))
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.secondary)
-                            }
-                            HStack(spacing: 4) {
-                                Image(systemName: "folder.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.secondary.opacity(0.5))
-                                Text(String(localized: "filesafe.preview.legend.existing"))
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                        }
-                        .padding(.bottom, 6)
-                    }
-
-                    // Folder structure tree (start bij project root)
-                    FolderTreeRow(folder: tree, depth: 0, duplicateFileIds: duplicateFileIds)
-                }
-                .padding(12)
-            }
-
-            // Start copy
-            Button(action: onStartCopy) {
-                HStack {
-                    Image(systemName: "doc.on.doc.fill")
-                    if duplicateCount > 0 && skipDuplicates {
-                        Text(String(localized: "filesafe.preview.files_to_copy \(filesToCopy)"))
-                    } else {
-                        Text(String(localized: "filesafe.preview.start_copy"))
-                    }
-                }
-                .font(.system(size: 13, weight: .medium))
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .padding(12)
-            .disabled(filesToCopy == 0)
+    private func legendItem(color: Color, border: Color, dashed: Bool, label: String) -> some View {
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(color)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(border, style: StrokeStyle(lineWidth: 1, dash: dashed ? [3, 2] : []))
+                )
+                .frame(width: 12, height: 12)
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(Color(.secondaryLabelColor))
         }
     }
 }
 
-struct FolderTreeRow: View {
-    let folder: FileSafeTargetFolder
-    let depth: Int
-    var duplicateFileIds: Set<UUID> = []
-    @State private var isExpanded = true
+// MARK: - Path Editor Category Row
 
-    private var hasContent: Bool {
-        !folder.children.isEmpty || !folder.files.isEmpty
-    }
+private struct PathEditorCategoryRow: View {
+    let category: FileSafeFileCategory
+    let dotColor: Color
+    let fileCount: Int
+    let fileSize: String
+    let paths: [(index: Int, segments: [PathSegment], isFolder: Bool, fileCount: Int)]
+    let projectPath: String?
+    let onSegmentChange: (PathSegment, String) -> Void
+    let onSegmentInsert: (Int, Int, String) -> Void
+    let onSegmentDelete: (PathSegment) -> Void
+    let onSegmentReorder: (String, PathSegment) -> Void
+
+    @State private var isRowHovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 4) {
-                // Indentation
-                if depth > 0 {
-                    ForEach(0..<depth, id: \.self) { _ in
-                        Rectangle()
-                            .fill(Color.secondary.opacity(0.15))
-                            .frame(width: 1)
-                            .padding(.horizontal, 6)
-                    }
+        VStack(spacing: 0) {
+            // Header
+            HStack(spacing: 10) {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(dotColor)
+                        .frame(width: 9, height: 9)
+                    Text(category.displayName)
+                        .font(.system(size: 12.5, weight: .semibold))
                 }
 
-                // Expand/collapse
-                if hasContent {
-                    Button(action: { withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() } }) {
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary)
-                            .frame(width: 12)
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    Spacer()
-                        .frame(width: 12)
+                HStack(spacing: 4) {
+                    Text("\(fileCount)")
+                        .font(.brandMono(size: 11, weight: .medium))
+                        .foregroundColor(.ink2)
+                    Text(String(localized: "filesafe.legend.files_label"))
+                        .font(.system(size: 11.5))
+                        .foregroundColor(Color(.secondaryLabelColor))
+                    Text("·")
+                        .foregroundColor(Color(.secondaryLabelColor))
+                    Text(fileSize)
+                        .font(.brandMono(size: 11, weight: .medium))
+                        .foregroundColor(.ink2)
                 }
-
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 11))
-                    .foregroundColor(folder.isAffected ? .accentColor : .secondary.opacity(0.5))
-
-                Text(folder.displayName)
-                    .font(.system(size: 12, weight: folder.isAffected ? .medium : .regular))
-                    .foregroundColor(folder.isAffected ? .primary : .secondary.opacity(0.7))
 
                 Spacer()
 
-                if folder.totalFileCount > 0 {
-                    Text("\(folder.totalFileCount)")
-                        .font(.system(size: 10, weight: .medium))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.15))
-                        .clipShape(Capsule())
-                        .foregroundColor(.secondary)
-                }
-            }
-            .frame(height: 22)
-            .opacity(folder.isAffected ? 1.0 : 0.65)
-
-            if isExpanded {
-                // Subfolder children
-                ForEach(folder.children) { child in
-                    FolderTreeRow(folder: child, depth: depth + 1, duplicateFileIds: duplicateFileIds)
-                }
-
-                // Bestanden in deze map (max 5)
-                if !folder.files.isEmpty {
-                    let displayFiles = Array(folder.files.prefix(5))
-                    ForEach(displayFiles) { file in
-                        let isDuplicate = duplicateFileIds.contains(file.id)
-                        HStack(spacing: 4) {
-                            if depth + 1 > 0 {
-                                ForEach(0..<(depth + 1), id: \.self) { _ in
-                                    Rectangle()
-                                        .fill(Color.secondary.opacity(0.15))
-                                        .frame(width: 1)
-                                        .padding(.horizontal, 6)
-                                }
-                            }
-                            Spacer().frame(width: 12)
-                            Image(systemName: "doc.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(isDuplicate ? .orange : .secondary)
-                            Text(file.fileName)
-                                .font(.system(size: 11))
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .strikethrough(isDuplicate)
-                                .foregroundColor(isDuplicate ? .orange : .primary)
-                            Spacer()
-                            Text(ByteCountFormatter.string(fromByteCount: file.fileSize, countStyle: .file))
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(height: 20)
-                    }
-
-                    if folder.files.count > 5 {
-                        HStack(spacing: 4) {
-                            if depth + 1 > 0 {
-                                ForEach(0..<(depth + 1), id: \.self) { _ in
-                                    Rectangle()
-                                        .fill(Color.secondary.opacity(0.15))
-                                        .frame(width: 1)
-                                        .padding(.horizontal, 6)
-                                }
-                            }
-                            Spacer().frame(width: 12)
-                            Text("...and \(folder.files.count - 5) more")
-                                .font(.system(size: 10))
-                                .foregroundColor(.secondary)
-                                .italic()
-                            Spacer()
-                        }
-                        .frame(height: 18)
+                if fileCount > 0 {
+                    HStack(spacing: 4) {
+                        Text("+ \(fileCount)")
+                            .font(.brandMono(size: 10.5, weight: .semibold))
+                            .foregroundColor(.pathProjectFg)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.pathProjectBg))
+                        Text(String(localized: "filesafe.patheditor.go_here"))
+                            .font(.system(size: 11))
+                            .foregroundColor(Color(.secondaryLabelColor))
                     }
                 }
             }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .background(Color.pathRowHeaderBg)
+
+            Divider().opacity(0.5)
+
+            // Path chips
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(paths.enumerated()), id: \.offset) { _, entry in
+                    HStack(spacing: 4) {
+                        Text("⌂")
+                            .font(.system(size: 13))
+                            .foregroundColor(Color(.secondaryLabelColor))
+                            .frame(width: 22, height: 22)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(Color(.controlBackgroundColor).opacity(0.5)))
+
+                        FileSafeInteractivePath(
+                            segments: entry.segments,
+                            projectPath: projectPath,
+                            onSegmentChange: onSegmentChange,
+                            onInsertSegment: { segIndex, folderName in
+                                onSegmentInsert(entry.index, segIndex, folderName)
+                            },
+                            onSegmentDelete: onSegmentDelete,
+                            onSegmentReorder: onSegmentReorder,
+                            trailingBadge: entry.fileCount > 1
+                                ? String(format: String(localized: "filesafe.pathviewer.files_count_suffix"), entry.fileCount - 1)
+                                : nil,
+                            isRowHovered: isRowHovered
+                        )
+                    }
+                }
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+
+            Divider().opacity(0.5)
+
+            // Footer hints
+            HStack(spacing: 14) {
+                hintItem(kbd: "Enter", label: String(localized: "filesafe.patheditor.hint_confirm"))
+                hintItem(kbd: "⌫", label: String(localized: "filesafe.patheditor.hint_delete"))
+                hintItem(kbd: "drag", label: String(localized: "filesafe.patheditor.hint_reorder"))
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 14)
+            .background(Color.pathRowHeaderBg)
         }
+        .background(Color.pathRowBg)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.line, lineWidth: 1)
+        )
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) { isRowHovered = hovering }
+        }
+    }
+
+    private func hintItem(kbd: String, label: String) -> some View {
+        HStack(spacing: 5) {
+            Text(kbd)
+                .font(.brandMono(size: 10))
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(.controlBackgroundColor))
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.line2, lineWidth: 1))
+                )
+                .foregroundColor(.ink2)
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(Color(.secondaryLabelColor))
+        }
+    }
+}
+
+// MARK: - Path Editor Token Dock
+
+private struct PathEditorTokenDock: View {
+    private let tokens = ["date", "camera", "project", "day"]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(String(localized: "filesafe.patheditor.token_dock_label"))
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundColor(.ink2)
+
+            ForEach(tokens, id: \.self) { token in
+                Text("{\(token)}")
+                    .font(.brandMono(size: 11))
+                    .foregroundColor(.pathTokenFg)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.pathTokenBgFrom.opacity(0.4))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.pathTokenBorder, style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+                    )
+                    .draggable("TOKEN|\(token)")
+            }
+
+            Spacer()
+
+            Text(String(localized: "filesafe.patheditor.token_dock_hint"))
+                .font(.system(size: 10.5))
+                .foregroundColor(Color(.secondaryLabelColor))
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .background(Color.paper2)
+        .overlay(alignment: .top) {
+            Color.line.frame(height: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -4227,9 +3943,29 @@ struct FileSafeReportView: View {
         case .premiere: bundleId = "com.adobe.PremierePro"
         case .resolve: bundleId = "com.blackmagic-design.DaVinciResolve"
         }
-        if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+        let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
+
+        // Als de NLE niet geïnstalleerd én niet actief is: meld dit direct i.p.v. 10 min te wachten.
+        if appURL == nil && !NLEChecker.shared.isRunning(nle) {
+            importStatus = String(
+                format: String(localized: "filesafe.report.import.nle_unavailable"),
+                nle.displayName
+            )
+            return
+        }
+
+        if let appURL = appURL {
             let config = NSWorkspace.OpenConfiguration()
-            NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, _ in }
+            NSWorkspace.shared.openApplication(at: appURL, configuration: config) { _, error in
+                if error != nil {
+                    Task { @MainActor in
+                        importStatus = String(
+                            format: String(localized: "filesafe.report.import.nle_unavailable"),
+                            nle.displayName
+                        )
+                    }
+                }
+            }
         } else {
             NLEChecker.shared.bringToFront(nle)
         }
@@ -4350,7 +4086,12 @@ struct FileSafeDashboardView: View {
                         footagePath: transfer.footagePath,
                         isNewProject: transfer.isNewProject,
                         projectName: transfer.projectName,
-                        onEject: {},
+                        onEject: {
+                            // Was een lege closure: de knop deed niets terwijl de gebruiker
+                            // dacht dat de kaart veilig uitgeworpen was.
+                            guard let volumeURL = transfer.volumeURL else { return }
+                            VolumeDetector.shared.ejectVolume(at: volumeURL)
+                        },
                         onOpenFinder: {
                             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: transfer.projectPath)
                         },
@@ -4358,7 +4099,8 @@ struct FileSafeDashboardView: View {
                             let reportPath = FileSafeCopyEngine.txtReportPath(
                                 projectName: transfer.projectName,
                                 projectPath: transfer.projectPath,
-                                footagePath: transfer.footagePath
+                                footagePath: transfer.footagePath,
+                                report: report
                             )
                             NSWorkspace.shared.open(URL(fileURLWithPath: reportPath))
                         },
@@ -4753,5 +4495,874 @@ struct FileSafeSelectButton: View {
             )
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Wizard Component: Accordion
+
+struct FileSafeAccordion<Content: View>: View {
+    let title: String
+    let meta: String?
+    @Binding var isOpen: Bool
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: { withAnimation(.easeOut(duration: 0.18)) { isOpen.toggle() } }) {
+                HStack(spacing: 10) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(.ink3)
+                        .rotationEffect(.degrees(isOpen ? 90 : 0))
+                        .frame(width: 14)
+                    Text(title)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundColor(.ink)
+                    if let meta = meta {
+                        Text(meta)
+                            .font(.system(size: 11.5))
+                            .foregroundColor(.ink3)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color.fsSurface2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isOpen {
+                Divider()
+                content()
+                    .padding(16)
+            }
+        }
+        .background(Color.fsCardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.line, lineWidth: 1))
+    }
+}
+
+// MARK: - Wizard Component: AutoDetect Banner
+
+struct FileSafeAutoDetectBanner: View {
+    let scanResult: FileSafeScanResult
+    let isMultiDay: Bool
+    var onUndoMultiDay: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("✦")
+                .font(.system(size: 16))
+                .foregroundColor(.fsBannerInfoInk)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 4) {
+                if isMultiDay && scanResult.uniqueCalendarDays.count > 1 {
+                    let formatter = DateFormatter()
+                    let _ = formatter.setLocalizedDateFormatFromTemplate("dMMM")
+                    let datesStr = scanResult.uniqueCalendarDays.prefix(5).map { formatter.string(from: $0) }.joined(separator: ", ")
+                    HStack(spacing: 4) {
+                        Text(String(format: String(localized: "filesafe.layout.autodetect.multiday"), scanResult.uniqueCalendarDays.count, datesStr))
+                            .font(.system(size: 12.5))
+                            .foregroundColor(.fsBannerInfoInk)
+                        Button(action: onUndoMultiDay) {
+                            Text(String(localized: "filesafe.layout.autodetect.undo_singleday"))
+                                .font(.system(size: 12, weight: .medium))
+                                .underline()
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.peach3)
+                    }
+                }
+                if scanResult.detectedBrand != .unknown {
+                    Text(String(format: String(localized: "filesafe.layout.autodetect.brand"), scanResult.detectedBrand.rawValue))
+                        .font(.system(size: 12.5))
+                        .foregroundColor(.fsBannerInfoInk)
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color.fsBannerInfo)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.fsBannerInfoBorder, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+// MARK: - Wizard Step 3: Layout (combines projectConfig + cardConfig)
+
+struct FileSafeLayoutView: View {
+    @Binding var projectConfig: FileSafeProjectConfig
+    @Binding var cardConfig: FileSafeCardConfig
+    let scanResult: FileSafeScanResult
+    let folderPreset: FolderStructurePreset
+    let customTemplate: CustomFolderTemplate?
+    var projectPath: String? = nil
+    let onContinue: () -> Void
+    let onBack: () -> Void
+
+    @State private var isAOpen = true
+    @State private var isBOpen = true
+    @State private var isCOpen = false
+    @State private var bannerDismissed = false
+
+    private var showBanner: Bool {
+        !bannerDismissed && (scanResult.uniqueCalendarDays.count > 1 || scanResult.detectedBrand != .unknown)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            FileSafeNavBar(title: String(localized: "filesafe.layout.title"), onBack: onBack)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if showBanner {
+                        FileSafeAutoDetectBanner(
+                            scanResult: scanResult,
+                            isMultiDay: projectConfig.isMultiDayShoot,
+                            onUndoMultiDay: {
+                                projectConfig.isMultiDayShoot = false
+                                bannerDismissed = true
+                            }
+                        )
+                    }
+
+                    // Accordion A — Algemeen
+                    FileSafeAccordion(
+                        title: String(localized: "filesafe.layout.accordion.general"),
+                        meta: String(localized: "filesafe.layout.accordion.general.meta"),
+                        isOpen: $isAOpen
+                    ) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            if !scanResult.isSingleDay {
+                                toggleRow(
+                                    title: String(localized: "filesafe.layout.toggle.multiday.label"),
+                                    desc: String(localized: "filesafe.layout.toggle.multiday.desc"),
+                                    isOn: $projectConfig.isMultiDayShoot
+                                )
+                                Divider()
+                            }
+                            if scanResult.hasVideo {
+                                toggleRow(
+                                    title: String(localized: "filesafe.layout.toggle.multicam.label"),
+                                    desc: String(localized: "filesafe.layout.toggle.multicam.desc"),
+                                    isOn: $projectConfig.hasMultipleCameras
+                                )
+                            }
+                            if scanResult.hasAudio {
+                                Divider()
+                                toggleRow(
+                                    title: String(localized: "filesafe.layout.toggle.audio_per_day.label"),
+                                    desc: String(localized: "filesafe.layout.toggle.audio_per_day.desc"),
+                                    isOn: $projectConfig.linkAudioToDayStructure
+                                )
+                            }
+                        }
+                    }
+
+                    // Accordion B — Path editor
+                    FileSafeAccordion(
+                        title: String(localized: "filesafe.layout.accordion.where_files"),
+                        meta: String(localized: "filesafe.layout.accordion.where_files.meta"),
+                        isOpen: $isBOpen
+                    ) {
+                        FileSafePathPreview(
+                            projectConfig: projectConfig,
+                            cardConfig: $cardConfig,
+                            scanResult: scanResult,
+                            folderPreset: folderPreset,
+                            customTemplate: customTemplate,
+                            projectPath: projectPath
+                        )
+                    }
+
+                    // Accordion C — Bins / specifieke bestanden
+                    FileSafeAccordion(
+                        title: String(localized: "filesafe.layout.accordion.specific_files"),
+                        meta: String(localized: "filesafe.layout.accordion.specific_files.meta"),
+                        isOpen: $isCOpen
+                    ) {
+                        VStack(spacing: 12) {
+                            if scanResult.hasVideo {
+                                FileSafeCategoryBinEditor(
+                                    category: .video,
+                                    files: scanResult.videoFiles,
+                                    shootDays: cardConfig.shootDays,
+                                    isMultiDay: projectConfig.isMultiDayShoot,
+                                    useTimestamp: projectConfig.useTimestampAssignment,
+                                    bins: $cardConfig.videoBins,
+                                    fileSubfolderMap: $cardConfig.fileSubfolderMap
+                                )
+                            }
+                            if scanResult.hasAudio {
+                                FileSafeCategoryBinEditor(
+                                    category: .audio,
+                                    files: scanResult.audioFiles,
+                                    shootDays: cardConfig.shootDays,
+                                    isMultiDay: projectConfig.isMultiDayShoot,
+                                    useTimestamp: projectConfig.useTimestampAssignment,
+                                    bins: $cardConfig.audioBins,
+                                    fileSubfolderMap: $cardConfig.fileSubfolderMap
+                                )
+                            }
+                            if scanResult.hasPhoto {
+                                FileSafeCategoryBinEditor(
+                                    category: .photo,
+                                    files: scanResult.photoFiles,
+                                    shootDays: cardConfig.shootDays,
+                                    isMultiDay: projectConfig.isMultiDayShoot,
+                                    useTimestamp: projectConfig.useTimestampAssignment,
+                                    bins: $cardConfig.photoBins,
+                                    fileSubfolderMap: $cardConfig.fileSubfolderMap
+                                )
+                            }
+                            if !scanResult.hasVideo && !scanResult.hasAudio && !scanResult.hasPhoto {
+                                Text(String(localized: "filesafe.layout.accordion.specific_files.placeholder"))
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                }
+                .padding(16)
+            }
+
+            // Action bar
+            HStack {
+                Button(action: onBack) {
+                    Text("‹ \(String(localized: "filesafe.action.back"))")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.ink2)
+
+                Spacer()
+
+                Button(action: onContinue) {
+                    Text("\(String(localized: "filesafe.destination.next"))")
+                        .font(.system(size: 13, weight: .medium))
+                        .padding(.horizontal, 16)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Color.fsSurface2)
+            .overlay(alignment: .top) { Color.line.frame(height: 1) }
+        }
+    }
+
+    @ViewBuilder
+    private func toggleRow(title: String, desc: String, isOn: Binding<Bool>) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .medium)).foregroundColor(.ink)
+                Text(desc).font(.system(size: 11.5)).foregroundColor(.ink3)
+            }
+            Spacer()
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .tint(.brandBurntPeach)
+        }
+        .padding(.vertical, 10)
+    }
+}
+
+// MARK: - Wizard Step 4: Confirm (diff preview + summary + space check)
+
+struct FileSafeConfirmView: View {
+    let tree: FileSafeTargetFolder
+    let fileMappings: [FileSafeFileMapping]
+    @Binding var skipDuplicates: Bool
+    @Binding var verifyAfterCopy: Bool
+    var destinationPath: String?
+    let onStartCopy: () -> Void
+    let onBack: () -> Void
+
+    private var totalFiles: Int { fileMappings.count }
+    private var totalSize: Int64 { fileMappings.reduce(0) { $0 + $1.source.fileSize } }
+    private var duplicateCount: Int { fileMappings.filter { $0.isDuplicate }.count }
+    private var duplicateSize: Int64 { fileMappings.filter { $0.isDuplicate }.reduce(0) { $0 + $1.source.fileSize } }
+    private var duplicateFileIds: Set<UUID> { Set(fileMappings.filter { $0.isDuplicate }.map { $0.source.id }) }
+
+    private var newFolderCount: Int {
+        var count = 0
+        func walk(_ folder: FileSafeTargetFolder) {
+            let existsOnDisk = !folder.relativePath.isEmpty
+                && FileManager.default.fileExists(atPath: folder.relativePath)
+            if folder.isAffected && !existsOnDisk && !folder.isExisting {
+                count += 1
+            }
+            for child in folder.children { walk(child) }
+        }
+        walk(tree)
+        return count
+    }
+
+    private var filesToCopy: Int {
+        skipDuplicates ? totalFiles - duplicateCount : totalFiles
+    }
+    private var sizeToCopy: Int64 {
+        skipDuplicates ? totalSize - duplicateSize : totalSize
+    }
+
+    private var freeSpace: Int64 {
+        guard let path = destinationPath else { return 0 }
+        let url = URL(fileURLWithPath: path)
+        // Walk up to find existing parent (target folder may not yet exist)
+        var current = url
+        while !FileManager.default.fileExists(atPath: current.path) && current.path != "/" {
+            current = current.deletingLastPathComponent()
+        }
+        let values = try? current.resourceValues(forKeys: [.volumeAvailableCapacityKey])
+        return Int64(values?.volumeAvailableCapacity ?? 0)
+    }
+
+    private var marginBytes: Int64 { freeSpace - sizeToCopy }
+
+    private enum SpaceStatus { case ok, warn, bad }
+    private var spaceStatus: SpaceStatus {
+        let fiveGB: Int64 = 5 * 1024 * 1024 * 1024
+        if marginBytes <= 0 { return .bad }
+        if marginBytes < fiveGB { return .warn }
+        return .ok
+    }
+
+    private var etaSeconds: Int {
+        // Conservative ~100 MB/s estimate
+        let bytesPerSec: Int64 = 100 * 1024 * 1024
+        return Int(sizeToCopy / max(1, bytesPerSec))
+    }
+
+    private var etaFormatted: String {
+        let mins = etaSeconds / 60
+        let secs = etaSeconds % 60
+        if mins == 0 { return "\(secs)s" }
+        return "\(mins) min"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            FileSafeNavBar(title: String(localized: "filesafe.confirm.title"), onBack: onBack)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    // Hero subtitle
+                    Text(String(localized: "filesafe.confirm.subtitle"))
+                        .font(.system(size: 13))
+                        .foregroundColor(.ink2)
+                        .padding(.horizontal, 4)
+
+                    // Summary grid
+                    summaryGrid
+
+                    // Space check banner
+                    spaceCheckBanner
+
+                    // Diff title + legend
+                    HStack {
+                        Text(String(localized: "filesafe.confirm.diff.title"))
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.ink)
+                        Spacer()
+                        HStack(spacing: 12) {
+                            legendItem(glyph: "+", color: .fsDiffNew, label: String(localized: "filesafe.confirm.diff.legend.new"))
+                            legendItem(glyph: "~", color: .fsDiffDup, label: String(localized: "filesafe.confirm.diff.legend.dup"))
+                            legendItem(glyph: "·", color: .fsDiffSame, label: String(localized: "filesafe.confirm.diff.legend.same"))
+                        }
+                    }
+
+                    // Diff preview
+                    FileSafeDiffPreview(
+                        tree: tree,
+                        duplicateFileIds: duplicateFileIds
+                    )
+
+                    // Toggles
+                    VStack(spacing: 0) {
+                        confirmToggle(
+                            title: String(localized: "filesafe.confirm.toggle.skip_dup.label"),
+                            desc: duplicateCount > 0
+                                ? String(format: String(localized: "filesafe.confirm.toggle.skip_dup.desc"), duplicateCount, ByteCountFormatter.string(fromByteCount: duplicateSize, countStyle: .file))
+                                : String(localized: "filesafe.confirm.toggle.skip_dup.desc_none"),
+                            isOn: $skipDuplicates
+                        )
+                        Divider()
+                        confirmToggle(
+                            title: String(localized: "filesafe.confirm.toggle.verify.label"),
+                            desc: String(localized: "filesafe.confirm.toggle.verify.desc"),
+                            isOn: $verifyAfterCopy
+                        )
+                    }
+                    .background(Color.fsCardBg)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.line, lineWidth: 1))
+                }
+                .padding(16)
+            }
+
+            // Action bar
+            HStack {
+                Button(action: onBack) {
+                    Text("‹ \(String(localized: "filesafe.action.back"))")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(.ink2)
+
+                Spacer()
+
+                Button(action: onStartCopy) {
+                    Text(String(format: String(localized: "filesafe.confirm.start_copy"), ByteCountFormatter.string(fromByteCount: sizeToCopy, countStyle: .file)))
+                        .font(.system(size: 13, weight: .medium))
+                        .padding(.horizontal, 16)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .disabled(spaceStatus == .bad || filesToCopy == 0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Color.fsSurface2)
+            .overlay(alignment: .top) { Color.line.frame(height: 1) }
+        }
+    }
+
+    private var summaryGrid: some View {
+        HStack(spacing: 0) {
+            summaryCell(
+                label: String(localized: "filesafe.confirm.summary.to_copy"),
+                value: "\(filesToCopy)",
+                sub: String(format: String(localized: "filesafe.confirm.summary.files"), ByteCountFormatter.string(fromByteCount: sizeToCopy, countStyle: .file)),
+                color: .ink
+            )
+            Divider()
+            summaryCell(
+                label: String(localized: "filesafe.confirm.summary.new_folders"),
+                value: "\(newFolderCount)",
+                sub: "",
+                color: .fsBannerOkInk
+            )
+            Divider()
+            summaryCell(
+                label: String(localized: "filesafe.confirm.summary.duplicates"),
+                value: "\(duplicateCount)",
+                sub: duplicateCount > 0 ? String(localized: "filesafe.confirm.summary.skipped") : "",
+                color: duplicateCount > 0 ? .fsBannerWarnInk : .ink2
+            )
+            Divider()
+            summaryCell(
+                label: String(localized: "filesafe.confirm.summary.free_space"),
+                value: ByteCountFormatter.string(fromByteCount: max(0, freeSpace), countStyle: .file),
+                sub: marginBytes > 0
+                    ? String(format: String(localized: "filesafe.confirm.summary.margin"), ByteCountFormatter.string(fromByteCount: marginBytes, countStyle: .file))
+                    : String(localized: "filesafe.confirm.space_bad_short"),
+                color: marginColor()
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color.fsCardBg)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.line, lineWidth: 1))
+    }
+
+    private func marginColor() -> Color {
+        switch spaceStatus {
+        case .ok:   return .fsBannerOkInk
+        case .warn: return .fsBannerWarnInk
+        case .bad:  return .fsBannerBadInk
+        }
+    }
+
+    @ViewBuilder
+    private func summaryCell(label: String, value: String, sub: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 10.5, weight: .semibold))
+                .tracking(0.5)
+                .foregroundColor(.ink3)
+                .textCase(.uppercase)
+            Text(value)
+                .font(.brandSerifItalic(size: 22))
+                .foregroundColor(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+            if !sub.isEmpty {
+                Text(sub).font(.system(size: 11)).foregroundColor(.ink3)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var spaceCheckBanner: some View {
+        let (icon, ink, bg, border, text): (String, Color, Color, Color, String) = {
+            switch spaceStatus {
+            case .ok:
+                return ("checkmark.circle.fill", .fsBannerOkInk, .fsBannerOk, .fsBannerOkBorder,
+                        String(format: String(localized: "filesafe.confirm.space_ok"),
+                               ByteCountFormatter.string(fromByteCount: freeSpace, countStyle: .file),
+                               etaFormatted))
+            case .warn:
+                return ("exclamationmark.triangle.fill", .fsBannerWarnInk, .fsBannerWarn, .fsBannerWarnBorder,
+                        String(localized: "filesafe.confirm.space_warn"))
+            case .bad:
+                return ("xmark.octagon.fill", .fsBannerBadInk, .fsBannerBad, .fsBannerBadBorder,
+                        String(format: String(localized: "filesafe.confirm.space_bad"),
+                               ByteCountFormatter.string(fromByteCount: sizeToCopy, countStyle: .file),
+                               ByteCountFormatter.string(fromByteCount: max(0, freeSpace), countStyle: .file)))
+            }
+        }()
+
+        return HStack(spacing: 10) {
+            Image(systemName: icon).font(.system(size: 16)).foregroundColor(ink)
+            Text(text).font(.system(size: 12.5)).foregroundColor(ink)
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(bg)
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    @ViewBuilder
+    private func legendItem(glyph: String, color: Color, label: String) -> some View {
+        HStack(spacing: 4) {
+            Text(glyph).font(.brandMono(size: 12, weight: .semibold)).foregroundColor(color)
+            Text(label).font(.system(size: 11)).foregroundColor(.ink3)
+        }
+    }
+
+    @ViewBuilder
+    private func confirmToggle(title: String, desc: String, isOn: Binding<Bool>) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .medium)).foregroundColor(.ink)
+                Text(desc).font(.system(size: 11.5)).foregroundColor(.ink3)
+            }
+            Spacer()
+            Toggle("", isOn: isOn).labelsHidden().toggleStyle(.switch).tint(.brandBurntPeach)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+}
+
+// MARK: - Diff Preview Component
+
+struct FileSafeDiffPreview: View {
+    let tree: FileSafeTargetFolder
+    let duplicateFileIds: Set<UUID>
+
+    private struct DiffEntry: Identifiable {
+        let id = UUID()
+        let path: String
+        let type: DiffType
+        let size: Int64?
+        let depth: Int
+    }
+
+    private enum DiffType { case new, duplicate, same }
+
+    private var entries: [DiffEntry] {
+        var result: [DiffEntry] = []
+        flatten(tree, parentPath: "", depth: 0, into: &result)
+        return result
+    }
+
+    private func flatten(_ folder: FileSafeTargetFolder, parentPath: String, depth: Int, into result: inout [DiffEntry]) {
+        let displayPath = parentPath.isEmpty
+            ? folder.displayName + "/"
+            : "\(parentPath)\(folder.displayName)/"
+
+        // Live disk-check: vertrouw niet alleen op isExisting flag uit de builder.
+        // relativePath in FileSafeTargetFolder is feitelijk een absoluut pad.
+        let existsOnDisk = !folder.relativePath.isEmpty
+            && FileManager.default.fileExists(atPath: folder.relativePath)
+        let folderType: DiffType
+        if existsOnDisk || folder.isExisting {
+            folderType = .same
+        } else if folder.isAffected {
+            folderType = .new
+        } else {
+            folderType = .same
+        }
+        result.append(DiffEntry(path: displayPath, type: folderType, size: nil, depth: depth))
+
+        for child in folder.children.sorted(by: { $0.displayName < $1.displayName }) {
+            flatten(child, parentPath: displayPath, depth: depth + 1, into: &result)
+        }
+        for file in folder.files.sorted(by: { $0.fileName < $1.fileName }) {
+            let isDup = duplicateFileIds.contains(file.id)
+            let type: DiffType = isDup ? .duplicate : .new
+            result.append(DiffEntry(path: "\(displayPath)\(file.fileName)", type: type, size: file.fileSize, depth: depth + 1))
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(entries) { entry in
+                    diffRow(entry)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+        }
+        .frame(maxHeight: 280)
+        .background(Color.fsSurface2)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.line, lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private func diffRow(_ entry: DiffEntry) -> some View {
+        let glyph: String = {
+            switch entry.type {
+            case .new: return "+"
+            case .duplicate: return "~"
+            case .same: return "·"
+            }
+        }()
+        let color: Color = {
+            switch entry.type {
+            case .new: return .fsDiffNew
+            case .duplicate: return .fsDiffDup
+            case .same: return .fsDiffSame
+            }
+        }()
+        let textColor: Color = entry.type == .same ? .fsDiffSame : .ink
+
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(glyph)
+                .font(.brandMono(size: 12, weight: .semibold))
+                .foregroundColor(color)
+                .frame(width: 14, alignment: .leading)
+
+            Text(String(repeating: "  ", count: entry.depth) + entry.path)
+                .font(.brandMono(size: 12))
+                .foregroundColor(textColor)
+                .strikethrough(entry.type == .duplicate, color: .fsDiffDup.opacity(0.5))
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            if let size = entry.size {
+                Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                    .font(.brandMono(size: 10.5))
+                    .foregroundColor(.ink3)
+            }
+            if entry.type == .duplicate {
+                Text(String(localized: "filesafe.confirm.duplicate_marker"))
+                    .font(.system(size: 10.5))
+                    .italic()
+                    .foregroundColor(.fsBannerWarnInk)
+            }
+        }
+    }
+}
+
+// MARK: - Wizard Step 5: Done (verify + eject + next)
+
+struct FileSafeDoneView: View {
+    let completedTransferId: UUID?
+    @ObservedObject var transferManager: FileSafeTransferManager
+    let verifyEnabled: Bool
+    let onShowFinder: () -> Void
+    let onCopyLog: () -> Void
+    let onEject: () -> Void
+    let onNextImport: () -> Void
+    let onClose: () -> Void
+
+    private var transfer: FileSafeTransfer? {
+        guard let id = completedTransferId else { return nil }
+        return transferManager.transfers.first(where: { $0.id == id })
+    }
+
+    private var hasFailures: Bool {
+        transfer?.isFailed ?? false
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 22) {
+                    // Hero
+                    VStack(spacing: 10) {
+                        ZStack {
+                            Circle()
+                                .fill(hasFailures ? Color.fsBannerBad : Color.fsStepDoneBg)
+                                .frame(width: 72, height: 72)
+                            Image(systemName: hasFailures ? "exclamationmark.triangle.fill" : "checkmark")
+                                .font(.system(size: 32, weight: .semibold))
+                                .foregroundColor(hasFailures ? .fsBannerBadInk : .fsStepDoneInk)
+                        }
+
+                        Text(hasFailures
+                             ? String(localized: "filesafe.done.title_failed")
+                             : String(localized: "filesafe.done.title"))
+                            .font(.brandSerifItalic(size: 26))
+                            .foregroundColor(.ink)
+
+                        if let report = transfer?.report {
+                            Text(String(format: String(localized: "filesafe.done.subtitle"),
+                                        report.totalFiles,
+                                        ByteCountFormatter.string(fromByteCount: report.totalSize, countStyle: .file),
+                                        report.formattedDuration))
+                                .font(.brandMono(size: 12))
+                                .foregroundColor(.ink3)
+                        }
+                    }
+                    .padding(.top, 30)
+
+                    // Verify + Eject cards
+                    HStack(spacing: 14) {
+                        FileSafeActionCard(
+                            icon: "checkmark.shield.fill",
+                            tint: .brandSkyBlue,
+                            background: .fsBannerInfo,
+                            border: .fsBannerInfoBorder,
+                            title: String(localized: "filesafe.done.verify_card.title"),
+                            description: String(localized: "filesafe.done.verify_card.desc"),
+                            ctaTitle: verifyEnabled
+                                ? String(localized: "filesafe.done.verify_card.done")
+                                : String(localized: "filesafe.done.verify_card.cta"),
+                            ctaDisabled: verifyEnabled,
+                            ctaCheckmark: verifyEnabled,
+                            action: { /* engine already verified during copy */ }
+                        )
+                        FileSafeActionCard(
+                            icon: "eject.fill",
+                            tint: .brandTeaGreen,
+                            background: .fsBannerOk,
+                            border: .fsBannerOkBorder,
+                            title: String(localized: "filesafe.done.eject_card.title"),
+                            description: String(localized: "filesafe.done.eject_card.desc"),
+                            ctaTitle: String(localized: "filesafe.done.eject_card.cta"),
+                            ctaDisabled: false,
+                            ctaCheckmark: false,
+                            action: onEject
+                        )
+                    }
+                    .padding(.horizontal, 20)
+
+                    // Sub-actions
+                    HStack(spacing: 18) {
+                        subActionLink(icon: "folder", label: String(localized: "filesafe.done.show_finder"), action: onShowFinder)
+                        subActionLink(icon: "doc.on.clipboard", label: String(localized: "filesafe.done.copy_log"), action: onCopyLog)
+                        subActionLink(icon: "arrow.clockwise", label: String(localized: "filesafe.done.next_card"), action: onNextImport)
+                    }
+                    .padding(.top, 4)
+
+                    Spacer()
+                }
+                .padding(.bottom, 30)
+                .frame(maxWidth: .infinity)
+            }
+
+            HStack {
+                Spacer()
+                Button(action: onClose) {
+                    Text(String(localized: "filesafe.done.close"))
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Color.fsSurface2)
+            .overlay(alignment: .top) { Color.line.frame(height: 1) }
+        }
+    }
+
+    @ViewBuilder
+    private func subActionLink(icon: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 11))
+                Text(label).font(.system(size: 11.5))
+            }
+            .foregroundColor(.peach3)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Action Card Component (Verify/Eject)
+
+struct FileSafeActionCard: View {
+    let icon: String
+    let tint: Color
+    let background: Color
+    let border: Color
+    let title: String
+    let description: String
+    let ctaTitle: String
+    let ctaDisabled: Bool
+    let ctaCheckmark: Bool
+    let action: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 22))
+                    .foregroundColor(tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.ink)
+                    Text(description)
+                        .font(.system(size: 11.5))
+                        .foregroundColor(.ink2)
+                        .lineLimit(2)
+                }
+            }
+            HStack {
+                Spacer()
+                if ctaDisabled {
+                    Button(action: action) {
+                        HStack(spacing: 4) {
+                            if ctaCheckmark {
+                                Image(systemName: "checkmark").font(.system(size: 10, weight: .semibold))
+                            }
+                            Text(ctaTitle).font(.system(size: 12, weight: .medium))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(true)
+                } else {
+                    Button(action: action) {
+                        HStack(spacing: 4) {
+                            if ctaCheckmark {
+                                Image(systemName: "checkmark").font(.system(size: 10, weight: .semibold))
+                            }
+                            Text(ctaTitle).font(.system(size: 12, weight: .medium))
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 130, alignment: .topLeading)
+        .background(background)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(border, lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }

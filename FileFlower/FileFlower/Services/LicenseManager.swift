@@ -57,9 +57,25 @@ class LicenseManager: ObservableObject {
     
     private init() {
         migrateTrialDateToKeychain()
+        // Klok-terugzet EERST detecteren en vastleggen, daarna pas lastSeen bijwerken —
+        // anders overschrijft init het bewijs voordat isInTrial het kan lezen.
+        if let lastSeen = loadLastSeenDate(), Date() < lastSeen {
+            clockRollbackDetected = true
+        }
         updateLastSeenDate()
         loadStoredLicense()
+
+        // Menubar-apps draaien weken zonder herstart: werk lastSeen periodiek bij
+        // zodat de klok-detectie ook binnen een lange sessie betekenis houdt.
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.updateLastSeenDate()
+            }
+        }
     }
+
+    /// Bij launch gedetecteerde klok-terugzet (lastSeen lag in de toekomst).
+    private var clockRollbackDetected = false
     
     // MARK: - Public Properties
     
@@ -91,7 +107,11 @@ class LicenseManager: ObservableObject {
             guard verifyTrialIntegrity(startDate) else {
                 return false
             }
-            // Klok-terugzet detectie
+            // Klok-terugzet detectie: bij launch vastgelegd (vóór de lastSeen-update)
+            // of alsnog binnen de sessie geconstateerd
+            if clockRollbackDetected {
+                return false
+            }
             if let lastSeen = loadLastSeenDate(), Date() < lastSeen {
                 return false
             }
@@ -274,14 +294,24 @@ class LicenseManager: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        let bodyString = "product_id=\(productId)&license_key=\(key)&increment_uses_count=\(incrementUses)"
+        // Trim (kopieer/plak voegt vaak spaties/newlines toe) en URL-encode de key
+        let cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        let encodedKey = cleanKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? cleanKey
+        let bodyString = "product_id=\(productId)&license_key=\(encodedKey)&increment_uses_count=\(incrementUses)"
         request.httpBody = bodyString.data(using: .utf8)
 
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
+
+            // Server-side fouten (5xx, HTML-foutpagina's, captive portals) zijn GEEN bewijs
+            // van een ongeldige licentie — behandel ze als tijdelijk netwerkprobleem.
+            if let http = response as? HTTPURLResponse, http.statusCode >= 500 {
+                return .failure(.networkError("Gumroad server error \(http.statusCode)"))
+            }
 
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return .failure(.parseError)
+                // Geen JSON = geen echt Gumroad-antwoord (proxy/portal/storing) → tijdelijk
+                return .failure(.networkError("Onleesbaar antwoord van licentieserver"))
             }
 
             let success = json["success"] as? Bool ?? false

@@ -49,6 +49,9 @@ class TemplateDeployer {
             throw DeployError.invalidTargetDirectory
         }
 
+        // Nooit een mapstructuur uitrollen ín een NLE-cache map
+        try PathSafetyPolicy.validateWriteTarget(targetDirectory, projectMainFolder: nil)
+
         // Nieuwe template-flow heeft voorrang als een activeTemplate is meegestuurd
         if let template = config.activeTemplate {
             return try deploy(to: targetDirectory,
@@ -63,8 +66,9 @@ class TemplateDeployer {
             if let template = config.customFolderTemplate {
                 return try deployCustomTemplate(to: targetDirectory, template: template)
             } else {
-                // Geen custom template opgeslagen, val terug op standaard
-                return try deployStandardTemplate(to: targetDirectory)
+                // NIET stil terugvallen op de standaard-structuur: de gebruiker koos
+                // expliciet "custom" en kreeg dan ongevraagd zeven andere mappen.
+                throw DeployError.noConfigAvailable
             }
         case .flat:
             // Flat preset: geen mappen nodig
@@ -85,6 +89,9 @@ class TemplateDeployer {
             throw DeployError.invalidTargetDirectory
         }
 
+        // Nooit een mapstructuur uitrollen ín een NLE-cache map
+        try PathSafetyPolicy.validateWriteTarget(targetDirectory, projectMainFolder: nil)
+
         // Valideer required parameters
         for param in template.parameters where param.cannotBeEmpty {
             let value = values[param.title] ?? ""
@@ -101,18 +108,35 @@ class TemplateDeployer {
         )
 
         var count = 0
-        try createTree(resolvedTree, in: targetDirectory, count: &count)
+        try createTree(resolvedTree, in: targetDirectory, root: targetDirectory, count: &count)
         return count
     }
 
-    private static func createTree(_ node: FolderNode, in parent: URL, count: inout Int) throws {
+    private static func createTree(_ node: FolderNode, in parent: URL, root: URL, count: inout Int) throws {
         for child in node.children {
-            let childURL = parent.appendingPathComponent(child.name, isDirectory: true)
+            // Mapnamen komen (deels) uit parameterwaarden die de gebruiker invult.
+            // Een waarde als "../Elsewhere" zou anders buiten de gekozen doelmap schrijven.
+            let name = child.name
+            guard !name.isEmpty,
+                  name != ".", name != "..",
+                  !name.contains("/"), !name.contains("\\") else {
+                throw DeployError.invalidTargetDirectory
+            }
+
+            let childURL = parent.appendingPathComponent(name, isDirectory: true)
+
+            // Extra grens-check op het gestandaardiseerde pad
+            let rootPath = root.standardizedFileURL.path
+            let childPath = childURL.standardizedFileURL.path
+            guard childPath.hasPrefix(rootPath + "/") else {
+                throw DeployError.invalidTargetDirectory
+            }
+
             if !FileManager.default.fileExists(atPath: childURL.path) {
                 try FileManager.default.createDirectory(at: childURL, withIntermediateDirectories: true)
                 count += 1
             }
-            try createTree(child, in: childURL, count: &count)
+            try createTree(child, in: childURL, root: root, count: &count)
         }
     }
 

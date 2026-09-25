@@ -39,6 +39,11 @@ class FolderTemplateService {
                   isDir.boolValue else { continue }
 
             let name = item.lastPathComponent
+
+            // Cache/systeem-mappen horen niet in de AI-input: de AI kan ze anders
+            // als assetmap voorstellen (bv. "Adobe Premiere Pro Audio Previews")
+            if PathSafetyPolicy.isBlockedFolderName(name) { continue }
+
             let relativePath = item.path
                 .replacingOccurrences(of: root.path + "/", with: "")
 

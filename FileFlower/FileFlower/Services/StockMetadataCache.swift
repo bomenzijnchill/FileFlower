@@ -170,18 +170,10 @@ actor StockMetadataCache {
             return meta
         }
         
-        // Geen match, maar check recente metadata (binnen 60 seconden)
-        let recentCutoff = Date().addingTimeInterval(-60)
-        for entry in recentMetadata.reversed() {
-            if entry.receivedAt > recentCutoff {
-                // Check of provider matcht met detected source
-                #if DEBUG
-                print("StockMetadataCache: Gebruiken van recente metadata (binnen 60s)")
-                #endif
-                return entry.metadata
-            }
-        }
-        
+        // BEWUST GEEN blinde "recente metadata"-fallback meer: die koppelde browse-metadata
+        // van een willekeurig bekeken trackpagina aan ELK bestand dat binnen 60s binnenkwam
+        // (ook stockvideo's, foto's of eigen bestanden) — met high-confidence misclassificatie
+        // als gevolg. Alleen expliciete URL- of filename-matches zijn betrouwbaar genoeg.
         return nil
     }
     
@@ -233,15 +225,18 @@ actor StockMetadataCache {
             }
         }
         
-        // Check op title + artist combinatie
-        if let title = metadata.title?.lowercased() {
+        // Check op title + artist combinatie.
+        // Alleen bij een voldoende SPECIFIEKE titel: een korte titel als "Rain"
+        // matchte anders elk bestand met "rain" in de naam (bv. rainforest_drone.mp4).
+        if let title = metadata.title?.lowercased(), title.count >= 8 {
             // "Artist - Title" formaat
             if normalizedInput.contains(title) {
                 return true
             }
-            
+
             // Check ook omgekeerd
-            if title.contains(normalizedInput.replacingOccurrences(of: " - ", with: " ")) {
+            let inputWithoutDash = normalizedInput.replacingOccurrences(of: " - ", with: " ")
+            if inputWithoutDash.count >= 8 && title.contains(inputWithoutDash) {
                 return true
             }
         }

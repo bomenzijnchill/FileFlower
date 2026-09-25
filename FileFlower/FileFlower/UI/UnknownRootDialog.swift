@@ -66,9 +66,18 @@ struct UnknownRootDialog: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// De parent directory van de parent van het project bestand (grandparent van .prproj)
+    /// De voorgestelde project-root: de container boven de structurele projecthoofdmap
+    /// (via klim), NOOIT blind "twee niveaus omhoog" — dat vergiftigde eerder de config
+    /// bij geneste structuren zoals <project>/01_Projects/01_PremierePro/<video>/x.prproj.
     private var derivedRootPath: String {
-        let url = URL(fileURLWithPath: project.projectPath)
-        return url.deletingLastPathComponent().deletingLastPathComponent().path
+        if let mainFolder = ProjectRootResolver.shared.climbToStructuralProjectRoot(
+            fromProjectFile: project.projectPath
+        ) {
+            return mainFolder.deletingLastPathComponent().path
+        }
+        // Geen herkenbare structuur: fallback naar de directe parent-map van het project
+        // (conservatiever dan grandparent — voegt hooguit een te smalle root toe, nooit
+        // een map middenin een ander project).
+        return URL(fileURLWithPath: project.projectPath).deletingLastPathComponent().path
     }
 }

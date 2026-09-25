@@ -1,6 +1,7 @@
 import Foundation
 import CoreServices
 import AppKit
+import UserNotifications
 
 class DownloadsWatcher {
     static let shared = DownloadsWatcher()
@@ -884,7 +885,7 @@ class DownloadsWatcher {
         // Check if origin matches any stock website (standaard + custom)
         let allStockWebsites = config.stockWebsites
         for stockSite in allStockWebsites {
-            if origin.contains(stockSite.lowercased()) {
+            if Self.originHostMatches(origin, site: stockSite) {
                 #if DEBUG
                 print("DownloadsWatcher: Origin URL matches stock website: \(stockSite)")
                 #endif
@@ -904,6 +905,35 @@ class DownloadsWatcher {
         #endif
         return false
     }
+
+    /// Vergelijk een origin-URL met een site op HOST-niveau.
+    /// Substring-matching op de hele URL matchte ook op bv.
+    /// "https://blog.example.nl/review-artlist.io-vs-epidemic" of "?ref=drive.google.com".
+    static func originHostMatches(_ origin: String, site: String) -> Bool {
+        let needle = site.lowercased()
+            .replacingOccurrences(of: "https://", with: "")
+            .replacingOccurrences(of: "http://", with: "")
+            .replacingOccurrences(of: "www.", with: "")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !needle.isEmpty else { return false }
+
+        guard let host = URL(string: origin)?.host?.lowercased() else {
+            // Geen parsebare URL → val terug op strikte prefix-match
+            return origin.hasPrefix(needle)
+        }
+        let bareHost = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+
+        // Site kan een pad bevatten (bv. "adobe.com/stock"): dan ook het pad checken
+        if needle.contains("/") {
+            let parts = needle.split(separator: "/", maxSplits: 1).map(String.init)
+            let siteHost = parts[0]
+            let sitePath = parts.count > 1 ? parts[1] : ""
+            let hostOK = bareHost == siteHost || bareHost.hasSuffix("." + siteHost)
+            return hostOK && (URL(string: origin)?.path.lowercased().contains(sitePath) ?? false)
+        }
+
+        return bareHost == needle || bareHost.hasSuffix("." + needle)
+    }
     
     private func extractZipAndProcess(url: URL, originURL: String?) {
         #if DEBUG
@@ -917,7 +947,10 @@ class DownloadsWatcher {
         }
         
         // Get the folder name BEFORE extraction so we can mark it as known
-        let downloadsDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+        // Pak uit NAAST de ZIP zelf, niet hardcoded in ~/Downloads: met een custom
+        // downloads-map (bv. /Volumes/Werk/Incoming) belandde de inhoud anders ergens
+        // waar de gebruiker niet kijkt — of waar geen schrijfrechten zijn.
+        let downloadsDir = url.deletingLastPathComponent()
         let extractFolder = Unzipper.getExtractFolderName(for: url, in: downloadsDir)
         
         // Mark ZIP as extracting and pre-mark the folder as known BEFORE starting extraction
@@ -940,15 +973,17 @@ class DownloadsWatcher {
                 print("DownloadsWatcher: ZIP contains only music: \(isMusicZip)")
                 #endif
                 
-                // Extract to Downloads
-                let extractedFiles = try Unzipper.unzip(url, to: downloadsDir)
+                // Extract to Downloads. De werkelijke map kan afwijken van de voorspelde
+                // (uniek suffix bij naamconflict) — gebruik daarom de teruggegeven map.
+                let (actualFolder, extractedFiles) = try Unzipper.unzipReturningFolder(url, to: downloadsDir)
 
                 #if DEBUG
                 print("DownloadsWatcher: Extracted \(extractedFiles.count) files from ZIP")
                 #endif
-                
-                // Mark all extracted files as known immediately
+
+                // Mark de werkelijke map + alle extracted files als known
                 self.accessQueue.sync(flags: .barrier) {
+                    self.knownFiles.insert(actualFolder.path)
                     for extractedFile in extractedFiles {
                         self.processingFiles.remove(extractedFile.path)
                         self.knownFiles.insert(extractedFile.path)
@@ -968,13 +1003,13 @@ class DownloadsWatcher {
                 } else {
                     #if DEBUG
                     let typeLabel = isMusicZip ? "Music" : "Non-music"
-                    print("DownloadsWatcher: \(typeLabel) ZIP detected - treating folder as single item: \(extractFolder.lastPathComponent) (\(extractedFiles.count) files)")
+                    print("DownloadsWatcher: \(typeLabel) ZIP detected - treating folder as single item: \(actualFolder.lastPathComponent) (\(extractedFiles.count) files)")
                     #endif
 
                     // Process the folder as a single item (use same origin URL as ZIP)
                     DispatchQueue.main.async {
                         if let callback = self.onNewFile {
-                            callback(extractFolder, originURL)
+                            callback(actualFolder, originURL)
                         }
                     }
                 }
@@ -997,8 +1032,17 @@ class DownloadsWatcher {
                     // Also remove pre-marked folder
                     self.knownFiles.remove(extractFolder.path)
                 }
-                // If extraction fails, try to process the ZIP itself
-                self.processFile(url: url, originURL: originURL)
+                // Uitpakken mislukt (corrupt / wachtwoord / onvolledig): het .zip-bestand
+                // NIET als asset de pijplijn in sturen — dan zou FileFlower een onbruikbaar
+                // archief naar een projectmap verplaatsen en de echte oorzaak verbergen.
+                // Laat het bestand staan waar het is en meld het.
+                let content = UNMutableNotificationContent()
+                content.title = "ZIP kon niet worden uitgepakt"
+                content.body = "\(url.lastPathComponent) blijft in de downloads-map staan."
+                content.sound = .default
+                UNUserNotificationCenter.current().add(
+                    UNNotificationRequest(identifier: "zip-failed-\(url.lastPathComponent)", content: content, trigger: nil)
+                )
             }
         }
     }
@@ -1131,13 +1175,6 @@ class DownloadsWatcher {
             print("DownloadsWatcher: Callback completed for: \(url.lastPathComponent)")
             #endif
         }
-    }
-    
-    private func hasQuarantineAttribute(url: URL) -> Bool {
-        // Simplified quarantine check - just skip it for now to avoid blocking
-        // We'll process files even if they're quarantined, macOS will handle it
-        // This prevents the app from hanging on quarantine checks
-        return false
     }
     
     private func loadKnownFiles() {

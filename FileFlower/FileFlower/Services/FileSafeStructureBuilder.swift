@@ -3,9 +3,6 @@ import Foundation
 class FileSafeStructureBuilder {
     static let shared = FileSafeStructureBuilder()
 
-    /// Gecachte AI analyse resultaten per project pad
-    var aiAnalysisCache: [String: FolderStructureAnalyzer.AnalysisResult] = [:]
-
     // MARK: - Bouw structuur op basis van project + card config
 
     func buildStructure(
@@ -423,6 +420,36 @@ class FileSafeStructureBuilder {
         }
     }
 
+    /// Eén gedeelde ingang voor basispad-resolutie, gebruikt door zowel de live preview
+    /// als de daadwerkelijke plaatsing/rapportage. Voorheen resolvede de preview zonder
+    /// de actieve template → gebruiker zag een ander pad dan waar bestanden heen gingen.
+    func resolveBasePathsForDisplay(
+        config: Config,
+        projectName: String,
+        existingProjectPath: String?
+    ) -> BasePaths {
+        if let template = TemplateDeployFlow.activeTemplate(for: config) {
+            var values = TemplateDeployFlow.defaultValues(for: template)
+            let projectNameKey = template.parameters.first { param in
+                let lower = param.title.lowercased()
+                return lower == "project name" || lower == "projectname" || lower == "project"
+            }?.title
+            if let key = projectNameKey, !projectName.isEmpty {
+                values[key] = projectName
+            }
+            return resolveBasePaths(
+                template: template,
+                values: values,
+                existingProjectPath: existingProjectPath
+            )
+        }
+        return resolveBasePaths(
+            preset: config.folderStructurePreset,
+            customTemplate: config.customFolderTemplate,
+            existingProjectPath: existingProjectPath
+        )
+    }
+
     /// Zoek bestaande footage/audio/photo mappen in een project directory
     private func resolveFromExistingProject(at projectPath: String) -> BasePaths? {
         let projectURL = URL(fileURLWithPath: projectPath)
@@ -432,44 +459,45 @@ class FileSafeStructureBuilder {
             options: [.skipsHiddenFiles]
         ) else { return nil }
 
-        let folders = contents.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        // Cache/NLE-mappen kunnen nooit een assetmap zijn
+        let folders = contents
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .filter { !PathSafetyPolicy.isBlockedFolderName($0.lastPathComponent) }
 
         let footageKeywords = ["footage", "raw", "materiaal", "beeldmateriaal", "video"]
         let audioKeywords = ["audio", "sound", "geluid", "production_audio"]
         let photoKeywords = ["photo", "photos", "stills", "foto", "pictures", "images"]
+        // Mappen die duidelijk een ANDER doel hebben — nooit als bron-assetmap kiezen
+        let excludeKeywords = ["export", "exports", "render", "renders", "output", "deliver",
+                               "deliverables", "final", "proxy", "proxies", "backup", "archief", "archive"]
 
         func findFolder(matching keywords: [String]) -> String? {
+            // Eerst exacte (genormaliseerde) matches, dan pas token-matches.
+            // Bidirectionele substring ("video" ⊂ "04_Export_Video") koos voorheen
+            // de exports-map voor alle raw footage.
+            var tokenMatch: String?
             for folder in folders {
                 let name = folder.lastPathComponent
-                let normalized = name.lowercased()
-                    .replacingOccurrences(of: #"^\d+_"#, with: "", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespaces)
-                for keyword in keywords {
-                    if normalized == keyword || normalized.contains(keyword) || keyword.contains(normalized) {
-                        return name
-                    }
+                let normalized = PlacementEngine.normalize(name)
+
+                if PlacementEngine.matchesAny(name, keywords: excludeKeywords) { continue }
+
+                if keywords.contains(normalized) {
+                    return name
+                }
+                if tokenMatch == nil, PlacementEngine.matchesAny(name, keywords: keywords) {
+                    tokenMatch = name
                 }
             }
-            return nil
+            return tokenMatch
         }
 
         let footagePath = findFolder(matching: footageKeywords)
 
-        // Als keyword-scan niets vindt, probeer AI analyse (als gecachet)
-        if footagePath == nil {
-            if let aiResult = aiAnalysisCache[projectPath] {
-                let footage = aiResult.rawFootagePath ?? "Footage"
-                let audio = aiResult.audioPath ?? "Audio"
-                let photo = aiResult.photoPath
-
-                if let p = photo {
-                    return BasePaths(footagePath: footage, audioPath: audio, photoPath: p, photosInFootage: false)
-                } else {
-                    return BasePaths(footagePath: footage, audioPath: audio, photoPath: footage, photosInFootage: true)
-                }
-            }
-            return nil
-        }
+        // Vindt de trefwoord-scan geen footagemap, dan is er geen bestemming.
+        // Hier stond een AI-terugval via aiAnalysisCache; die cache werd alleen gevuld door
+        // een view die niet meer gerenderd wordt, dus deze tak was onbereikbaar.
+        guard footagePath != nil else { return nil }
 
         let footage = footagePath!
         let audioPath = findFolder(matching: audioKeywords) ?? "Audio"
@@ -904,7 +932,11 @@ class FileSafeStructureBuilder {
                     }
                 } else {
                     let filesPerPerson = distributeFilesOverLabels(files: dayFiles, labels: projectConfig.audioPersons)
-                    for person in projectConfig.audioPersons {
+                    // Ook de "Ongesorteerd"-bucket meenemen, anders zouden die bestanden
+                    // nooit een mapping krijgen en dus niet gekopieerd worden.
+                    let personLabels = projectConfig.audioPersons
+                        + (filesPerPerson[Self.unsortedFolderName] != nil ? [Self.unsortedFolderName] : [])
+                    for person in personLabels {
                         let personFiles = filesPerPerson[person] ?? []
                         let personPath = "\(dayPath)/\(person)"
                         let fullPath = "\(projectPath)/\(personPath)"
@@ -956,7 +988,10 @@ class FileSafeStructureBuilder {
                 }
             } else {
                 let filesPerPerson = distributeFilesOverLabels(files: files, labels: projectConfig.audioPersons)
-                for person in projectConfig.audioPersons {
+                // Ook de "Ongesorteerd"-bucket meenemen (zie distributeFilesOverLabels)
+                let personLabels = projectConfig.audioPersons
+                    + (filesPerPerson[Self.unsortedFolderName] != nil ? [Self.unsortedFolderName] : [])
+                for person in personLabels {
                     let personFiles = filesPerPerson[person] ?? []
                     let personPath = "\(basePlusPost)/\(person)"
                     let fullPath = "\(projectPath)/\(personPath)"
@@ -1369,6 +1404,11 @@ class FileSafeStructureBuilder {
     }
 
     /// Verdeel bestanden over labels (camera's, personen, categorieën).
+    ///
+    /// Bij meerdere labels zonder expliciete toewijzing wordt er BEWUST niet meer
+    /// geraden: bestanden op index verdelen zette de opnames van "Jan" en "Piet"
+    /// half-om-half in elkaars map. Alles gaat dan naar een gedeelde map en de
+    /// gebruiker sorteert zelf.
     private func distributeFilesOverLabels(
         files: [FileSafeSourceFile],
         labels: [String]
@@ -1379,16 +1419,19 @@ class FileSafeStructureBuilder {
             return [labels[0]: files]
         }
 
+        // Meerdere labels, geen toewijzing → niet gokken
         var result: [String: [FileSafeSourceFile]] = [:]
-        let filesPerLabel = max(1, files.count / labels.count)
-
-        for (index, file) in files.enumerated() {
-            let labelIndex = min(index / filesPerLabel, labels.count - 1)
-            result[labels[labelIndex], default: []].append(file)
+        for label in labels {
+            result[label] = []
         }
-
+        if !files.isEmpty {
+            result[Self.unsortedFolderName] = files
+        }
         return result
     }
+
+    /// Mapnaam voor bestanden die niet betrouwbaar aan een label/dag toegewezen konden worden.
+    static let unsortedFolderName = "Ongesorteerd"
 
     // MARK: - Duplicate Detection
 
