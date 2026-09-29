@@ -10,6 +10,7 @@ let activeProjectInterval = null;
 let isProcessing = false;
 let csInterface = null;
 let lastReportedProject = null;
+let evalScriptErrorLogged = false;
 
 function log(message) {
     // Log naar console voor debugging
@@ -479,37 +480,43 @@ function getActiveProjectPath() {
 
 async function reportActiveProject() {
     return new Promise((resolve) => {
+        // Bewust géén JSON in het ExtendScript: Premiere 26 levert geen
+        // JSON-object in zijn ExtendScript-omgeving, dus dit pad mag ook niet
+        // op de polyfill uit bridge.jsx leunen. Een plat pad volstaat.
         const script = `
             (function() {
                 try {
                     if (app.project && app.project.path) {
-                        return JSON.stringify({
-                            projectPath: app.project.path,
-                            projectName: app.project.name
-                        });
-                    } else if (app.project && app.project.file) {
-                        return JSON.stringify({
-                            projectPath: app.project.file.fsName,
-                            projectName: app.project.name
-                        });
-                    } else {
-                        return JSON.stringify({ projectPath: null });
+                        return String(app.project.path);
                     }
+                    if (app.project && app.project.file) {
+                        return String(app.project.file.fsName);
+                    }
+                    return "";
                 } catch (e) {
-                    return JSON.stringify({ projectPath: null, error: e.toString() });
+                    return "";
                 }
             })();
         `;
-        
+
         csInterface.evalScript(script, async (result) => {
             try {
-                if (!result || typeof result !== "string") {
+                if (typeof result !== "string") {
                     resolve(null);
                     return;
                 }
-                
-                const parsed = JSON.parse(result);
-                const currentProject = parsed.projectPath;
+
+                const trimmed = result.trim();
+                if (trimmed === "EvalScript error.") {
+                    if (!evalScriptErrorLogged) {
+                        log("Actief project opvragen faalt: EvalScript error.");
+                        evalScriptErrorLogged = true;
+                    }
+                    resolve(null);
+                    return;
+                }
+
+                const currentProject = trimmed.length > 0 ? trimmed : null;
 
                 // Altijd rapporteren (niet alleen bij change) zodat de server
                 // freshness timestamp wordt bijgewerkt (server eist <10s fresh)
@@ -523,7 +530,7 @@ async function reportActiveProject() {
                     });
 
                     if (currentProject && currentProject !== lastReportedProject) {
-                        log(`Actief project: ${parsed.projectName || currentProject}`);
+                        log(`Actief project: ${currentProject}`);
                         lastReportedProject = currentProject;
                     }
                 } catch (fetchError) {
