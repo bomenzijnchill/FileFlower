@@ -9,6 +9,28 @@
         <!-- Nieuwste versie bovenaan -->
 
         <item>
+            <title>Versie 2.3.0</title>
+            <sparkle:version>34</sparkle:version>
+            <sparkle:shortVersionString>2.3.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[
+                <h2>FileFlower 2.3.0</h2>
+                <ul>
+                    <li><strong>Download via link</strong> — Plak een videolink in het Downloads-tabblad, kies Beste (4K), 1080p of Audio (mp3), en het bestand gaat automatisch door de normale verwerking: herkenning, wachtrij en plaatsing in je project. yt-dlp en ffmpeg zitten meegebundeld</li>
+                    <li><strong>Ook voor Intel-Macs en macOS 14 (Sonoma)</strong> — FileFlower is nu een universal app en draait vanaf macOS 14.0</li>
+                    <li><strong>Premiere Pro 2026-koppeling hersteld</strong> — de plugin herkent het open project weer; ook importeren en project-openen vanuit de wachtrij werken weer (plugin 1.0.2)</li>
+                </ul>
+            ]]></description>
+            <pubDate>Thu, 01 Oct 2026 11:25:12 +0200</pubDate>
+            <enclosure
+                url="https://github.com/bomenzijnchill/FileFlower/releases/download/v2.3.0/FileFlower.dmg"
+                sparkle:edSignature="E5jbwnPk9howur2PxjxXg0Vjp1I7ib8EiVlKeYzxmvDX2zoBNcqda9Rm7lIWEOJ401igArbg5/l7zWkOG7ssBA=="
+                length="112462185"
+                type="application/octet-stream"
+            />
+        </item>
+
+        <item>
             <title>Versie 2.2.0</title>
             <sparkle:version>33</sparkle:version>
             <sparkle:shortVersionString>2.2.0</sparkle:shortVersionString>
