@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Geldt alléén voor de yt-dlp-helper, niet voor de app. yt-dlp is een
+         PyInstaller-binary die zijn ingebakken Python.framework (gesigneerd
+         door het yt-dlp-team, dus een ander Team ID) uitpakt en laadt;
+         zonder deze uitzondering weigert library validation dat.
+         Bewust toegevoegd met akkoord van Koen op 2 okt 2026. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>
