@@ -268,6 +268,9 @@ struct DownloadSyncContent: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            if LinkDownloader.toolsAvailable {
+                LinkDownloadPanel()
+            }
             if appState.queuedItems.isEmpty {
                 // Empty state - neemt beschikbare ruimte in zonder te groeien
                 EmptyDownloadSyncView()

@@ -97,6 +97,8 @@ xcodebuild \
     -scheme "$APP_NAME" \
     -configuration Release \
     -derivedDataPath "$BUILD_DIR" \
+    ARCHS="arm64 x86_64" \
+    ONLY_ACTIVE_ARCH=NO \
     CODE_SIGN_IDENTITY="Developer ID Application: Koen Dijkstra (JWD857B8TF)" \
     CODE_SIGN_STYLE=Manual \
     DEVELOPMENT_TEAM=JWD857B8TF \
@@ -118,6 +120,8 @@ xcodebuild \
     -scheme "FileFlower Safari" \
     -configuration Release \
     -derivedDataPath "$SAFARI_BUILD_DIR" \
+    ARCHS="arm64 x86_64" \
+    ONLY_ACTIVE_ARCH=NO \
     CODE_SIGN_IDENTITY="Developer ID Application: Koen Dijkstra (JWD857B8TF)" \
     CODE_SIGN_STYLE=Manual \
     DEVELOPMENT_TEAM=JWD857B8TF \
@@ -162,6 +166,26 @@ fi
 if [ -d "$SAFARI_APP_PATH" ]; then
     ditto "$SAFARI_APP_PATH" "$PLUGINS_DEST/FileFlower Safari.app"
     success "FileFlower Safari.app toegevoegd aan bundle"
+fi
+
+# Downloadtools als gesigneerde helpers (zie vendor/README.md voor herkomst
+# en checksums). ffmpeg draait onder volledige hardened runtime. yt-dlp is
+# een PyInstaller-binary en start alleen met een library-validation-
+# uitzondering; die bundelen we daarom uitsluitend als de beheerder bewust
+# scripts/ytdlp.entitlements heeft aangemaakt. Zonder dat bestand bouwt de
+# DMG door en meldt het linkdownload-paneel dat de tools ontbreken.
+HELPERS_DEST="$APP_PATH/Contents/Helpers"
+if [ -x "$PROJECT_ROOT/vendor/ffmpeg" ]; then
+    mkdir -p "$HELPERS_DEST"
+    cp "$PROJECT_ROOT/vendor/ffmpeg" "$HELPERS_DEST/ffmpeg"
+    success "ffmpeg toegevoegd aan bundle (Contents/Helpers)"
+fi
+if [ -x "$PROJECT_ROOT/vendor/yt-dlp" ] && [ -f "$PROJECT_ROOT/scripts/ytdlp.entitlements" ]; then
+    mkdir -p "$HELPERS_DEST"
+    cp "$PROJECT_ROOT/vendor/yt-dlp" "$HELPERS_DEST/yt-dlp"
+    success "yt-dlp toegevoegd aan bundle (Contents/Helpers)"
+elif [ -x "$PROJECT_ROOT/vendor/yt-dlp" ]; then
+    warning "scripts/ytdlp.entitlements ontbreekt — yt-dlp wordt NIET gebundeld"
 fi
 
 # Re-sign de app na het toevoegen van plugins
@@ -249,6 +273,31 @@ if [ -d "$SAFARI_BUNDLED" ]; then
     codesign --verify --deep --strict "$SAFARI_BUNDLED" 2>&1 \
         || error_exit "Safari extensie signing verificatie gefaald"
     success "  Safari extensie signing geverifieerd"
+fi
+
+# Stap 5b: Sign de meegebundelde downloadtools (vóór de hoofd-app).
+if [ -f "$APP_PATH/Contents/Helpers/ffmpeg" ]; then
+    info "Signen van ffmpeg helper..."
+    codesign --force --sign "$SIGNING_IDENTITY" \
+        --timestamp --options runtime \
+        --identifier "com.fileflower.helper.ffmpeg" \
+        "$APP_PATH/Contents/Helpers/ffmpeg" \
+        || error_exit "Code signing gefaald voor ffmpeg helper"
+    success "  ffmpeg gesigned (volledige hardened runtime)"
+fi
+if [ -f "$APP_PATH/Contents/Helpers/yt-dlp" ]; then
+    info "Signen van yt-dlp helper..."
+    codesign --force --sign "$SIGNING_IDENTITY" \
+        --timestamp --options runtime \
+        --entitlements "$PROJECT_ROOT/scripts/ytdlp.entitlements" \
+        --identifier "com.fileflower.helper.yt-dlp" \
+        "$APP_PATH/Contents/Helpers/yt-dlp" \
+        || error_exit "Code signing gefaald voor yt-dlp helper"
+    HELPER_VERSION=$("$APP_PATH/Contents/Helpers/yt-dlp" --version 2>/dev/null || true)
+    if [ -z "$HELPER_VERSION" ]; then
+        error_exit "Gesigneerde yt-dlp start niet — controleer scripts/ytdlp.entitlements"
+    fi
+    success "  yt-dlp gesigned ($HELPER_VERSION)"
 fi
 
 # Stap 6: Sign de Finder Sync Extension (met eigen entitlements, zonder get-task-allow)
