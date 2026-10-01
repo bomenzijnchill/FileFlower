@@ -383,6 +383,28 @@ function ensureBinAndImportFiles(pathString, files) {
                         }
                     }
 
+                    // Zet het (laatst) geïmporteerde bestand klaar in de
+                    // Source Monitor, zodat je het meteen kunt pakken in
+                    // plaats van zoeken in het projectpaneel.
+                    try {
+                        if (imported.length > 0 && app.sourceMonitor) {
+                            var wanted = {};
+                            for (var w = 0; w < imported.length; w++) { wanted[imported[w]] = true; }
+                            var openItem = null;
+                            for (var c = 0; c < targetBin.children.numItems; c++) {
+                                var cand = targetBin.children[c];
+                                if (cand && cand.getMediaPath && wanted[cand.getMediaPath()]) {
+                                    openItem = cand; // laatste match wint
+                                }
+                            }
+                            if (openItem) {
+                                app.sourceMonitor.openProjectItem(openItem);
+                            }
+                        }
+                    } catch (revealError) {
+                        // Puur gemak; mag de import nooit laten falen.
+                    }
+
                     return JSON.stringify({
                         success: failed.length === 0,
                         importedFiles: imported,

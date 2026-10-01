@@ -419,6 +419,18 @@ class DirectClassifier {
             }
         }
         
+        // 3.5 Epidemic Sound-naamgeving: muziek heet er "Titel - Artiest",
+        //     alléén geluidseffecten eindigen op het platformsuffix zelf
+        //     ("… - Epidemic Sound"). De komma-omschrijving ("Mechanical,
+        //     Click, Metal, …") maakt het extra zeker.
+        if lower.contains("- epidemic sound") {
+            let zekerheid: DirectClassificationConfidence = lower.contains(",") ? .high : .medium
+            return DirectClassificationResult(
+                assetType: .sfx, confidence: zekerheid,
+                reason: "Epidemic Sound-platformsuffix zonder artiest = geluidseffect"
+            )
+        }
+
         // 4. SFX check - specifieke SFX indicators (alleen als geen music keywords)
         // Artiest-patroon "Titel - Artiest" is het sterkste MUZIEK-signaal.
         // Dat mag niet worden uitgeschakeld door een zwak SFX-woord: anders wordt
@@ -512,8 +524,10 @@ class HeuristicClassificationStrategy: ClassificationStrategy {
         // Check origin URL for hints (highest priority)
         if let origin = originUrl?.lowercased() {
             if origin.contains("epidemicsound") || origin.contains("artlist") || origin.contains("audiojungle") {
-                // Likely music
-                if filename.contains("sfx") || filename.contains("sound-effect") {
+                // Deze platforms leveren muziek ÉN geluidseffecten. Bij Epidemic
+                // eindigen alleen geluidseffecten op het platformsuffix
+                // ("… - Epidemic Sound"); muziek heet er "Titel - Artiest".
+                if filename.contains("- epidemic sound") || filename.contains("sfx") || filename.contains("sound-effect") {
                     return .sfx
                 }
                 if filename.contains("vo") || filename.contains("voice") || filename.contains("narration") {
@@ -567,7 +581,13 @@ class HeuristicClassificationStrategy: ClassificationStrategy {
         let musicKeywords = ["music", "track", "song", "beat", "melody", "score", "soundtrack", "theme"]
         
         let lowerFilename = filename.lowercased()
-        
+
+        // Epidemic Sound: alleen geluidseffecten eindigen op het platform-
+        // suffix ("… - Epidemic Sound"); muziek heet er "Titel - Artiest".
+        if lowerFilename.contains("- epidemic sound") {
+            return .sfx
+        }
+
         // Check for SFX keywords
         for keyword in sfxKeywords {
             if lowerFilename.contains(keyword) {
